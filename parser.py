@@ -22,6 +22,26 @@ TYPE_PATTERN = re.compile(
 )
 
 
+def get_photo(message):
+    """
+    Robustly extract a photo from a Telethon message.
+    Handles: regular photo, document thumbnail, album (grouped_id).
+    Returns a Telethon photo/document object or None.
+    """
+    # Direct photo message
+    if getattr(message, "photo", None):
+        return message.photo
+
+    # Photo inside a document (sent as file but has thumbnail)
+    doc = getattr(message, "document", None)
+    if doc:
+        thumbs = getattr(doc, "thumbs", None)
+        if thumbs:
+            return doc  # We'll use the document itself; scanner_client will download the thumbnail
+
+    return None
+
+
 def get_text(message):
     """
     Safely get text from Telethon message

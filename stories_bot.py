@@ -84,7 +84,7 @@ from database import (
 from format_learner import learn_format, build_preview, build_test_result, extract_with_template
 from external_check import verify_story_external
 from post_builder import post_builder_handler
-from scheduler import get_scheduler_handler, schedule_loop_task
+from scheduler import get_scheduler_handler, schedule_loop_task, sched_view, get_sched_callback_handler
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -579,9 +579,9 @@ def init_search_index():
 
 
 async def auto_scan_loop(bot=None):
-    """Periodically rescan channel and refresh search index (runs in background)."""
+    """Periodically rescan ALL configured channels and refresh search index."""
     global story_index, last_scan_count, IS_SCANNING
-    if not CHANNEL_ID or (str(AUTO_SCAN).lower() != "true"):
+    if str(AUTO_SCAN).lower() != "true":
         return
     if not (SESSION_STRING and API_ID and API_HASH):
         logger.warning("Auto-scan skipped: SESSION_STRING, API_ID, API_HASH required for Telethon")
@@ -593,18 +593,34 @@ async def auto_scan_loop(bot=None):
                 await asyncio.sleep(600)  # wait 10 min before first run
                 first_run = False
             else:
-                await asyncio.sleep(14400)  # Wait 4 hours (6x per 24h)
-            
+                await asyncio.sleep(14400)  # Wait 4 hours
+
             if IS_SCANNING:
-                continue # Skip if already scanning via command
-                
+                continue  # Skip if already scanning via command
+
+            # Build source list: primary + all extras from config
+            sources = []
+            if CHANNEL_ID:
+                sources.append(CHANNEL_ID)
+            for cid in bot_config.get("sources", []):
+                try:
+                    c_int = int(cid)
+                    if c_int and c_int not in sources:
+                        sources.append(c_int)
+                except (ValueError, TypeError):
+                    if isinstance(cid, str) and cid.strip() and cid not in sources:
+                        sources.append(cid.strip())
+
+            if not sources:
+                logger.warning("Auto-scan: no source channels configured, skipping.")
+                continue
+
             IS_SCANNING = True
-            logger.info("Auto scan started...")
-            
+            logger.info("Auto scan started for %d channel(s)...", len(sources))
+
             scan_start_ts = time.time()
             expected_total = last_scan_count or 0
-            
-            # Reset global progress for auto-scan
+
             SCAN_PROGRESS.update({
                 "stories_found": 0,
                 "total_messages": 0,
@@ -614,34 +630,61 @@ async def auto_scan_loop(bot=None):
                 "last_story": ""
             })
 
-            async def _auto_progress_cb(p):
-                now = time.time()
-                last_found = int(p.get("stories_found") or 0)
-                elapsed = max(now - scan_start_ts, 1)
-                rate = last_found / elapsed
-                remaining = max(expected_total - last_found, 0) if expected_total else 0
-                eta_s = int(remaining / rate) if (expected_total and rate > 0) else 0
-                
-                SCAN_PROGRESS["stories_found"] = last_found
-                SCAN_PROGRESS["total_messages"] = p.get("total_messages", 0)
-                SCAN_PROGRESS["eta_s"] = eta_s
-                SCAN_PROGRESS["last_story"] = (p.get("last_story") or "").strip()
+            all_names = []
+            all_keys = set()
+            formats_by_channel = bot_config.get("formats", {})
 
-            result = await scan_channel(
-                CHANNEL_ID, 
-                bot=bot, 
-                log_channel=LOG_CHANNEL,
-                progress_cb=_auto_progress_cb
-            )
-            names = result.get("names", [])
-            # Only update indexes if we got a successful result - never wipe on failure
-            if names:
-                story_index = names
+            for cid in sources:
+                try:
+                    async def _auto_progress_cb(p):
+                        now = time.time()
+                        last_found = int(p.get("stories_found") or 0)
+                        elapsed = max(now - scan_start_ts, 1)
+                        rate = last_found / elapsed
+                        remaining = max(expected_total - last_found, 0) if expected_total else 0
+                        eta_s = int(remaining / rate) if (expected_total and rate > 0) else 0
+                        SCAN_PROGRESS["stories_found"] = last_found
+                        SCAN_PROGRESS["total_messages"] = p.get("total_messages", 0)
+                        SCAN_PROGRESS["eta_s"] = eta_s
+                        SCAN_PROGRESS["last_story"] = (p.get("last_story") or "").strip()
+
+                    result = await scan_channel(
+                        cid,
+                        bot=bot,
+                        log_channel=LOG_CHANNEL,
+                        progress_cb=_auto_progress_cb,
+                        cleanup=False,
+                        formats_by_channel=formats_by_channel,
+                    )
+                    all_names.extend(result.get("names", []))
+                    all_keys.update(result.get("keys", []))
+                    logger.info("Auto-scan channel %s: found %d stories", cid, result.get("stories", 0))
+                except Exception as ce:
+                    logger.error("Auto-scan failed for channel %s: %s", cid, ce)
+
+            # Only update if we got results
+            if all_names:
+                seen = set()
+                uniq = []
+                for n in all_names:
+                    if n not in seen:
+                        seen.add(n)
+                        uniq.append(n)
+                story_index = uniq
                 build_search_index(story_index)
                 save_story_index(story_index)
                 last_scan_count = len(story_index)
-                logger.info("Auto scan done | stories=%d", last_scan_count)
-                if bot: pass  # auto scan removed
+                logger.info("Auto scan done | stories=%d channels=%d", last_scan_count, len(sources))
+
+                # Auto-clear link flags for stories that are back in DB with valid links
+                db = load_db()
+                changed = False
+                for key, flag in list(link_flags.items()):
+                    if flag.get("broken") and key in db and db[key].get("link"):
+                        link_flags.pop(key, None)
+                        changed = True
+                if changed:
+                    save_link_flags(link_flags)
             else:
                 logger.warning("Auto scan returned no stories, keeping existing index")
         except Exception as e:
@@ -667,38 +710,43 @@ async def _is_link_alive(url: str) -> bool:
 
 
 async def link_check_loop(bot=None):
-    """Background loop that periodically verifies stored links and clears/restores flags."""
+    """
+    Background loop that periodically restores link flags
+    when broken links start working again.
+
+    NOTE: We intentionally do NOT auto-mark links as broken via HTTP here.
+    Telegram private/invite links return non-200 even when perfectly valid,
+    so HTTP-based detection produces false positives.
+    Broken flags are ONLY set by community votes (lnwv_broken) or admin action.
+    This loop only CLEARS flags when the link is confirmed working again.
+    """
     while True:
         try:
-            await asyncio.sleep(3600)
+            await asyncio.sleep(3600)  # run once per hour
             db = load_db()
             if not db:
                 continue
             changed = False
-            for key, story in list(db.items()):
-                link = story.get("link")
+            for key, lf in list(link_flags.items()):
+                if not lf.get("broken"):
+                    # Not flagged as broken — nothing to do
+                    continue
+                story = db.get(key)
+                if not story:
+                    # Story no longer exists in DB — clear the stale flag
+                    link_flags.pop(key, None)
+                    changed = True
+                    continue
+                link = story.get("link") or lf.get("link", "")
                 if not link:
                     continue
+                # Only try to verify the link is alive
                 alive = await _is_link_alive(link)
-                lf = link_flags.get(key) or {}
-                was_broken = lf.get("broken", False)
-                # mark newly broken
-                if not alive and not was_broken:
-                    lf.update(
-                        {
-                            "broken": True,
-                            "link": link,
-                            "voters": lf.get("voters") or [],
-                            "chats": lf.get("chats") or [],
-                        }
-                    )
-                    link_flags[key] = lf
-                    changed = True
-                # restore if link is back
-                elif alive and was_broken:
+                if alive:
+                    # Link is back — notify and clear flag
                     voters = lf.get("voters") or []
-                    chats = lf.get("chats") or []
-                    title = clean_story(story.get("text", key))
+                    chats  = lf.get("chats") or []
+                    title  = clean_story(story.get("text", key))
                     for chat_id in chats:
                         lang = get_chat_lang(chat_id)
                         mentions = " ".join(
@@ -719,21 +767,20 @@ async def link_check_loop(bot=None):
                                 f"<b>Link:</b> {link}"
                             )
                         try:
-                            sent = await bot.send_message(chat_id=chat_id, text=text, parse_mode="HTML")
+                            if bot:
+                                sent = await bot.send_message(chat_id=chat_id, text=text, parse_mode="HTML")
+                                if sent:
+                                    async def _del_later(m):
+                                        await asyncio.sleep(86400)
+                                        try:
+                                            await m.delete()
+                                        except Exception:
+                                            pass
+                                    asyncio.create_task(_del_later(sent))
                         except Exception:
-                            sent = None
-                        if sent:
-                            async def _del_later(m):
-                                await asyncio.sleep(86400)
-                                try:
-                                    await m.delete()
-                                except Exception:
-                                    pass
-                            asyncio.create_task(_del_later(sent))
-                    # clear flag
+                            pass
                     link_flags.pop(key, None)
                     changed = True
-
             if changed:
                 save_link_flags(link_flags)
         except Exception as e:
@@ -1089,7 +1136,10 @@ Riya v10
 Riya v10
 """
 
-    keyboard = [[InlineKeyboardButton("➦ Back to Menu", callback_data="cmd|start")]]
+    keyboard = [
+        [InlineKeyboardButton("📖 How to use the bot", url="https://t.me/StoriesLinkopningguide")],
+        [InlineKeyboardButton("➦ Back to Menu", callback_data="cmd|start")],
+    ]
     reply = await update.message.reply_text(text=text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
 
     async def _delete_cmd():
@@ -1125,7 +1175,10 @@ async def how(update: Update, context: ContextTypes.DEFAULT_TYPE):
 When the story gets uploaded, you will be notified automatically.
 """
 
-    keyboard = [[InlineKeyboardButton("➦ Back to Menu", callback_data="cmd|start")]]
+    keyboard = [
+        [InlineKeyboardButton("📖 How to use the bot", url="https://t.me/StoriesLinkopningguide")],
+        [InlineKeyboardButton("➦ Back to Menu", callback_data="cmd|start")],
+    ]
     msg = await update.message.reply_text(text=text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
 
     async def _delete_later():
@@ -1170,7 +1223,8 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     keyboard = [
         [
-            InlineKeyboardButton("🌐 Language", callback_data="cmd|lang_menu")
+            InlineKeyboardButton("🌐 Language", callback_data="cmd|lang_menu"),
+            InlineKeyboardButton("📖 How to use", url="https://t.me/StoriesLinkopningguide"),
         ],
         [InlineKeyboardButton("🔙 Back to Menu", callback_data="cmd|start")]
     ]
@@ -1224,6 +1278,68 @@ async def info_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = f"""<b>📖 {name}</b>{type_line}{desc_line}
 
 <b>➜ Link:</b> {link}"""
+    await update.message.reply_text(text, parse_mode="HTML")
+
+
+
+async def clearflags_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin command: instantly clear ALL broken link flags. Use when links are incorrectly flagged."""
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("⛔ Admin only.")
+        return
+
+    db = load_db()
+    cleared = []
+    for key in list(link_flags.keys()):
+        if link_flags[key].get("broken"):
+            cleared.append(key)
+            link_flags.pop(key, None)
+
+    # Also clear any non-broken stale flags for stories not in DB
+    stale = []
+    for key in list(link_flags.keys()):
+        if key not in db:
+            stale.append(key)
+            link_flags.pop(key, None)
+
+    save_link_flags(link_flags)
+
+    text = (
+        f"<b>✅ Link Flags Cleared</b>\n\n"
+        f"▪ Broken flags cleared: <code>{len(cleared)}</code>\n"
+        f"▪ Stale flags removed: <code>{len(stale)}</code>\n\n"
+        f"<i>Stories will now show their links normally.</i>"
+    )
+    if cleared:
+        text += "\n\n<b>Cleared flags for:</b>\n" + "\n".join(f"• {html.escape(k)}" for k in cleared[:20])
+        if len(cleared) > 20:
+            text += f"\n…and {len(cleared) - 20} more"
+
+    await update.message.reply_text(text, parse_mode="HTML")
+    await log(context, f"CLEARFLAGS | admin={update.effective_user.id} | cleared={len(cleared)} stale={len(stale)}")
+
+
+async def debugflags_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin command: show all current broken link flags for inspection."""
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("⛔ Admin only.")
+        return
+
+    if not link_flags:
+        await update.message.reply_text("<b>✅ No link flags set.</b>", parse_mode="HTML")
+        return
+
+    lines = []
+    for key, flag in list(link_flags.items()):
+        broken = "🔴 broken" if flag.get("broken") else "⚪ non-broken"
+        voters = len(flag.get("voters", []))
+        link = flag.get("link", "no link stored")[:60]
+        lines.append(f"• <code>{html.escape(key)}</code> {broken} | voters={voters}\n  {html.escape(link)}")
+
+    text = f"<b>🔍 Link Flags ({len(link_flags)} total)</b>\n\n" + "\n\n".join(lines[:25])
+    if len(link_flags) > 25:
+        text += f"\n\n…and {len(link_flags) - 25} more"
+
     await update.message.reply_text(text, parse_mode="HTML")
 
 
@@ -1550,39 +1666,44 @@ async def scan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db = load_db()
         changed = False
         for key, flag in list(link_flags.items()):
-            if key in db:
-                new_link = db[key].get("link", "")
-                if flag.get("link") and new_link and new_link != flag["link"]:
-                    # Notify users who reported/voted for this link
-                    voters = flag.get("voters", [])
-                    chats = flag.get("chats", [])
-                    story_name = db[key].get("text", flag.get("story_name", "N/A"))
-                    
-                    # Create user mentions in Markdown
-                    voter_mentions = " ".join([f"[{v.get('name', str(v.get('id')))}](tg://user?id={v.get('id')})" for v in voters])
-                    if voter_mentions:
-                        voter_mentions = f"{voter_mentions}\n\n"
-                        
-                    notification_text = (
-                        f"✦ **Link Fixed**\n\n"
-                        f"{voter_mentions}"
-                        f"📖 Story: {story_name}\n"
-                        f"🔗 Link: {new_link}\n"
-                        f"⏰ Fixed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-                        f"The link is now working again!"
-                    )
-                    
-                    # Send notifications to chats where the vote occurred
-                    for chat_id in chats:
-                        try:
-                            # Context applies html naturally but telethon markdown was used here historically.
-                            # Send message with Markdown parsing since tg://user format requires HTML or Markdown.
-                            await context.bot.send_message(chat_id=chat_id, text=notification_text, parse_mode="Markdown")
-                        except Exception as e:
-                            logger.warning(f"Failed to send fix notification: {e}")
-                            
-                    link_flags.pop(key, None)
-                    changed = True
+            if not flag.get("broken"):
+                continue  # flag not set as broken — nothing to clear
+            story = db.get(key)
+            if not story:
+                # Story was removed from DB entirely — drop stale flag
+                link_flags.pop(key, None)
+                changed = True
+                continue
+            new_link = story.get("link", "")
+            if new_link:
+                # Story exists in DB with a valid link → the post is live → clear flag
+                voters = flag.get("voters", [])
+                chats  = flag.get("chats", [])
+                story_name = story.get("text", flag.get("story_name", key))
+
+                voter_mentions = " ".join(
+                    [f'<a href="tg://user?id={v.get("id")}">{html.escape(v.get("name", str(v.get("id"))))}</a>' for v in voters]
+                )
+                if voter_mentions:
+                    voter_mentions = f"{voter_mentions}\n\n"
+
+                notification_text = (
+                    f"✦ <b>Link Fixed / Updated</b>\n\n"
+                    f"{voter_mentions}"
+                    f"📖 <b>Story:</b> {html.escape(story_name)}\n"
+                    f"🔗 <b>Link:</b> {html.escape(new_link)}\n\n"
+                    f"<i>The link is now working. 🎉</i>"
+                )
+
+                for chat_id in chats:
+                    try:
+                        await context.bot.send_message(chat_id=chat_id, text=notification_text, parse_mode="HTML")
+                    except Exception as e:
+                        logger.warning(f"Failed to send fix notification: {e}")
+
+                link_flags.pop(key, None)
+                changed = True
+
         if changed:
             save_link_flags(link_flags)
 
@@ -1763,25 +1884,26 @@ async def request_story(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         chat = update.effective_chat
         lang = get_chat_lang(chat.id)
+        tutorial_kb = InlineKeyboardMarkup([[InlineKeyboardButton("📖 How to use the bot", url="https://t.me/StoriesLinkopningguide")]])
 
         if lang == "hi":
-            warn_text = """
-<b>✮ कृपया स्टोरी/सीरीज़ का नाम लिखें</b>
-
-<i>➔ उदाहरण:</i>
-▪ /request Vashikaran
-▪ /request Saaya
-"""
+            warn_text = (
+                "<b>✮ कृपया स्टोरी/सीरीज़ का नाम और प्लेटफ़ॉर्म लिखें</b>\n\n"
+                "<i>➔ उदाहरण:</i>\n"
+                "▪ <code>/request Vashikaran</code>\n"
+                "▪ <code>/request Saaya Mastar/Pratilipi</code>\n\n"
+                "<i>➔ फॉर्मेट: /request &lt;स्टोरी नाम&gt; [प्लेटफ़ॉर्म]</i>"
+            )
         else:
-            warn_text = """
-<b>✮ Please provide the name of the Story/Series</b>
+            warn_text = (
+                "<b>✮ Please provide the Story name and Platform</b>\n\n"
+                "<i>➔ Examples:</i>\n"
+                "▪ <code>/request Vashikaran</code>\n"
+                "▪ <code>/request Saaya Mastar/Pratilipi</code>\n\n"
+                "<i>➔ Format: /request &lt;Story Name&gt; [Platform]</i>"
+            )
 
-<i>➔ Examples:</i>
-▪ /request Vashikaran
-▪ /request Saaya
-"""
-
-        warn_msg = await update.effective_chat.send_message(warn_text)
+        warn_msg = await update.effective_chat.send_message(warn_text, parse_mode="HTML", reply_markup=tutorial_kb)
 
         async def _delete_warn():
             await asyncio.sleep(30)
@@ -1793,14 +1915,39 @@ async def request_story(update: Update, context: ContextTypes.DEFAULT_TYPE):
         asyncio.create_task(_delete_warn())
         return
 
-    story_raw = " ".join(context.args).strip()
+    # Parse story name and optional platform from args
+    # Format: /request <story name> [platform] — platform is last word if it looks like a platform name
+    raw_args = " ".join(context.args).strip()
+    story_raw = raw_args
+    platform_name = ""
+    # Detect platform: check if last word(s) match known platform names or slash-separated names
+    _platform_keywords = ["mastar", "pratilipi", "wattpad", "shabd", "novelcat", "inkitt", "webnovel", "funlipi", "storymirror", "kavyanjali"]
+    _parts = raw_args.rsplit(None, 1)
+    if len(_parts) == 2 and any(kw in _parts[1].lower() for kw in _platform_keywords + ["/"]):
+        story_raw = _parts[0].strip()
+        platform_name = _parts[1].strip()
+    # Also handle slash-separated: "Name Platform/Platform2" — check whole last token
+    if not platform_name and "/" in raw_args:
+        _slash_parts = raw_args.split("/", 1)
+        if len(_slash_parts) == 2 and len(_slash_parts[0].split()) >= 1:
+            # The part before slash is story, after is platform
+            # Only treat as platform if it looks like one word (no spaces)
+            after = _slash_parts[1].strip()
+            if after and " " not in after:
+                story_raw = _slash_parts[0].strip()
+                platform_name = f"{_slash_parts[0].strip().split()[-1]}/{after}" if False else raw_args.rsplit(None, 1)[0] if False else raw_args
+                # Reset — keep full name as story_raw, no platform split by slash in story name
+                story_raw = raw_args
+                platform_name = ""
+
     if not story_raw or len(story_raw) < 2:
         lang = get_chat_lang(update.effective_chat.id)
+        tutorial_kb = InlineKeyboardMarkup([[InlineKeyboardButton("📖 How to use the bot", url="https://t.me/StoriesLinkopningguide")]])
         if lang == "hi":
-            warn_text = "<b>✮ कृपया स्टोरी का सही नाम लिखें</b>\n\n<i>➔ उदाहरण:</i>\n▪ /request Vashikaran\n▪ /request Saaya"
+            warn_text = "<b>✮ कृपया स्टोरी का सही नाम लिखें</b>\n\n<i>➔ उदाहरण:</i>\n▪ /request Vashikaran\n▪ /request Saaya Mastar"
         else:
-            warn_text = "<b>✮ Please enter a valid story name</b>\n\n<i>➔ Examples:</i>\n▪ /request Vashikaran\n▪ /request Saaya"
-        warn_msg = await update.effective_chat.send_message(warn_text, parse_mode="HTML")
+            warn_text = "<b>✮ Please enter a valid story name</b>\n\n<i>➔ Examples:</i>\n▪ /request Vashikaran\n▪ /request Saaya Mastar"
+        warn_msg = await update.effective_chat.send_message(warn_text, parse_mode="HTML", reply_markup=tutorial_kb)
         async def _del_warn():
             await asyncio.sleep(30)
             try: await warn_msg.delete()
@@ -1923,6 +2070,7 @@ Please avoid sending duplicate requests.</i>
     count = sum(len(uids) for uids in request_db[story].values())
 
     username = f"@{user.username}" if user.username else "No username"
+    full_name = html.escape(user.full_name or user.first_name or str(user.id))
 
     # Format story key safely for callback
     safe_story = story[:40] # Prevent callback data from exceeding 64 bytes
@@ -1933,17 +2081,17 @@ Please avoid sending duplicate requests.</i>
         ]
     ])
 
+    platform_line = f"\n▪ Platform: {platform_name}" if platform_name else ""
     sent_req = await context.bot.send_message(
         chat_id=REQUEST_GROUP,
-        text=f"""
-✶ Story Request
-
-▪ Name: {story}
-▪ User ID: {user.id}
-▪ Username: {username}
-
-▪ Total Requests: {count}
-"""
+        text=(
+            f"✶ <b>Story Request</b>\n\n"
+            f"▪ <b>Name:</b> {html.escape(story)}\n"
+            f"▪ <b>User:</b> <a href='tg://user?id={user.id}'>{full_name}</a> ({username})"
+            f"{platform_line}\n"
+            f"▪ <b>Total Requests:</b> {count}"
+        ),
+        parse_mode="HTML"
     )
     
     # Store the message ID so we can aggressively delete it later if REJECT is pressed
@@ -2195,18 +2343,37 @@ async def _declare_poll_winner(context, poll_id, winner_idx):
     except Exception:
         pass
 
-    # Announce winner
-    win_text = f"🎊 <b>Community Voting Result</b>\n\nApproved Story: <b>{winner_name}</b>\n\nThis story has been approved by community voting and will be uploaded soon! 🚀"
+    # Announce winner — bilingual collapsible blockquote
+    win_text = (
+        f"🎊 <b>Community Voting Result / कम्युनिटी वोटिंग रिजल्ट</b>\n\n"
+        f"<b>𝐒𝐭𝐨𝐫𝐲 𝐀𝐩𝐩𝐫𝐨𝐯𝐞𝐝 ✅</b>\n"
+        f"<b>अप्रूव्ड स्टोरी:</b> <i>{html.escape(winner_name)}</i>\n\n"
+        f"<blockquote expandable>"
+        f"🇬🇧 <b>English:</b>\n"
+        f"This story has been approved by community voting and will be prioritized for upload. "
+        f"Please note: community voting does not guarantee 100% availability — it only means the story will be searched for first. "
+        f"If found, it will be uploaded soon. Please wait patiently. 🙏\n\n"
+        f"🇮🇳 <b>हिन्दी:</b>\n"
+        f"यह स्टोरी कम्युनिटी वोटिंग द्वारा अप्रूव की गई है और इसे अपलोड के लिए प्राथमिकता दी जाएगी। "
+        f"ध्यान दें: कम्युनिटी वोटिंग 100% उपलब्धता की गारंटी नहीं देती — इसका मतलब सिर्फ यह है कि इस स्टोरी को पहले खोजा जाएगा। "
+        f"अगर मिली, तो जल्द अपलोड कर दी जाएगी। कृपया धैर्य रखें। 🙏"
+        f"</blockquote>"
+    )
     await context.bot.send_message(chat_id=chat_id, text=win_text, parse_mode="HTML")
-    
+
     # Notify request channel
     if REQUEST_GROUP:
         await context.bot.send_message(
             chat_id=REQUEST_GROUP,
-            text=f"✅ Story Approved via Voting: {winner_name}\nPoll ID: {poll_id}"
+            text=(
+                f"✅ <b>Story Approved via Community Voting</b>\n\n"
+                f"📖 <b>Story:</b> {html.escape(winner_name)}\n"
+                f"🗳 <b>Poll ID:</b> {poll_id}"
+            ),
+            parse_mode="HTML"
         )
 
-    # Notify requesters
+    # Notify requesters with Riya-styled message using full clickable name
     requesters = poll_data.get("requesters", {}).get(winner_name, {})
     for rid_chat, uids in requesters.items():
         for uid in uids:
@@ -2214,7 +2381,13 @@ async def _declare_poll_winner(context, poll_id, winner_idx):
                 mention = _user_mention_by_id(uid, fallback="User")
                 await context.bot.send_message(
                     chat_id=int(rid_chat),
-                    text=f"👋 {mention}, your requested story <b>{winner_name}</b> has been approved via community voting! It will be uploaded soon.",
+                    text=(
+                        f"👋 {mention}, your requested story <b>𝘭𝘰𝘷𝘦 𝘳𝘦𝘷𝘦𝘯𝘨𝘦</b>... "
+                        f"actually: <b>{html.escape(winner_name)}</b> has been approved via community voting! "
+                        f"It will be uploaded soon. 🌸\n\n"
+                        f"<i>👋 {mention}, आपकी रिक्वेस्ट की हुई स्टोरी <b>{html.escape(winner_name)}</b> "
+                        f"कम्युनिटी वोटिंग द्वारा अप्रूव हो गई है! जल्द ही अपलोड होगी। 🌸</i>"
+                    ),
                     parse_mode="HTML"
                 )
             except Exception:
@@ -2466,16 +2639,36 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if len(f"srch|{key}") <= 64:
                     keyboard.append([InlineKeyboardButton(s, callback_data=f"srch|{key}")])
             lang = get_chat_lang(update.effective_chat.id)
+            keyboard.append([InlineKeyboardButton("📖 How to use the bot", url="https://t.me/StoriesLinkopningguide")])
             no_msg = await msg.reply_text(
                 "✧ Did you mean one of these?" if lang != "hi" else "✧ क्या आप इनमें से कोई स्टोरी कहना चाहते थे?",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
         else:
             lang = get_chat_lang(update.effective_chat.id)
+            tutorial_kb = InlineKeyboardMarkup([
+                [[InlineKeyboardButton("📬 Request Story", switch_inline_query_current_chat=f"/request {query_text}")]],
+                [InlineKeyboardButton("📖 How to use the bot", url="https://t.me/StoriesLinkopningguide")]
+            ])
+            if lang == "hi":
+                not_found_text = (
+                    f"<b>☆ यह स्टोरी नहीं मिली</b>\n\n"
+                    f"<i>{html.escape(query_text)}</i> हमारे डेटाबेस में अभी उपलब्ध नहीं है।\n\n"
+                    "✧ स्पेलिंग चेक करें या /stories से उपलब्ध टाइटल देखें।\n"
+                    "✧ <b>/request</b> का उपयोग करके इसे रिक्वेस्ट कर सकते हैं।"
+                )
+            else:
+                not_found_text = (
+                    f"<b>☆ Story Not Found</b>\n\n"
+                    f"<i>{html.escape(query_text)}</i> is not in our database yet.\n\n"
+                    "✧ Check spelling or use /stories to browse available titles.\n"
+                    "✧ You can also use <b>/request</b> to request this story for upload."
+                )
             no_msg = await msg.reply_text(
-                ("☆ No story found with that name.\n\nCheck spelling or use /stories to see available titles."
-                 if lang != "hi"
-                 else "☆ इस नाम की कोई स्टोरी नहीं मिली।\n\nस्पेलिंग चेक करें या उपलब्ध टाइटल देखने के लिए /stories उपयोग करें।")
+                not_found_text, parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("📖 How to use the bot", url="https://t.me/StoriesLinkopningguide")]
+                ])
             )
         async def _del_no():
             await asyncio.sleep(30)
@@ -2521,9 +2714,9 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not story_type:
         story_type = "Not specified"
 
-    # Background checking interception:
-    lf = load_link_flags()
-    is_broken = lf.get(story_key, {}).get("broken", False)
+    # Check broken-link flag using in-memory dict (already synced by scan/cleardata)
+    # Do NOT re-read from file here — link_flags is the authoritative in-memory source
+    is_broken = link_flags.get(story_key, {}).get("broken", False)
 
     if is_broken:
         lang = get_chat_lang(update.effective_chat.id)
@@ -4344,6 +4537,19 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
         await _edit_cfg(query, text, markup, loading=True)
         return
 
+    # ── Scheduler ─────────────────────────────────────────────────────────────
+    if section == "scheduler":
+        from scheduler import _cfg_scheduler_panel
+        text, markup = _cfg_scheduler_panel(caller_id)
+        await _edit_cfg(query, text, markup)
+        await query.answer()
+        return
+
+    if section == "sched_new":
+        # Redirect admin to /schedule command
+        await query.answer("Use /schedule to add a new scheduled task.", show_alert=True)
+        return
+
     # ── Learned Format System ─────────────────────────────────────────────────
     if section == "formats":
         text, markup = _cfg_formats_panel(caller_id, lang)
@@ -5070,51 +5276,103 @@ async def storylist_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.error(f"Failed to send list: {e}")
 
-check_cooldowns = {}
+check_cooldowns = {}  # user_id -> [timestamps]
+_check_no_input_counts = {}  # user_id -> count of /check without args
 
 async def check_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat = update.effective_chat
-    
+    cmd_msg = update.message
+
     if await _enforce_cooldown(update, context):
         return
-        
+
+    # Auto-delete the /check command message immediately
+    async def _del_cmd():
+        await asyncio.sleep(5)
+        try:
+            await cmd_msg.delete()
+        except Exception:
+            pass
+    asyncio.create_task(_del_cmd())
+
     if not is_admin(user.id):
         now = time.time()
         user_history = check_cooldowns.get(user.id, [])
         user_history = [ts for ts in user_history if now - ts < 60]
         if len(user_history) >= 5:
-            await update.message.reply_text("⛔ You have reached the limit of 5 checks per minute. Please wait.")
+            _set_cooldown(user.id, 30, "Excessive /check usage")
+            await cmd_msg.reply_text(
+                "⛔ <b>Cooldown Applied</b>\n\n"
+                "You have used /check too many times without providing a story name.\n"
+                "Please wait 30 minutes before trying again.",
+                parse_mode="HTML"
+            )
             return
         user_history.append(now)
         check_cooldowns[user.id] = user_history
-        
+
     query = ""
     if context.args:
         query = " ".join(context.args)
+        # Reset no-input counter on valid usage
+        _check_no_input_counts.pop(user.id, None)
     elif update.message.reply_to_message and update.message.reply_to_message.text:
         lines = update.message.reply_to_message.text.split('\n')
         if lines:
             query = lines[0].strip()
-            
+        _check_no_input_counts.pop(user.id, None)
+
     if not query:
+        # Track no-input runs
+        if not is_admin(user.id):
+            prev = _check_no_input_counts.get(user.id, 0) + 1
+            _check_no_input_counts[user.id] = prev
+            if prev >= 3:
+                _set_cooldown(user.id, 30, "Repeated /check without input")
+                _check_no_input_counts.pop(user.id, None)
+                warn = await cmd_msg.reply_text(
+                    "⛔ <b>Instant Timeout Applied</b>\n\n"
+                    "You have used /check 3 times without providing a story name.\n"
+                    "You are now on a 30-minute cooldown.",
+                    parse_mode="HTML"
+                )
+                async def _del_warn():
+                    await asyncio.sleep(30)
+                    try: await warn.delete()
+                    except: pass
+                asyncio.create_task(_del_warn())
+                return
+
         lang = get_chat_lang(chat.id)
+        tutorial_kb = InlineKeyboardMarkup([[InlineKeyboardButton("📖 How to use the bot", url="https://t.me/StoriesLinkopningguide")]])
         if lang == "hi":
-            await update.message.reply_text("कृपया /check <स्टोरी का नाम> का उपयोग करें या किसी संदेश का उत्तर दें।")
+            warn = await cmd_msg.reply_text(
+                "कृपया /check <स्टोरी का नाम> का उपयोग करें या किसी संदेश का उत्तर दें।",
+                reply_markup=tutorial_kb
+            )
         else:
-            await update.message.reply_text("Please provide a story name:\nUsage: /check <story name>\nOr reply to a message.")
+            warn = await cmd_msg.reply_text(
+                "Please provide a story name:\nUsage: /check <story name>\nOr reply to a message.",
+                reply_markup=tutorial_kb
+            )
+        async def _del_warn2():
+            await asyncio.sleep(30)
+            try: await warn.delete()
+            except: pass
+        asyncio.create_task(_del_warn2())
         return
-        
+
     query = clean_story(query)
     if len(query) < 2:
-        await update.message.reply_text("Query too short.")
+        await cmd_msg.reply_text("Query too short.")
         return
-        
-    wait_msg = await update.message.reply_text("<i>⏳ Verifying externally...</i>", parse_mode="HTML")
-    
+
+    wait_msg = await cmd_msg.reply_text("<i>⏳ Verifying externally...</i>", parse_mode="HTML")
+
     try:
         result = await verify_story_external(query)
-        
+
         if result["status"] == "found":
             source = result.get("source", "")
             source_tag = " ✦ <i>found in bot database</i>" if "local" in source else " ✦ <i>found via platform search</i>"
@@ -5126,11 +5384,22 @@ async def check_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"<i>◇ Status: Available{source_tag}</i>"
             )
         elif result["status"] == "not_found":
-            resp = (
-                "<b>☆ Story Not Found</b>\n\n"
-                "✧ This story is not available on supported platforms\n\n"
-                "➤ Use /request to request it"
-            )
+            lang = get_chat_lang(chat.id)
+            tutorial_kb = InlineKeyboardMarkup([[InlineKeyboardButton("📖 How to use the bot", url="https://t.me/StoriesLinkopningguide")]])
+            if lang == "hi":
+                resp = (
+                    "<b>☆ स्टोरी नहीं मिली</b>\n\n"
+                    "✧ यह स्टोरी किसी भी सपोर्टेड प्लेटफ़ॉर्म पर उपलब्ध नहीं है।\n\n"
+                    "➤ आप <b>/request</b> से इसे रिक्वेस्ट कर सकते हैं।"
+                )
+            else:
+                resp = (
+                    "<b>☆ Story Not Found</b>\n\n"
+                    "✧ This story is not available on any supported platform.\n\n"
+                    "➤ You can use <b>/request</b> to request it for upload."
+                )
+            await wait_msg.edit_text(text=resp, parse_mode="HTML", disable_web_page_preview=True, reply_markup=tutorial_kb)
+            return
         else:
             err = result.get("message", "Unknown error")
             resp = (
@@ -5138,7 +5407,7 @@ async def check_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"✧ {err}\n"
                 "➤ Try again later"
             )
-            
+
         await wait_msg.edit_text(text=resp, parse_mode="HTML", disable_web_page_preview=True)
     except Exception as e:
         logger.error(f"External check error: {e}")
@@ -5165,6 +5434,8 @@ def start_bot():
     app.add_handler(PollAnswerHandler(poll_answer_handler))
 
     app.add_handler(get_scheduler_handler())
+    app.add_handler(get_sched_callback_handler())
+    app.add_handler(CommandHandler("schedview", sched_view))
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("menu", menu_cmd))
     app.add_handler(CommandHandler("scan", scan))
@@ -5195,6 +5466,8 @@ def start_bot():
     app.add_handler(CommandHandler("userinfo", userinfo_cmd))
     app.add_handler(CommandHandler("unwarn", unwarn_cmd))
     app.add_handler(CommandHandler("cleardata", cleardata_cmd))
+    app.add_handler(CommandHandler("clearflags", clearflags_cmd))
+    app.add_handler(CommandHandler("debugflags", debugflags_cmd))
     app.add_handler(CommandHandler("rescan", rescan_cmd))
     app.add_handler(CommandHandler("announce", announce_cmd))
     app.add_handler(CommandHandler("copyright_mute", copyright_mute_cmd))

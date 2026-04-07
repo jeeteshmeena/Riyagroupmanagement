@@ -9,7 +9,7 @@ from telethon.tl.types import PeerChannel
 from config import API_ID, API_HASH, SESSION_STRING
 from telethon.sessions import StringSession
 
-from parser import parse_story, get_text
+from parser import parse_story, get_text, get_photo
 from database import add_story, remove_stories_not_in, load_learned_formats
 from format_learner import extract_with_template
 
@@ -209,11 +209,12 @@ async def scan_channel(channel_id, bot=None, log_channel=None, progress_cb=None,
                 continue
 
             # Try to get photo file_id if message has photo and we have bot + log channel
-            if bot and log_channel and msg.photo:
+            photo_obj = get_photo(msg)  # use robust extractor (handles docs with thumbs too)
+            if bot and log_channel and photo_obj:
                 try:
                     with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
                         path = tmp.name
-                    await client.download_media(msg.photo, path)
+                    await client.download_media(photo_obj, path)
                     try:
                         with open(path, "rb") as f:
                             sent = await bot.send_photo(chat_id=log_channel, photo=f)
@@ -227,7 +228,8 @@ async def scan_channel(channel_id, bot=None, log_channel=None, progress_cb=None,
                     finally:
                         if os.path.exists(path):
                             os.unlink(path)
-                except Exception:
+                except Exception as _pe:
+                    logger.debug(f"Photo extraction failed for msg {msg.id}: {_pe}")
                     pass
 
             add_story(story)

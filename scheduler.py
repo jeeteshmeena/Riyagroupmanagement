@@ -5,12 +5,13 @@ import time
 import uuid
 import re
 from datetime import datetime, timedelta
-from telegram import Update, ReplyKeyboardRemove
+from telegram import Update, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ContextTypes,
     ConversationHandler,
     CommandHandler,
     MessageHandler,
+    CallbackQueryHandler,
     filters
 )
 import database
@@ -76,6 +77,61 @@ async def schedule_loop_task(app):
 def _is_admin(user_id):
     from stories_bot import is_admin as _adm
     return _adm(user_id)
+
+
+# ── Helper: format a scheduled task for display ───────────────────────────────
+def _fmt_task(task_id: str, task: dict) -> str:
+    trigger_ts = task.get("trigger_at", 0)
+    human_time = datetime.fromtimestamp(trigger_ts).strftime("%Y-%m-%d %H:%M") if trigger_ts else "?"
+    chat_id = task.get("chat_id", "?")
+    preview = (task.get("text") or "")[:60]
+    has_photo = "📷 " if task.get("photo_id") else ""
+    return (
+        f"🔖 <b>ID:</b> <code>{task_id}</code>\n"
+        f"📬 <b>Target:</b> <code>{chat_id}</code>\n"
+        f"⏰ <b>Send at:</b> {human_time}\n"
+        f"{has_photo}📝 <b>Preview:</b> {preview or '<em>No text</em>'}"
+    )
+
+
+# ── View scheduled tasks ──────────────────────────────────────────────────────
+async def sched_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show all pending scheduled tasks with remove buttons."""
+    if not _is_admin(update.effective_user.id):
+        await update.message.reply_text("No permission.")
+        return
+
+    db = load_schedule_db()
+    if not db:
+        await update.message.reply_text(
+            "<b>📅 Scheduled Tasks</b>\n\n<i>No tasks scheduled.</i>",
+            parse_mode="HTML"
+        )
+        return
+
+    now = time.time()
+    lines = []
+    rows = []
+    for task_id, task in sorted(db.items(), key=lambda x: x[1].get("trigger_at", 0)):
+        if task.get("trigger_at", 0) < now:
+            continue  # skip overdue (will be delivered soon)
+        lines.append(_fmt_task(task_id, task))
+        rows.append([InlineKeyboardButton(f"🗑 Remove {task_id}", callback_data=f"sched_rm|{task_id}")])
+
+    if not lines:
+        await update.message.reply_text(
+            "<b>📅 Scheduled Tasks</b>\n\n<i>No upcoming tasks.</i>",
+            parse_mode="HTML"
+        )
+        return
+
+    text = "<b>📅 Scheduled Tasks</b>\n\n" + "\n\n".join(lines)
+    rows.append([InlineKeyboardButton("🔄 Refresh", callback_data="sched_refresh")])
+    await update.message.reply_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(rows)
+    )
 
 
 # ── Conversation steps ────────────────────────────────────────────────────────
@@ -192,12 +248,17 @@ async def sched_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_schedule_db(db)
 
     human = dt.strftime("%Y-%m-%d %H:%M")
+    kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton("🗑 Remove this task", callback_data=f"sched_rm|{task_id}"),
+        InlineKeyboardButton("📋 View all tasks", callback_data="sched_refresh"),
+    ]])
     await update.message.reply_text(
-        f"<b>Scheduled!</b>\n\n"
+        f"<b>✅ Scheduled!</b>\n\n"
         f"Target: <code>{target}</code>\n"
-        f"Send at: {human}\n"
+        f"Send at: <code>{human}</code>\n"
         f"Task ID: <code>{task_id}</code>",
         parse_mode="HTML",
+        reply_markup=kb,
     )
     return ConversationHandler.END
 
@@ -208,6 +269,124 @@ async def sched_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop("sched_photo", None)
     await update.message.reply_text("Scheduling cancelled.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
+
+
+# ── Callback handler for scheduler buttons ────────────────────────────────────
+async def sched_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user = query.from_user
+
+    if not _is_admin(user.id):
+        await query.answer("⛔ Admin only.", show_alert=True)
+        return
+
+    data = query.data
+
+    # Remove a task
+    if data.startswith("sched_rm|"):
+        task_id = data.split("|", 1)[1]
+        db = load_schedule_db()
+        if task_id in db:
+            db.pop(task_id)
+            save_schedule_db(db)
+            await query.answer(f"✅ Task {task_id} removed.", show_alert=False)
+        else:
+            await query.answer("Task not found (may already be delivered).", show_alert=True)
+            return
+
+        # Rebuild the task list in the message
+        db = load_schedule_db()
+        now = time.time()
+        lines = []
+        rows = []
+        for tid, task in sorted(db.items(), key=lambda x: x[1].get("trigger_at", 0)):
+            if task.get("trigger_at", 0) < now:
+                continue
+            lines.append(_fmt_task(tid, task))
+            rows.append([InlineKeyboardButton(f"🗑 Remove {tid}", callback_data=f"sched_rm|{tid}")])
+
+        if lines:
+            text = "<b>📅 Scheduled Tasks</b>\n\n" + "\n\n".join(lines)
+            rows.append([InlineKeyboardButton("🔄 Refresh", callback_data="sched_refresh")])
+        else:
+            text = "<b>📅 Scheduled Tasks</b>\n\n<i>No upcoming tasks.</i>"
+
+        try:
+            await query.message.edit_text(text, parse_mode="HTML",
+                                          reply_markup=InlineKeyboardMarkup(rows) if rows else None)
+        except Exception:
+            pass
+        return
+
+    # Refresh the view
+    if data == "sched_refresh":
+        db = load_schedule_db()
+        now = time.time()
+        lines = []
+        rows = []
+        for tid, task in sorted(db.items(), key=lambda x: x[1].get("trigger_at", 0)):
+            if task.get("trigger_at", 0) < now:
+                continue
+            lines.append(_fmt_task(tid, task))
+            rows.append([InlineKeyboardButton(f"🗑 Remove {tid}", callback_data=f"sched_rm|{tid}")])
+
+        if lines:
+            text = "<b>📅 Scheduled Tasks</b>\n\n" + "\n\n".join(lines)
+            rows.append([InlineKeyboardButton("🔄 Refresh", callback_data="sched_refresh")])
+        else:
+            text = "<b>📅 Scheduled Tasks</b>\n\n<i>No upcoming tasks.</i>"
+
+        try:
+            await query.message.edit_text(text, parse_mode="HTML",
+                                          reply_markup=InlineKeyboardMarkup(rows) if rows else None)
+        except Exception:
+            pass
+        await query.answer("Refreshed ✅")
+        return
+
+    await query.answer()
+
+
+# ── Scheduler panel from config menu ─────────────────────────────────────────
+def _cfg_scheduler_panel(caller_id: int) -> tuple:
+    """Build the scheduler panel for the config menu."""
+    db = load_schedule_db()
+    now = time.time()
+    upcoming = [(tid, task) for tid, task in sorted(db.items(), key=lambda x: x[1].get("trigger_at", 0))
+                if task.get("trigger_at", 0) >= now]
+
+    if upcoming:
+        lines = []
+        for tid, task in upcoming[:5]:
+            human = datetime.fromtimestamp(task.get("trigger_at", 0)).strftime("%Y-%m-%d %H:%M")
+            preview = (task.get("text") or "")[:40]
+            lines.append(f"🔖 <code>{tid}</code>  ⏰ {human}\n   📝 {preview or '<em>photo</em>'}")
+        body = "\n\n".join(lines)
+        if len(upcoming) > 5:
+            body += f"\n\n<i>...and {len(upcoming) - 5} more</i>"
+    else:
+        body = "<i>No upcoming scheduled tasks.</i>"
+
+    text = (
+        "<b>📅 Message Scheduler</b>\n"
+        "<i>Schedule messages to be sent at a specific time.</i>\n"
+        "━━━━━━━━━━━━━━━━\n\n"
+        f"{body}\n\n"
+        "<i>✧ Use /schedule to add a new task.\n"
+        "✧ Use /schedview to manage all tasks.</i>"
+    )
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    markup = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("➕ New Schedule", callback_data=f"cfg|sched_new||{caller_id}"),
+            InlineKeyboardButton("📋 View All", callback_data="sched_refresh"),
+        ],
+        [
+            InlineKeyboardButton("➦ Back", callback_data=f"cfg|main||{caller_id}"),
+            InlineKeyboardButton("✖ Close", callback_data=f"cfg|close||{caller_id}"),
+        ],
+    ])
+    return text, markup
 
 
 # ── Handler registration ──────────────────────────────────────────────────────
@@ -222,3 +401,8 @@ def get_scheduler_handler():
         fallbacks=[CommandHandler("cancel", sched_cancel)],
         allow_reentry=True,
     )
+
+
+def get_sched_callback_handler():
+    """Return a CallbackQueryHandler for scheduler buttons."""
+    return CallbackQueryHandler(sched_callback, pattern=r"^sched_")
