@@ -836,10 +836,11 @@ def _menu_main(caller_id: int, lang: str = "en", mention: str = "") -> tuple:
         ],
         [
             InlineKeyboardButton("❁ About",        callback_data=f"menu|about|{caller_id}"),
+            InlineKeyboardButton("✺ Commands",     callback_data="cmdmenu|0"),
         ],
         [
-            InlineKeyboardButton("✧ Language",    callback_data=f"menu|lang|{caller_id}"),
-            InlineKeyboardButton("✦ Help",         callback_data=f"menu|help|{caller_id}"),
+            InlineKeyboardButton("✧ Language",     callback_data=f"menu|lang|{caller_id}"),
+            InlineKeyboardButton("✦ Help",          callback_data="cmdmenu|0"),
         ]
     ]
     btn_rows.append([InlineKeyboardButton("✖ Close", callback_data=f"menu|close|{caller_id}")])
@@ -1195,53 +1196,162 @@ When the story gets uploaded, you will be notified automatically.
     asyncio.create_task(_delete_later())
 
 
+# ══════════════════════════════════════════════════════
+#  COMMAND MENU  –  paginated inline panel
+#  Page 0 → User commands   |   Page 1 → Admin commands
+# ══════════════════════════════════════════════════════
+
+_CMD_DIV = "━━━━━━━━━━━━━━━━"
+
+_USER_COMMANDS = [
+    ("/start",       "✦",  "Opens the main menu & welcomes you"),
+    ("/menu",        "✦",  "Show the interactive main menu"),
+    ("/help",        "✦",  "Show this command list"),
+    ("/how",         "✦",  "How the bot works (quick guide)"),
+    ("/about",       "❁",  "About Riya bot & developer info"),
+    ("/stories",     "✸",  "Browse all indexed stories (paginated)"),
+    ("/info",        "✸",  "Get details for a specific story\n"
+                           "        <i>Usage: /info Story Name</i>"),
+    ("/request",     "✸",  "Request a story to be uploaded\n"
+                           "        <i>Usage: /request Story Name  Platform</i>"),
+    ("/check",       "✸",  "Verify / look up a story link externally"),
+    ("/saved",       "♥",  "View your saved / favourite stories"),
+    ("/browse",      "♥",  "Browse stories by category or filter"),
+    ("/new",         "♥",  "See recently added stories"),
+    ("/subscribe",   "♥",  "Subscribe to new-story notifications"),
+    ("/myrequests",  "♥",  "View your pending story requests"),
+    ("/schedule",    "📅", "Schedule a message to be sent later\n"
+                           "        <i>(3-step guided flow)</i>"),
+]
+
+_ADMIN_COMMANDS = [
+    ("/scan",           "⚙",  "Scan all source channels & rebuild DB"),
+    ("/rescan",         "⚙",  "Force re-scan a specific channel\n"
+                               "           <i>Usage: /rescan channel_id</i>"),
+    ("/stats",          "📊", "View bot statistics & usage data"),
+    ("/status",         "📊", "Live system status: uptime, stories, etc."),
+    ("/config",         "🔧", "Open the full configuration panel"),
+    ("/requests",       "📂", "View all pending story requests"),
+    ("/settimer",       "⏱",  "Set auto-delete timer for a category"),
+    ("/announce",       "📣", "Broadcast a message to all subscribers"),
+    ("/userinfo",       "🔍", "Look up a user's info & activity\n"
+                               "           <i>Usage: /userinfo user_id</i>"),
+    ("/unwarn",         "🔓", "Remove a cooldown from a user\n"
+                               "           <i>Usage: /unwarn user_id</i>"),
+    ("/copyright_mute", "🔇", "Mute a user for copyright violation"),
+    ("/cleardata",      "🗑",  "Clear all data & reset the database"),
+    ("/clearflags",     "🚩", "Clear all broken link flags instantly"),
+    ("/debugflags",     "🔍", "Show all current link flags for inspection"),
+    ("/addsource",      "➕", "Add a source channel to scan\n"
+                               "           <i>Usage: /addsource channel_id</i>"),
+    ("/removesource",   "➖", "Remove a source channel\n"
+                               "           <i>Usage: /removesource channel_id</i>"),
+    ("/addalias",       "✎",  "Add an alias for a story title"),
+    ("/removealias",    "✎",  "Remove an alias"),
+    ("/listalias",      "✎",  "List all configured aliases"),
+    ("/setlang",        "🌐", "Set the bot language for a chat\n"
+                               "           <i>Usage: /setlang en|hi</i>"),
+    ("/schedview",      "📅", "View & manage all scheduled tasks"),
+]
+
+
+def _build_commands_page(page: int, admin: bool = False) -> tuple:
+    """Build one page of the commands menu. Returns (text, markup)."""
+    if page == 0:
+        title  = "✺ <b>User Commands</b>"
+        cmds   = _USER_COMMANDS
+        footer = "<i>✧ Simply send a story name to search without any command.</i>"
+        next_label = "🔐 Admin Commands ›"
+        next_cb    = "cmdmenu|1"
+        prev_row   = []
+    else:
+        title  = "🔐 <b>Admin-Only Commands</b>"
+        cmds   = _ADMIN_COMMANDS
+        footer = "<i>✧ All commands above require admin or owner privileges.</i>"
+        next_label = None
+        prev_row   = [InlineKeyboardButton("‹ User Commands", callback_data="cmdmenu|0")]
+
+    lines = []
+    for cmd, icon, desc in cmds:
+        lines.append(f"{icon} <code>{cmd}</code>\n        <i>{desc}</i>")
+
+    body = "\n\n".join(lines)
+    page_label = "1 / 2" if page == 0 else "2 / 2"
+
+    text = (
+        f"{title}  <code>({page_label})</code>\n"
+        f"<i>Riya · Full Command Reference</i>\n"
+        f"{_CMD_DIV}\n\n"
+        f"{body}\n\n"
+        f"{_CMD_DIV}\n"
+        f"{footer}"
+    )
+
+    nav_row = list(prev_row)
+    if next_label:
+        nav_row.append(InlineKeyboardButton(next_label, callback_data="cmdmenu|1"))
+
+    markup = InlineKeyboardMarkup([
+        nav_row,
+        [
+            InlineKeyboardButton("📖 Tutorial Guide", url="https://t.me/StoriesLinkopningguide"),
+            InlineKeyboardButton("✖ Close", callback_data="cmdmenu|close"),
+        ],
+    ])
+    return text, markup
+
+
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if await _enforce_cooldown(update, context):
         return
 
-    chat = update.effective_chat
-    lang = get_chat_lang(chat.id)
+    user = update.effective_user
+    admin = is_admin(user.id) if user else False
 
-    if lang == "hi":
-        text = f"<b>🆘 हेल्प सेंटर</b> ( ˶ˆᗜˆ˵ )\n\n" \
-               f"<i>इन कमांड्स से आप बॉट के साथ इंटरैक्ट कर सकते हैं: ✨</i>\n\n" \
-               f"<u>/start</u> → बॉट शुरू करें ✨\n" \
-               f"<u>/request</u> → स्टोरी रिक्वेस्ट 📂\n" \
-               f"<u>/scan</u> → डेटाबेस रिफ्रेश करें [सिर्फ़ एडमिन] ⚙️\n" \
-               f"<u>/info</u> → स्टोरी डिटेल्स 📑\n" \
-               f"<u>/stats</u> → बॉट स्टैटिस्टिक्स [एडमिन] 📊\n\n" \
-               f"<b>आप सीधे स्टोरी का नाम भेजकर भी सर्च कर सकते हैं। ✨</b>"
-    else:
-        text = f"<b>🆘 Help Center</b> ( ˶ˆᗜˆ˵ )\n\n" \
-               f"<i>Use these commands to interact with the bot: ✨</i>\n\n" \
-               f"<u>/start</u> → Start the bot ✨\n" \
-               f"<u>/request</u> → Request a story 📂\n" \
-               f"<u>/scan</u> → Refresh database [admins only] ⚙️\n" \
-               f"<u>/info</u> → Story details 📑\n" \
-               f"<u>/stats</u> → Bot statistics [admins] 📊\n\n" \
-               f"<b>You can also simply send a story name to search. ✨</b>"
-
-    keyboard = [
-        [
-            InlineKeyboardButton("🌐 Language", callback_data="cmd|lang_menu"),
-            InlineKeyboardButton("📖 How to use", url="https://t.me/StoriesLinkopningguide"),
-        ],
-        [InlineKeyboardButton("🔙 Back to Menu", callback_data="cmd|start")]
-    ]
-    msg = await update.message.reply_text(text=text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
+    text, markup = _build_commands_page(0, admin=admin)
+    msg = await update.message.reply_text(text=text, parse_mode="HTML", reply_markup=markup)
 
     async def _delete_later():
         await asyncio.sleep(1800)
         try:
             await msg.delete()
-        except:
+        except Exception:
             pass
         try:
             await update.message.delete()
-        except:
+        except Exception:
             pass
 
     asyncio.create_task(_delete_later())
+
+
+async def _handle_cmdmenu(query, context: ContextTypes.DEFAULT_TYPE):
+    """Handle cmdmenu|N callback queries from the commands menu."""
+    action = query.data.split("|", 1)[1] if "|" in query.data else "0"
+
+    if action == "close":
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+        await query.answer()
+        return
+
+    try:
+        page = int(action)
+    except ValueError:
+        page = 0
+
+    user = query.from_user
+    admin = is_admin(user.id) if user else False
+
+    text, markup = _build_commands_page(page, admin=admin)
+    try:
+        await query.message.edit_text(text=text, parse_mode="HTML", reply_markup=markup)
+    except Exception:
+        pass
+    await query.answer()
+
 
 
 async def info_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2876,6 +2986,10 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data.startswith("cfg_") or query.data.startswith("cfg|"):
         await query.answer()
         await _handle_config_callback(query, context)
+        return
+
+    if query.data.startswith("cmdmenu|"):
+        await _handle_cmdmenu(query, context)
         return
 
     # -----------------------
