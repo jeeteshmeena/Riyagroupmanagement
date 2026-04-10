@@ -116,6 +116,10 @@ claims_db = load_claims()
 cooldown_db = {}
 message_owner = {}
 
+# Tracks bot search-result messages: {(chat_id, bot_msg_id): True}
+# Used to detect when a user replies "No/Nahi" to a search result
+_bot_search_replies: dict = {}
+
 _requests_state = load_requests()
 request_db = _requests_state.get("requests", {})
 spam_requests_count = {}
@@ -2754,6 +2758,11 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "✧ Did you mean one of these?" if lang != "hi" else "✧ क्या आप इनमें से कोई स्टोरी कहना चाहते थे?",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
+            # Track so "No" reply is detected
+            _bot_search_replies[(msg.chat_id, no_msg.message_id)] = True
+            if len(_bot_search_replies) > 1000:
+                # evict oldest key to prevent memory leak
+                _bot_search_replies.pop(next(iter(_bot_search_replies)))
         else:
             lang = get_chat_lang(update.effective_chat.id)
             tutorial_kb = InlineKeyboardMarkup([
@@ -2780,6 +2789,12 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     [InlineKeyboardButton("📖 How to use the bot", url="https://t.me/StoriesLinkopningguide")]
                 ])
             )
+            # React on the not-found message with a shrug/sad emoji
+            import random as _rnd
+            asyncio.create_task(_try_react(
+                context.bot, msg.chat_id, no_msg.message_id,
+                _rnd.choice(_REACTION_ON_NOT_FOUND)
+            ))
         async def _del_no():
             await asyncio.sleep(30)
             try:
@@ -2939,6 +2954,11 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
     message_owner[msg.message_id] = user.id
+
+    # Track this bot message so a subsequent "No" reply is handled correctly
+    _bot_search_replies[(chat_id, msg.message_id)] = True
+    if len(_bot_search_replies) > 1000:
+        _bot_search_replies.pop(next(iter(_bot_search_replies)))
 
     try:
         await user_query_msg.delete()
@@ -5349,9 +5369,140 @@ async def menu_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text=text, parse_mode="HTML", reply_markup=markup)
 
 
+# ════════════════════════════════════════════════════════════
+#  "𝑵𝒐/𝑵𝒂𝒉𝒊" 𝑹𝒆𝒑𝒍𝒚 𝑺𝒚𝒔𝒕𝒆𝒎  —  𝑺𝒂𝒗𝒂𝒈𝒆 𝑴𝒐𝒅𝒆 ✦
+# ════════════════════════════════════════════════════════════
+
+# Words that count as "No" / rejection after a search result
+_NO_WORDS = {
+    "no", "nope", "nahi", "nah", "nahin", "n", "nahi bhai",
+    "nahi yaar", "no bhai", "no yaar", "not this", "ye nahi",
+    "yeh nahi", "wrong", "galat", "not that", "different",
+    "alag", "kuch aur", "kuch or", "koi aur", "aur kuch",
+}
+
+# 20 savage + funny bot replies — Unicode bold-italic styling
+_NAHI_REPLIES = [
+    "𝑩𝒓𝒐, 𝑰 𝒂𝒎 𝒂 𝒃𝒐𝒕 𝒏𝒐𝒕 𝒂 𝒎𝒊𝒏𝒅 𝒓𝒆𝒂𝒅𝒆𝒓. ✦\n𝑻𝒚𝒑𝒆 𝒕𝒉𝒆 𝒔𝒕𝒐𝒓𝒚 𝒏𝒂𝒎𝒆 𝒑𝒓𝒐𝒑𝒆𝒓𝒍𝒚 𝒂𝒏𝒅 𝑰'𝒍𝒍 𝒇𝒊𝒏𝒅 𝒊𝒕 𝒊𝒏 2 𝒔𝒆𝒄𝒐𝒏𝒅𝒔. ⌛",
+
+    "𝑩𝒉𝒂𝒊 𝒕𝒖𝒔𝒊 \'𝑵𝒂𝒉𝒊\' 𝒌𝒆𝒉 𝒅𝒊𝒕𝒕𝒂, 𝒑𝒂𝒓 𝒎𝒖𝒋𝒉𝒆 𝒃𝒕𝒂𝒚𝒂 𝒌𝒚𝒂? ✦\n𝑴𝒆𝒊𝒏 𝒐𝒓𝒂𝒄𝒍𝒆 𝒏𝒂𝒉𝒊 𝒉𝒐𝒐𝒏. 😭",
+
+    "𝑶𝒌𝒂𝒚 𝒔𝒉𝒆𝒓𝒍𝒐𝒄𝒌, 𝒕𝒐 𝑨𝑩 𝒌𝒚𝒂 𝒄𝒉𝒂𝒉𝒊𝒚𝒆? ✦\n𝑵𝒂𝒎𝒆 𝒅𝒆 𝒅𝒐 𝒔𝒕𝒐𝒓𝒚 𝒌𝒂. ✎",
+
+    "𝑻𝒐 𝒚𝒂𝒂𝒓 𝒔𝒉𝒊 𝒔𝒑𝒆𝒍𝒍𝒊𝒏𝒈 𝒍𝒊𝒌𝒉𝒐. ✦\n𝑴𝒂𝒊𝒏 𝒕𝒖𝒎𝒉𝒂𝒓𝒆 𝒅𝒊𝒎𝒂𝒈 𝒌𝒊 𝒓𝒆𝒄𝒐𝒓𝒅𝒊𝒏𝒈 𝒏𝒂𝒉𝒊 𝒑𝒂𝒅𝒉 𝒔𝒂𝒌𝒕𝒂. 😌",
+
+    "𝑵𝒐? 𝑻𝒉𝒆𝒏 𝒔𝒑𝒆𝒍𝒍 𝒊𝒕 𝒐𝒖𝒕. ✦\n𝑰 𝒈𝒐𝒕 10,000 𝒔𝒕𝒐𝒓𝒊𝒆𝒔. 𝑮𝒖𝒆𝒔𝒔𝒊𝒏𝒈 𝒊𝒔 𝒏𝒐𝒕 𝒎𝒚 𝒋𝒐𝒃. 📖",
+
+    "𝑩𝒉𝒂𝒊 𝒕𝒖𝒎 𝒌𝒊𝒔𝒊 𝒅𝒐𝒔𝒕 𝒔𝒆 𝒑𝒖𝒄𝒉𝒉𝒐 𝒔𝒕𝒐𝒓𝒚 𝒌𝒂 𝒏𝒂𝒎. ✦\n𝑴𝒂𝒊𝒏 𝒕𝒐 𝒃𝒂𝒔 𝒍𝒊𝒏𝒌 𝒅𝒆𝒕𝒂 𝒉𝒐𝒐𝒏, 𝒅𝒊𝒎𝒂𝒈 𝒏𝒂𝒉𝒊. ✧",
+
+    "𝑺𝒊𝒓𝒊 𝒃𝒉𝒊 𝒊𝒕𝒏𝒂 𝒌𝒖𝒄𝒉 𝒏𝒂𝒉𝒊 𝒔𝒂𝒎𝒂𝒋𝒉𝒕𝒊. ✦\n𝑵𝒂𝒎 𝒃𝒕𝒂𝒐, 𝒌𝒂𝒂𝒎 𝒃𝒂𝒏𝒂𝒐. ✎",
+
+    "𝑰 𝒓𝒂𝒏 10,000 𝒔𝒕𝒐𝒓𝒊𝒆𝒔 𝒕𝒉𝒓𝒐𝒖𝒈𝒉 𝒎𝒚 𝒃𝒓𝒂𝒊𝒏.\n𝒀𝒐𝒖 𝒘𝒓𝒐𝒕𝒆 𝒕𝒉𝒆 𝒘𝒓𝒐𝒏𝒈 𝒏𝒂𝒎𝒆. 𝑻𝒉𝒂𝒕'𝒔 𝒐𝒏 𝒚𝒐𝒖. ✦",
+
+    "𝑵𝒂𝒉𝒊 𝒎𝒂𝒕𝒍𝒂𝒃 𝒌𝒚𝒂? ✦\n𝑨𝒄𝒉𝒉𝒂 𝒏𝒂𝒎 𝒃𝒅𝒍𝒌𝒆 𝒅𝒐𝒃𝒂𝒓𝒂 𝒔𝒆𝒂𝒓𝒄𝒉 𝒌𝒂𝒓𝒐. 🔎",
+
+    "𝑩𝒓𝒐 𝑰 𝒂𝒎 𝒋𝒖𝒔𝒕 𝒂 𝒃𝒐𝒕, 𝒏𝒐𝒕 𝒚𝒐𝒖𝒓 𝒑𝒆𝒓𝒔𝒐𝒏𝒂𝒍 𝒂𝒔𝒔𝒊𝒔𝒕𝒂𝒏𝒕. ✦\n𝑻𝒚𝒑𝒆 𝒄𝒍𝒆𝒂𝒓𝒍𝒚 𝒂𝒏𝒅 𝑰'𝒍𝒍 𝒅𝒐 𝒎𝒚 𝒋𝒐𝒃. ✎",
+
+    "𝑩𝒉𝒂𝒊 𝒎𝒂𝒊𝒏 𝒌𝒐𝒊 𝒅𝒊𝒗𝒚𝒂𝒅𝒓𝒊𝒔𝒉𝒕𝒊 (𝒗𝒊𝒔𝒊𝒐𝒏) 𝒘𝒂𝒂𝒍𝒂 𝒃𝒂𝒃𝒂 𝒏𝒂𝒉𝒊 𝒉𝒐𝒐𝒏. ✦\n𝑺𝒉𝒊 𝒏𝒂𝒎 𝒍𝒊𝒌𝒉𝒐. 🙏",
+
+    "𝑰𝒕 𝒔𝒂𝒊𝒅 \'𝑵𝒐\' 𝒕𝒐 𝒎𝒆 𝒕𝒐𝒅𝒂𝒚. 𝑰 𝒇𝒆𝒆𝒍 𝒔𝒐 𝒔𝒂𝒅. 😢\n𝑱𝒖𝒔𝒕 𝒕𝒚𝒑𝒆 𝒕𝒉𝒆 𝒄𝒐𝒓𝒓𝒆𝒄𝒕 𝒏𝒂𝒎𝒆 𝒑𝒍𝒔. 🥺",
+
+    "𝑷𝒓𝒊𝒚 𝒖𝒔𝒆𝒓, 𝑰 𝒂𝒎 𝒓𝒖𝒏𝒏𝒊𝒏𝒈 𝒐𝒏 𝒄𝒐𝒅𝒆 𝒏𝒐𝒕 𝒕𝒆𝒍𝒆𝒑𝒂𝒕𝒉𝒚. ✦\n𝑾𝒓𝒊𝒕𝒆 𝒕𝒉𝒆 𝒏𝒂𝒎𝒆 𝒄𝒍𝒆𝒂𝒓𝒍𝒚. ✎",
+
+    "𝒀𝒂𝒂𝒓 𝒊𝒕𝒏𝒊 𝒔𝒊 𝒃𝒂𝒂𝒕. ✦\n𝑺𝒉𝒊 𝒏𝒂𝒂𝒎 𝒃𝒕𝒂𝒐, 𝒎𝒂𝒊𝒏 𝒃𝒂𝒂𝒌𝒊 𝒔𝒃 𝒔𝒂𝒎𝒃𝒉𝒂𝒍 𝒍𝒆𝒕𝒂 𝒉𝒐𝒐𝒏. 🫡",
+
+    "𝑴𝒂𝒊𝒏 𝒃𝒐𝒕 𝒉𝒐𝒐𝒏 𝒚𝒂𝒂𝒓 𝒋𝒂𝒅𝒖𝒈𝒂𝒓 𝒏𝒂𝒉𝒊. ✦\n𝑺𝒉𝒊 𝒔𝒑𝒆𝒍𝒍𝒊𝒏𝒈 + 𝒔𝒉𝒊 𝒔𝒕𝒐𝒓𝒚 𝒏𝒂𝒎𝒆 = 𝑰 𝒅𝒆𝒍𝒊𝒗𝒆𝒓. 📦",
+
+    "𝑮𝒐𝒐𝒈𝒍𝒆 𝒃𝒉𝒊 𝒚𝒆 \'𝑵𝒐\' 𝒃𝒂𝒂𝒅 𝒎𝒆𝒊𝒏 𝒔𝒖𝒏𝒕𝒂. ✦\n𝑺𝒕𝒐𝒓𝒚 𝒌𝒂 𝒏𝒂𝒂𝒎 𝒃𝒕𝒂𝒐 𝒑𝒆𝒉𝒍𝒆. 🗂",
+
+    "𝑴𝒖𝒋𝒉𝒆 𝒑𝒂𝒕𝒂 𝒉𝒂𝒊 𝒕𝒖𝒎 𝒃𝒐𝒕 𝒔𝒆 𝒉𝒂𝒊𝒓𝒂𝒂𝒏 𝒉𝒐. ✦\n𝑩𝒂𝒔 𝒔𝒉𝒊 𝒏𝒂𝒂𝒎 𝒅𝒐 𝒐𝒓 𝒎𝒆𝒊𝒏 𝒋𝒂𝒅𝒖 𝒅𝒊𝒌𝒉𝒂𝒕𝒂 𝒉𝒐𝒐𝒏. ✨",
+
+    "𝑵𝒐 𝒎𝒆𝒂𝒏𝒔 𝒃𝒂𝒅 𝒔𝒑𝒆𝒍𝒍𝒊𝒏𝒈 𝒐𝒓 𝒃𝒂𝒅 𝒍𝒖𝒄𝒌. ✦\n𝑬𝒊𝒕𝒉𝒆𝒓 𝒘𝒂𝒚, 𝒕𝒚𝒑𝒆 𝒂𝒈𝒂𝒊𝒏. 🔁",
+
+    "𝑩𝒓𝒐, 𝑰 𝒂𝒎 𝒂 𝒔𝒕𝒐𝒓𝒚 𝒃𝒐𝒕. ✦\n𝑴𝒐𝒐𝒅 𝒃𝒐𝒕 𝒏𝒂𝒉𝒊, 𝒆𝒙𝒑𝒍𝒂𝒊𝒏 𝒃𝒂𝒂𝒅 𝒎𝒆𝒊𝒏 𝒌𝒂𝒓𝒏𝒂. 𝑵𝒂𝒎𝒆 𝒃𝒕𝒂𝒐. 🙂",
+
+    "𝑩𝒉𝒂𝒊 𝒎𝒂𝒊𝒏 𝒃𝒉𝒊 𝒕𝒖𝒎𝒉𝒂𝒓𝒊 𝒕𝒂𝒓𝒂𝒉 𝒄𝒐𝒏𝒇𝒖𝒔𝒆𝒅 𝒉𝒐𝒐𝒏. ✦\n𝑻𝒖𝒎 𝒄𝒆𝒍𝒆𝒃𝒓𝒊𝒕𝒚 𝒏𝒂𝒂𝒎 𝒍𝒊𝒌𝒉𝒐, 𝒎𝒂𝒊𝒏 𝒔𝒕𝒐𝒓𝒚 𝒅𝒐𝒐𝒏𝒈𝒂. 📚",
+]
+
+# Reactions to use on the *user's* "No" message
+_REACTION_ON_NO = ["🤓", "😐", "🤡", "😶"]
+
+# Reactions to use on bot's "story not found" message
+_REACTION_ON_NOT_FOUND = ["😶", "🤷", "💔"]
+
+
+def _is_no_reply(text: str) -> bool:
+    """Return True if the message text is a 'No/Nahi' type rejection."""
+    t = text.strip().lower()
+    # strip punctuation
+    t = re.sub(r"[!?.,'\"…]+$", "", t).strip()
+    return t in _NO_WORDS
+
+
+async def _try_react(bot, chat_id: int, message_id: int, emoji: str):
+    """Silently attempt to set a Telegram reaction on a message."""
+    try:
+        from telegram import ReactionTypeEmoji
+        await bot.set_message_reaction(
+            chat_id=chat_id,
+            message_id=message_id,
+            reaction=[ReactionTypeEmoji(emoji=emoji)],
+            is_big=False,
+        )
+    except Exception as _re:
+        logger.debug("Reaction failed (may not be supported): %s", _re)
+
+
+async def _handle_no_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """
+    Detect if the user is replying "No/Nahi" to one of the bot's search-result messages.
+    If so, send a savage reply and return True (caller should stop processing).
+    """
+    msg = update.message
+    if not msg or not msg.text:
+        return False
+
+    # Must be a reply-to a message
+    reply_to = getattr(msg, "reply_to_message", None)
+    if not reply_to:
+        return False
+
+    # That replied-to message must be FROM the bot and tracked as a search result
+    bot_user = context.bot.id
+    if reply_to.from_user and reply_to.from_user.id != bot_user:
+        return False
+
+    chat_id = msg.chat_id
+    ref_key = (chat_id, reply_to.message_id)
+    if ref_key not in _bot_search_replies:
+        return False
+
+    if not _is_no_reply(msg.text):
+        return False
+
+    # ── It IS a "No" reply to a search result ──
+    import random
+
+    savage = random.choice(_NAHI_REPLIES)
+    react_emoji = random.choice(_REACTION_ON_NO)
+
+    # React to the user's "No" message itself
+    asyncio.create_task(_try_react(context.bot, chat_id, msg.message_id, react_emoji))
+
+    # Send savage reply (does NOT auto-delete by design)
+    await msg.reply_text(savage, parse_mode=None)
+
+    return True
+
+
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.chat_data and context.chat_data.get("config_state"):
         return await handle_config_input(update, context)
+
+    # Check "No/Nahi" reply BEFORE normal search
+    if await _handle_no_reply(update, context):
+        return
+
     return await search(update, context)
 
 
