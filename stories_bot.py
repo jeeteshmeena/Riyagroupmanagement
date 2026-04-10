@@ -2758,11 +2758,12 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "✧ Did you mean one of these?" if lang != "hi" else "✧ क्या आप इनमें से कोई स्टोरी कहना चाहते थे?",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
-            # Track so "No" reply is detected
+            # Track so "No" reply is detected (reply-based OR context-based)
             _bot_search_replies[(msg.chat_id, no_msg.message_id)] = True
             if len(_bot_search_replies) > 1000:
                 # evict oldest key to prevent memory leak
                 _bot_search_replies.pop(next(iter(_bot_search_replies)))
+            _record_user_search(msg.chat_id, user.id)
         else:
             lang = get_chat_lang(update.effective_chat.id)
             tutorial_kb = InlineKeyboardMarkup([
@@ -2955,10 +2956,11 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     message_owner[msg.message_id] = user.id
 
-    # Track this bot message so a subsequent "No" reply is handled correctly
+    # Track this bot message so a subsequent "No" reply OR context-aware "No" is handled correctly
     _bot_search_replies[(chat_id, msg.message_id)] = True
     if len(_bot_search_replies) > 1000:
         _bot_search_replies.pop(next(iter(_bot_search_replies)))
+    _record_user_search(chat_id, user.id)
 
     try:
         await user_query_msg.delete()
@@ -5060,128 +5062,243 @@ async def handle_config_input(update: Update, context: ContextTypes.DEFAULT_TYPE
         if not test_text:
             await msg.reply_text("❌ Could not read the message text. Please forward a text/caption message.", parse_mode="HTML")
             context.chat_data.pop("config_state", None)
-            return
+  
+# ════════════════════════════════════════════════════════════
+#  𝑹𝒊𝒚𝒂 𝑴𝒐𝒐𝒅 𝑺𝒚𝒔𝒕𝒆𝒎  ✦  𝑵𝒐 / 𝑵𝒂𝒉𝒊  +  𝑻𝒉𝒂𝒏𝒌𝒔
+# ════════════════════════════════════════════════════════════
 
-        # Try each stored template
-        matched_result = None
-        matched_label = None
-        for cid_str, templates in learned_formats_db.items():
-            if not isinstance(templates, list):
-                continue
-            for tmpl in templates:
-                result = build_test_result(msg, tmpl)
-                if "★ Test Result: Matched" in result:
-                    matched_result = result
-                    matched_label = tmpl.get("label", cid_str)
-                    break
-            if matched_result:
-                break
+import random as _random
 
-        if matched_result:
-            out = f"{matched_result}\n\n✦ <b>Matched template:</b> <code>{matched_label}</code>"
-        else:
-            out = (
-                "<b>☆ Test Result: No Match</b>\n"
-                "━━━━━━━━━━━━━━━━\n\n"
-                "✧ <i>This message does not match any stored template.</i>\n"
-                "✧ <i>It would be ignored during scan.</i>"
-            )
+# ── Per-user recent search tracking (chat_id, user_id) → timestamp ──────────
+# Used so "No" even WITHOUT a reply still triggers the savage response
+_last_search_ts: dict = {}   # (chat_id, user_id) → float  (epoch seconds)
+_SEARCH_CONTEXT_TTL = 120    # seconds — "No" window after a search
 
-        context.chat_data.pop("config_state", None)
-        await msg.reply_text(out, parse_mode="HTML")
+def _record_user_search(chat_id: int, user_id: int):
+    """Call this after the bot sends a search result to this user."""
+    _last_search_ts[(chat_id, user_id)] = time.time()
+    if len(_last_search_ts) > 2000:
+        _last_search_ts.pop(next(iter(_last_search_ts)))
+
+def _user_searched_recently(chat_id: int, user_id: int) -> bool:
+    """True if this user searched in the last _SEARCH_CONTEXT_TTL seconds."""
+    ts = _last_search_ts.get((chat_id, user_id), 0)
+    return (time.time() - ts) <= _SEARCH_CONTEXT_TTL
+
+
+# ── "No" word set ────────────────────────────────────────────────────────────
+_NO_WORDS = {
+    # English
+    "no", "nope", "nah", "not this", "not that", "wrong", "different",
+    "incorrect", "noo", "nooo", "noooo",
+    # Hinglish
+    "nahi", "nahin", "nhi", "nahi bhai", "nahi yaar", "no bhai", "no yaar",
+    "ye nahi", "yeh nahi", "galat", "alag", "kuch aur", "kuch or", "koi aur",
+    "aur kuch", "nahi re", "nahi na", "nah bhai",
+    # Pure Hindi
+    "नहीं", "नही", "नहीं यार", "नहीं भाई", "यह नहीं", "ये नहीं",
+    "गलत", "अलग", "कुछ और", "कोई और", "नहीं है",
+}
+
+# ── 30 savage + funny replies — mix of English, Hinglish, and Hindi ──────────
+# Some include /request hints (marked with ✸)
+_NAHI_REPLIES = [
+    # English / Hinglish
+    "𝑩𝒓𝒐, 𝑰 𝒂𝒎 𝒂 𝒃𝒐𝒕 𝒏𝒐𝒕 𝒂 𝒎𝒊𝒏𝒅 𝒓𝒆𝒂𝒅𝒆𝒓. ✦\n𝑻𝒚𝒑𝒆 𝒕𝒉𝒆 𝒔𝒕𝒐𝒓𝒚 𝒏𝒂𝒎𝒆 𝒑𝒓𝒐𝒑𝒆𝒓𝒍𝒚 𝒂𝒏𝒅 𝑰'𝒍𝒍 𝒇𝒊𝒏𝒅 𝒊𝒕 𝒊𝒏 2 𝒔𝒆𝒄𝒐𝒏𝒅𝒔. ⌛",
+
+    "𝑵𝒐? 𝑻𝒉𝒆𝒏 𝒔𝒑𝒆𝒍𝒍 𝒊𝒕 𝒐𝒖𝒕. ✦\n𝑰 𝒈𝒐𝒕 10,000 𝒔𝒕𝒐𝒓𝒊𝒆𝒔. 𝑮𝒖𝒆𝒔𝒔𝒊𝒏𝒈 𝒊𝒔 𝒏𝒐𝒕 𝒎𝒚 𝒋𝒐𝒃. 📖\n✸ 𝑰𝒇 𝒊𝒕'𝒔 𝒏𝒐𝒕 𝒖𝒑𝒍𝒐𝒂𝒅𝒆𝒅 𝒚𝒆𝒕, 𝒖𝒔𝒆 /𝒓𝒆𝒒𝒖𝒆𝒔𝒕 𝒕𝒐 𝒓𝒆𝒒𝒖𝒆𝒔𝒕 𝒊𝒕. 📩",
+
+    "𝑰 𝒓𝒂𝒏 10,000 𝒔𝒕𝒐𝒓𝒊𝒆𝒔 𝒕𝒉𝒓𝒐𝒖𝒈𝒉 𝒎𝒚 𝒃𝒓𝒂𝒊𝒏.\n𝒀𝒐𝒖 𝒘𝒓𝒐𝒕𝒆 𝒕𝒉𝒆 𝒘𝒓𝒐𝒏𝒈 𝒏𝒂𝒎𝒆. 𝑻𝒉𝒂𝒕'𝒔 𝒐𝒏 𝒚𝒐𝒖. ✦",
+
+    "𝑺𝒊𝒓𝒊 𝒃𝒉𝒊 𝒊𝒕𝒏𝒂 𝒌𝒖𝒄𝒉 𝒏𝒂𝒉𝒊 𝒔𝒂𝒎𝒂𝒋𝒉𝒕𝒊. ✦\n𝑵𝒂𝒎 𝒃𝒕𝒂𝒐, 𝒌𝒂𝒂𝒎 𝒃𝒂𝒏𝒂𝒐. ✎",
+
+    "𝑩𝒓𝒐 𝑰 𝒂𝒎 𝒋𝒖𝒔𝒕 𝒂 𝒃𝒐𝒕, 𝒏𝒐𝒕 𝒚𝒐𝒖𝒓 𝒑𝒆𝒓𝒔𝒐𝒏𝒂𝒍 𝒂𝒔𝒔𝒊𝒔𝒕𝒂𝒏𝒕. ✦\n𝑻𝒚𝒑𝒆 𝒄𝒍𝒆𝒂𝒓𝒍𝒚 𝒂𝒏𝒅 𝑰'𝒍𝒍 𝒅𝒐 𝒎𝒚 𝒋𝒐𝒃. ✎",
+
+    "𝑵𝒐 𝒎𝒆𝒂𝒏𝒔 𝒃𝒂𝒅 𝒔𝒑𝒆𝒍𝒍𝒊𝒏𝒈 𝒐𝒓 𝒃𝒂𝒅 𝒍𝒖𝒄𝒌. ✦\n𝑬𝒊𝒕𝒉𝒆𝒓 𝒘𝒂𝒚, 𝒕𝒚𝒑𝒆 𝒂𝒈𝒂𝒊𝒏. 🔁\n✸ 𝑰𝒇 𝒊𝒕 𝒊𝒔𝒏'𝒕 𝒖𝒑𝒍𝒐𝒂𝒅𝒆𝒅, 𝒕𝒓𝒚 /𝒓𝒆𝒒𝒖𝒆𝒔𝒕 📩",
+
+    "𝑮𝒐𝒐𝒈𝒍𝒆 𝒃𝒉𝒊 𝒑𝒆𝒉𝒍𝒆 𝒏𝒂𝒂𝒎 𝒑𝒖𝒄𝒉𝒉𝒕𝒂 𝒉𝒂𝒊. ✦\n𝑺𝒕𝒐𝒓𝒚 𝒌𝒂 𝒏𝒂𝒂𝒎 𝒃𝒕𝒂𝒐 𝒑𝒆𝒉𝒍𝒆. 🗂",
+
+    "𝑩𝒓𝒐, 𝑰 𝒂𝒎 𝒂 𝒔𝒕𝒐𝒓𝒚 𝒃𝒐𝒕. ✦\n𝑴𝒐𝒐𝒅 𝒃𝒐𝒕 𝒏𝒂𝒉𝒊. 𝑵𝒂𝒎𝒆 𝒃𝒕𝒂𝒐. 🙂",
+
+    # Hinglish / casual
+    "𝑩𝒉𝒂𝒊 𝒎𝒂𝒊𝒏 𝒌𝒐𝒊 𝒅𝒊𝒗𝒚𝒂𝒅𝒓𝒊𝒔𝒉𝒕𝒊 𝒘𝒂𝒂𝒍𝒂 𝒃𝒂𝒃𝒂 𝒏𝒂𝒉𝒊 𝒉𝒐𝒐𝒏. ✦\n𝑺𝒉𝒊 𝒏𝒂𝒂𝒎 𝒍𝒊𝒌𝒉𝒐. 🙏",
+
+    "𝑶𝒌𝒂𝒚 𝒔𝒉𝒆𝒓𝒍𝒐𝒄𝒌, 𝒂𝒃 𝒌𝒚𝒂 𝒄𝒉𝒂𝒉𝒊𝒚𝒆? ✦\n𝑺𝒕𝒐𝒓𝒚 𝒌𝒂 𝒏𝒂𝒂𝒎 𝒅𝒆 𝒅𝒐. ✎\n✸ 𝑵𝒂𝒉𝒊 𝒎𝒊𝒍𝒊 𝒕𝒐 /𝒓𝒆𝒒𝒖𝒆𝒔𝒕 𝒌𝒂𝒓𝒐 📩",
+
+    "𝒀𝒂𝒂𝒓 𝒊𝒕𝒏𝒊 𝒔𝒊 𝒃𝒂𝒂𝒕. ✦\n𝑺𝒉𝒊 𝒏𝒂𝒂𝒎 𝒃𝒕𝒂𝒐, 𝒎𝒂𝒊𝒏 𝒃𝒂𝒂𝒌𝒊 𝒔𝒃 𝒔𝒂𝒎𝒃𝒉𝒂𝒍 𝒍𝒆𝒕𝒂 𝒉𝒐𝒐𝒏. 🫡",
+
+    "𝑴𝒂𝒊𝒏 𝒃𝒐𝒕 𝒉𝒐𝒐𝒏 𝒚𝒂𝒂𝒓, 𝒋𝒂𝒅𝒖𝒈𝒂𝒓 𝒏𝒂𝒉𝒊. ✦\n𝑺𝒉𝒊 𝒔𝒑𝒆𝒍𝒍𝒊𝒏𝒈 + 𝒔𝒉𝒊 𝒏𝒂𝒂𝒎 = 𝒎𝒂𝒊𝒏 𝒅𝒆 𝒅𝒐𝒐𝒏𝒈𝒂. 📦",
+
+    "𝑩𝒉𝒂𝒊 𝒕𝒖𝒎 𝒌𝒊𝒔𝒊 𝒅𝒐𝒔𝒕 𝒔𝒆 𝒑𝒖𝒄𝒉𝒉𝒐 𝒔𝒕𝒐𝒓𝒚 𝒌𝒂 𝒏𝒂𝒂𝒎. ✦\n𝑴𝒂𝒊𝒏 𝒕𝒐 𝒃𝒂𝒔 𝒍𝒊𝒏𝒌 𝒅𝒆𝒕𝒂 𝒉𝒐𝒐𝒏, 𝒅𝒊𝒎𝒂𝒈 𝒏𝒂𝒉𝒊. ✧",
+
+    "𝑴𝒖𝒋𝒉𝒆 𝒑𝒂𝒕𝒂 𝒉𝒂𝒊 𝒕𝒖𝒎 𝒄𝒐𝒏𝒇𝒖𝒔𝒆𝒅 𝒉𝒐. ✦\n𝑩𝒂𝒔 𝒔𝒉𝒊 𝒏𝒂𝒂𝒎 𝒅𝒐, 𝒎𝒂𝒊𝒏 𝒋𝒂𝒅𝒖 𝒅𝒊𝒌𝒉𝒂𝒕𝒂 𝒉𝒐𝒐𝒏. ✨\n✸ 𝑵𝒂𝒉𝒊 𝒎𝒊𝒍𝒊 𝒕𝒐 /𝒓𝒆𝒒𝒖𝒆𝒔𝒕 𝒌𝒂𝒓𝒐 📩",
+
+    # Pure Hindi
+    "𝒃𝒉𝒂𝒊 𝒎𝒂𝒊𝒏 𝒌𝒐𝒅 𝒑𝒓 𝒄𝒉𝒂𝒍𝒕𝒂 𝒉𝒐𝒐𝒏. ✦\nभाई मैं कोड पर चलता हूँ, दिमाग पर नहीं।\nसही नाम लिखो तो मिलेगा। ✎",
+
+    "यार इतनी सी बात है। ✦\nसही नाम बताओ, मैं बाकी सब संभाल लेता हूँ। 🫡\n✸ स्टोरी अपलोड नहीं है तो /request करो 📩",
+
+    "भाई मैं कोई दिव्यदृष्टि वाला बाबा नहीं हूँ। ✦\nसही नाम लिखो। 🙏",
+
+    "ये 'नहीं' सुनकर एक पल के लिए दिल टूट गया। 😢 ✦\nसही नाम लिखो, मैं ढूंढ देता हूँ।",
+
+    "गलत नाम लिखोगे तो गलत स्टोरी ही मिलेगी। ✦\nठीक से टाइप करो। 🔎\n✸ स्टोरी नहीं है डेटाबेस में? /request करो 📩",
+
+    "भाई, मेरे पास 10,000 स्टोरी हैं। ✦\nपर तुम्हारा नाम गलत था, इसमें मेरी क्या गलती? 😌",
+
+    "𝑷𝒓𝒊𝒚 𝒖𝒔𝒆𝒓, मैं टेलीपैथी नहीं जानता। ✦\nनाम सही लिखो, काम जल्दी होगा। ✎",
+
+    "ठीक है ठीक है, समझ गया। ✦\nअब सही नाम बताओ — एक बार और मौका है। 🔁\n✸ नहीं मिली? /request से माँगो 📩",
+
+    "अरे, नहीं मतलब क्या? ✦\nनाम बदल के दोबारा सर्च करो। 🔎",
+
+    "मेरे पास हर स्टोरी का लिंक है — बस सही नाम चाहिए। ✦\nGoogling से पहले यहाँ ट्राई करो। 😎",
+
+    "भाई, Siri भी इतना नहीं समझती। ✦\nसीधे नाम लिखो, काम बनाओ। ✎",
+
+    "मैं बोट हूँ यार। दिमाग नहीं पढ़ता। ✦\nनाम लिखो, स्टोरी लो। Simple. ✸ नहीं मिली? /request करो 📩",
+
+    "𝑩𝒉𝒂𝒊 𝒊𝒕𝒏𝒂 𝒅𝒓𝒂𝒎𝒂? ✦\nसिर्फ सही नाम टाइप करो। बस इतना काफी है। 🙂",
+
+    "नहीं नहीं नहीं… पर कौन सा नहीं? ✦\nस्पष्ट करो ज़रा। फिर मैं ढूंढता हूँ। 📖",
+
+    "यार तुम बोट से 'नहीं' कहते हो? ✦\nईमानदारी से — सही नाम दोगे तो सही स्टोरी मिलेगी। 😄",
+
+    "ओके, गलत हो गया। ✦\nअब सही नाम लो और फिर से टाइप करो। मैं तैयार हूँ। 🫡\n✸ डेटाबेस में नहीं? /request भेजो 📩",
+]
+
+# ── "Thanks" word set ────────────────────────────────────────────────────────
+_THANKS_WORDS = {
+    "thanks", "thank you", "thankyou", "ty", "thx", "thnks", "thnx",
+    "thank", "thanks bhai", "thanks yaar", "tysm", "tq",
+    "shukriya", "dhanyavaad", "dhanyawad", "shukriyaa",
+    "शुक्रिया", "धन्यवाद", "थैंक्स", "थैंक यू",
+}
+
+# ── 10 friendly "you're welcome" replies ────────────────────────────────────
+_THANKS_REPLIES = [
+    "𝑯𝒂𝒎𝒆𝒔𝒉𝒂 𝒔𝒘𝒂𝒈𝒂𝒕 𝒉𝒂𝒊! ✦\nजब भी कोई स्टोरी चाहिए, बस नाम लिखो। 📖",
+    "𝑴𝒆𝒏𝒕𝒊𝒐𝒏 𝒏𝒐𝒕! ✦\nRiya हमेशा यहाँ है। 😊",
+    "बहुत बहुत स्वागत है! ✦\nअगली स्टोरी के लिए — बस नाम टाइप करो। ✎",
+    "𝑨𝒍𝒘𝒂𝒚𝒔 𝒉𝒂𝒑𝒑𝒚 𝒕𝒐 𝒉𝒆𝒍𝒑! ✦\nAur stories padhni ho toh name type karo. 📚",
+    "कोई बात नहीं! यही मेरा काम है। ✦\nAur kuch chahiye toh batao. 🫡",
+    "𝑾𝒆𝒍𝒄𝒐𝒎𝒆! ✦ पढ़ते रहो, मज़े करते रहो। 📖✨",
+    "𝑵𝒐 𝒑𝒓𝒐𝒃! ✦\nNext story search karo — I'm ready. 🚀",
+    "शुक्रिया कहने की ज़रूरत नहीं — पर अच्छा लगा! ✦ 😄",
+    "𝑨𝒏𝒚𝒕𝒊𝒎𝒆, 𝒔𝒆𝒓𝒊𝒐𝒖𝒔𝒍𝒚. ✦\nRiya is here 24/7 — story ho ya na ho. 🌸",
+    "आपकी सेवा में सदा तत्पर! ✦\nबस नाम लिखो, लिंक हाज़िर। 📩",
+]
+
+# ── Reactions by mood ────────────────────────────────────────────────────────
+# Riya's full reaction palette — varied and mood-fitted
+_REACTIONS_NO = [
+    "🤓", "😐", "🤡", "😶", "🙄", "🤨", "😑", "💅",
+    "🥲", "😮‍💨", "🫠", "😤", "🫤", "🤪",
+]
+_REACTIONS_NOT_FOUND = [
+    "😶", "🤷", "💔", "😢", "🫥", "🥺", "😔",
+]
+_REACTIONS_THANKS = [
+    "🥰", "❤", "🌸", "🎉", "👍", "🤩", "😊",
+]
+
+
+def _is_no_msg(text: str) -> bool:
+    t = re.sub(r"[!?.,'\"…।]+$", "", text.strip().lower()).strip()
+    return t in _NO_WORDS
+
+
+def _is_thanks_msg(text: str) -> bool:
+    t = re.sub(r"[!?.,'\"…।]+$", "", text.strip().lower()).strip()
+    return t in _THANKS_WORDS
+
+
+async def _try_react(bot, chat_id: int, message_id: int, emoji: str):
+    """Silently attempt to set a Telegram reaction on a message."""
+    try:
+        from telegram import ReactionTypeEmoji
+        await bot.set_message_reaction(
+            chat_id=chat_id,
+            message_id=message_id,
+            reaction=[ReactionTypeEmoji(emoji=emoji)],
+            is_big=False,
+        )
+    except Exception as _re:
+        logger.debug("Reaction failed: %s", _re)
+
+
+async def _handle_no_or_thanks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """
+    Handles two special message types BEFORE normal search processing:
+    1. 'No/Nahi' — if user searched recently (reply OR non-reply), send savage response.
+    2. 'Thanks'  — send a warm welcome reply and react.
+    Returns True if handled (caller should stop).
+    """
+    msg = update.message
+    if not msg or not msg.text:
+        return False
+
+    user = msg.from_user
+    if not user:
+        return False
+
+    raw = msg.text.strip()
+    chat_id = msg.chat_id
+    user_id = user.id
+
+    # ── 1. Thanks handler ────────────────────────────────────────────────────
+    if _is_thanks_msg(raw):
+        react = _random.choice(_REACTIONS_THANKS)
+        asyncio.create_task(_try_react(context.bot, chat_id, msg.message_id, react))
+        reply = _random.choice(_THANKS_REPLIES)
+        sent = await msg.reply_text(reply, parse_mode=None)
+        # Auto-delete the reply after 60 seconds
+        async def _del_thanks(m):
+            await asyncio.sleep(60)
+            try:
+                await m.delete()
+            except Exception:
+                pass
+        asyncio.create_task(_del_thanks(sent))
+        return True
+
+    # ── 2. No/Nahi handler ───────────────────────────────────────────────────
+    if not _is_no_msg(raw):
+        return False
+
+    # Check if user replied to the bot's search result (original behaviour)
+    replied_to_bot_search = False
+    reply_to = getattr(msg, "reply_to_message", None)
+    if reply_to and reply_to.from_user and reply_to.from_user.id == context.bot.id:
+        ref_key = (chat_id, reply_to.message_id)
+        if ref_key in _bot_search_replies:
+            replied_to_bot_search = True
+
+    # OR: user searched within the last 2 minutes (context-aware, no reply needed)
+    recent_search = _user_searched_recently(chat_id, user_id)
+
+    if not replied_to_bot_search and not recent_search:
+        return False
+
+    # Fire!
+    savage = _random.choice(_NAHI_REPLIES)
+    react  = _random.choice(_REACTIONS_NO)
+
+    asyncio.create_task(_try_react(context.bot, chat_id, msg.message_id, react))
+    await msg.reply_text(savage, parse_mode=None)
+    return True
+
+
+async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.chat_data and context.chat_data.get("config_state"):
+        return await handle_config_input(update, context)
+
+    # Handle No/Nahi + Thanks BEFORE is_valid_query filters them out
+    if await _handle_no_or_thanks(update, context):
         return
 
+    return await search(update, context)
 
-
-
-# -----------------------
-# start bot
-# -----------------------
-
-
-        return
-    text = "🔥 *Trending Stories (This Week)*\n\n"
-    for i, (k, v) in enumerate(sorted_trend, 1):
-        text += f"{i}. `{k}` — _{v} searches_\n"
-    await update.message.reply_text(text, parse_mode="Markdown")
-
-async def saved_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id_str = str(update.effective_user.id)
-    favs = favorites_db.get(user_id_str, [])
-    if not favs:
-        await update.message.reply_text("You have no saved stories. ⭐ Use 'Save to Favorites' when you search stories.")
-        return
-    text = "⭐ *Your Saved Stories*\n\n"
-    for story_key in favs:
-        res = get_story(story_key)
-        if res:
-            text += f"• [{story_key}]({res['link']})\n"
-        else:
-            text += f"• `{story_key}` (link unavailable)\n"
-    await update.message.reply_text(text, parse_mode="Markdown")
-
-async def browse_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    db = load_db()
-    types = set()
-    for s in db.values():
-        val = s.get("story_type")
-        if val: types.add(val)
-    if not types:
-        await update.message.reply_text("No categories available yet.")
-        return
-    types = list(types)[:10]
-    keyboard = []
-    for t in types:
-        keyboard.append([InlineKeyboardButton(t.capitalize(), switch_inline_query_current_chat=t)])
-    await update.message.reply_text("📑 *Browse by Category*\n\nSelect a category to search:", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
-
-async def new_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    db = load_db()
-    all_stories = list(db.values())
-    all_stories.sort(key=lambda s: s.get("message_id", 0), reverse=True)
-    stories = all_stories[:10]
-    if not stories:
-        await update.message.reply_text("No new stories.")
-        return
-    text = "🆕 *Recently Added Stories*\n\n"
-    for s in stories:
-        name = s.get("name") or s.get("text") or "Story"
-        text += f"• [{clean_story(name)}]({s.get('link')})\n"
-    await update.message.reply_text(text, parse_mode="Markdown", disable_web_page_preview=True)
-
-async def myrequests_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
-    reqs = []
-    for name, req in request_db.items():
-        if str(req.get("user_id")) == user_id:
-            reqs.append(req)
-    if not reqs:
-        await update.message.reply_text("You have no pending requests. Use /request <name>")
-        return
-    text = "📬 *Your Pending Requests*\n\n"
-    for req in reqs:
-        text += f"• `{req['name']}` (Requested on {req.get('timestamp','Unknown')[:10]})\n"
-    await update.message.reply_text(text, parse_mode="Markdown")
-
-async def requests_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id): return
-    if not request_db:
-        await update.message.reply_text("No pending requests.")
-        return
-    text = "📋 *Pending Requests*\n\n"
-    for name, req in list(request_db.items())[:20]:
-        text += f"• `{name}` ({req.get('count', 1)} requests)\n"
-    await update.message.reply_text(text, parse_mode="Markdown")
-
-async def userinfo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id): return
-    if not context.args: return await update.message.reply_text("Usage: /userinfo <user_id>")
-    target = context.args[0]
-    favs = len(favorites_db.get(target, []))
-    searches = stats_db.get("users", {}).get(target, 0)
-    reqs = [r for r in request_db.values() if str(r.get("user_id")) == target]
-    text = f"🛡️ *User Info for {target}*\n\nSearches: `{searches}`\nSaved: `{favs}`\nPending Requests: `{len(reqs)}`"
-    await update.message.reply_text(text, parse_mode="Markdown")
 
 async def settimer_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id): return
