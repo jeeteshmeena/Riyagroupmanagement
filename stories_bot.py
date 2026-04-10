@@ -5300,6 +5300,117 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return await search(update, context)
 
 
+async def saved_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id_str = str(update.effective_user.id)
+    favs = favorites_db.get(user_id_str, [])
+    if not favs:
+        await update.message.reply_text("You have no saved stories. ⭐ Use 'Save to Favorites' when you search stories.")
+        return
+    text = "<b>⭐ Your Saved Stories</b>\n\n"
+    for story_key in favs:
+        res = get_story(story_key)
+        if res:
+            text += f"• <a href='{res['link']}'>{html.escape(clean_story(story_key))}</a>\n"
+        else:
+            text += f"• <code>{html.escape(clean_story(story_key))}</code> (link unavailable)\n"
+    await update.message.reply_text(text, parse_mode="HTML", disable_web_page_preview=True)
+
+
+async def browse_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    db = load_db()
+    types = set()
+    for s in db.values():
+        val = s.get("story_type")
+        if val:
+            types.add(val)
+    if not types:
+        await update.message.reply_text("No categories available yet.")
+        return
+    types = list(types)[:10]
+    keyboard = []
+    for t in types:
+        keyboard.append([InlineKeyboardButton(t.capitalize(), switch_inline_query_current_chat=t)])
+    await update.message.reply_text(
+        "<b>📑 Browse by Category</b>\n\nSelect a category to search:",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+
+async def new_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    db = load_db()
+    all_stories = list(db.values())
+    all_stories.sort(key=lambda s: s.get("message_id", 0), reverse=True)
+    stories = all_stories[:10]
+    if not stories:
+        await update.message.reply_text("No new stories.")
+        return
+    text = "<b>🆕 Recently Added Stories</b>\n\n"
+    for s in stories:
+        name = s.get("name") or s.get("text") or "Story"
+        link = s.get("link", "")
+        safe = html.escape(clean_story(name))
+        text += f"• <a href='{link}'>{safe}</a>\n" if link else f"• {safe}\n"
+    await update.message.reply_text(text, parse_mode="HTML", disable_web_page_preview=True)
+
+
+async def myrequests_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    reqs = []
+    for name, chat_map in request_db.items():
+        if isinstance(chat_map, dict):
+            for chat_id_str, uids in chat_map.items():
+                if user_id in uids:
+                    reqs.append(name)
+                    break
+    if not reqs:
+        await update.message.reply_text("You have no pending requests. Use /request <story name>")
+        return
+    text = "<b>📬 Your Pending Requests</b>\n\n"
+    for r in reqs[:20]:
+        text += f"• <code>{html.escape(clean_story(r))}</code>\n"
+    await update.message.reply_text(text, parse_mode="HTML")
+
+
+async def requests_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+    if not request_db:
+        await update.message.reply_text("No pending requests.")
+        return
+    text = "<b>📋 Pending Requests</b>\n\n"
+    count = 0
+    for name, chat_map in list(request_db.items())[:20]:
+        total = sum(len(v) for v in chat_map.values()) if isinstance(chat_map, dict) else 0
+        text += f"• <code>{html.escape(clean_story(name))}</code> — {total} request(s)\n"
+        count += 1
+    await update.message.reply_text(text, parse_mode="HTML")
+
+
+async def userinfo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+    if not context.args:
+        return await update.message.reply_text("Usage: /userinfo <user_id>")
+    target = context.args[0]
+    favs = len(favorites_db.get(target, []))
+    searches = stats_db.get("users", {}).get(target, 0)
+    reqs = []
+    for name, chat_map in request_db.items():
+        if isinstance(chat_map, dict):
+            for uids in chat_map.values():
+                if int(target) in uids:
+                    reqs.append(name)
+                    break
+    text = (
+        f"<b>🛡️ User Info for {target}</b>\n\n"
+        f"Searches: <code>{searches}</code>\n"
+        f"Saved: <code>{favs}</code>\n"
+        f"Pending Requests: <code>{len(reqs)}</code>"
+    )
+    await update.message.reply_text(text, parse_mode="HTML")
+
+
 async def settimer_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id): return
     if len(context.args) < 2:
