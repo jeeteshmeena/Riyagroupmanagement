@@ -1,3 +1,162 @@
+_NAHI_REPLIES = [
+    """<i>Bas ek sahi naam ki doori par hai tumhari kahani! 🎀</i>""",
+    """<code>Theek hai, maaf kiya. Ab sahi naam likho. 😌</code>""",
+    """<code>Main humesha available hoon, bas thoda cooperate karo! 💫</code>""",
+    """<code>I just provide the links. Generating the right name is on you! 💖</code>""",
+    """<code>Alright, let's try this one more time. 🔁 🌸</code>""",
+    """<code>मुझे मालूम है तुम कन्फ्यूज्ड हो, पर सही नाम तो दो! 💖</code>""",
+    """<b>Your spellings are literally making me dizzy! 😵‍💫</b>
+✸ <i>Try /request if it's not here!</i> 📩""",
+    """<i>Naam sahi doge tabhi toh kahani de paungi. Phir se try karo! ✨</i>""",
+    """<i>ठीक है, माफ किया। अब सही नाम लिखो। 😌</i>""",
+    """<i>ठीक है, माफ किया। अब सही नाम लिखो। 😌</i>""",
+    """<b>I'm a bot, not a mind reader! Spell it right please. ✨</b>""",
+    """<i>Yaar, main tumhara dimaag nahi padh sakti. Sahi naam batao. 🫧</i>""",
+    """<b>Arey bhai, thoda sa toh dimaag khud bhi laga lo. 🧚‍♀️</b>""",
+    """<code>Maine 10,000 story check kar li, par ye naam nahi hai! 💅</code>
+✸ <i>Try /request if it's not here!</i> 📩""",
+    """<b>मुझे परेशान मत करो, सही स्पेलिंग लिखो प्लीज! 🌙</b>""",
+    """<b>मैं हमेशा तुम्हारी मदद के लिए हूँ, बस थोड़ा कोऑपरेट करो! 🧚‍♀️</b>""",
+    """<code>A little typing accuracy goes a long way. ✧</code>""",
+    """<b>बस एक सही नाम की दूरी पर है तुम्हारी कहानी! 💖</b>""",
+    """<b>Ye 'nahi' sunkar mujhe bahut bura lagta hai. Sahi naam de do na! ✨</b>
+✸ <i>Try /request if it's not here!</i> 📩""",
+    """<code>मैं हमेशा तुम्हारी मदद के लिए हूँ, बस थोड़ा कोऑपरेट करो! 🧚‍♀️</code>""",
+    """<b>मैंने 10,000 स्टोरी छान मारी, पर ये नाम नहीं मिला! 🧚‍♀️</b>
+✸ <i>Try /request if it's not here!</i> 📩""",
+    """<b><i>Main humesha available hoon, bas thoda cooperate karo! 💅</i></b>""",
+    """<code>क्या यार! इतनी सी बात? सही नाम बताओ, मैं सब संभाल लूंगी। 💖</code>""",
+    """<i>अरे, ये कौन सा नाम हुआ? सही से टाइप करो मैं हूँ ना ढूंढने के लिए। 💅</i>""",
+    """<b><i>Oh come on! Just tell me the right name, I'll take care of the rest. ✧</i></b>""",
+    """<code>What kind of spelling is that? I can't find anything with that. 💫</code>""",
+    """<b>ये 'नहीं' सुनकर मुझे बहुत बुरा लगता है। सही नाम दे दो ना! 🎀</b>
+✸ <i>Try /request if it's not here!</i> 📩""",
+    """<b><i>बस एक सही नाम की दूरी पर है तुम्हारी कहानी! 💭</i></b>""",
+    """<b><i>Mujhe malum hai tum confused ho, par sahi naam toh do! 💅</i></b>""",
+    """<b><i>Theek hai, maaf kiya. Ab sahi naam likho. 😌</i></b>""",
+    """<b><i>I search so hard and you just say 'no'? 🥺</i></b>""",
+    """<b>Galat naam likhoge toh galat hi milega na. Thoda dhyan se likho! 🌙</b>""",
+    """<b>Why does this always happen to me? Just type the right name! 🌙</b>""",
+    """<code>क्या फायदा इतना एडवांस होने का जब तुम नाम ही सही नहीं देते? 🌺</code>""",
+    """<b><i>मैं कोई जादूगरनी नहीं हूँ जो बिना सही नाम के सब ढूंढ लाऊं! 🧚‍♀️</i></b>""",
+    """<i>Use a little bit of your brain too! Check the spelling. 💅</i>
+✸ <i>Try /request if it's not here!</i> 📩""",
+    """<b>मैंने 10,000 स्टोरी छान मारी, पर ये नाम नहीं मिला! 🌺</b>""",
+    """<i>I'm not a sorceress! I need the exact name to find it for you. 💅</i>""",
+    """<code>What's the point of being advanced if you can't spell? 🧚‍♀️</code>""",
+    """<b><i>तुमने नाम ही गलत दिया है, मेरी क्या गलती? 🤷‍♀️</i></b>""",
+    """<b><i>If you just write the correct name, I'll give it to you in 2 seconds. 🧚‍♀️</i></b>
+✸ <i>Try /request if it's not here!</i> 📩""",
+    """<b><i>अरे, ये कौन सा नाम हुआ? सही से टाइप करो मैं हूँ ना ढूंढने के लिए। 🌺</i></b>""",
+    """<code>Itna drama kyu? Sidhe-sidhe naam kyu nahi likhte? ✧</code>""",
+    """<b>अरे, ये कौन सा नाम हुआ? सही से टाइप करो मैं हूँ ना ढूंढने के लिए। 💅</b>""",
+    """<b>Theek hai, maaf kiya. Ab sahi naam likho. 😌</b>""",
+    """<b><i>Oh come on! Just tell me the right name, I'll take care of the rest. 💭</i></b>""",
+    """<b>I know you're confused, but I need the correct name to help! 💅</b>
+✸ <i>Try /request if it's not here!</i> 📩""",
+    """<b>मैं भी इंसान नहीं हूँ, मशीन हूँ, पर इतना तो समझती हूँ कि कुछ गलत है! 🌸</b>""",
+    """<b>नाम सही दोगे तभी तो कहानी दे पाउंगी। फिर से ट्राई करो! 🦋</b>
+✸ <i>Try /request if it's not here!</i> 📩""",
+    """<code>मैंने 10,000 स्टोरी छान मारी, पर ये नाम नहीं मिला! 🫧</code>""",
+    """<b>Arey baba, sahi naam likhoge toh 2 second mein link de dungi. ✧</b>
+✸ <i>Try /request if it's not here!</i> 📩""",
+    """<b>I'm always here to help, just cooperate a little! 🧚‍♀️</b>""",
+    """<code>I'm a bot, not a mind reader! Spell it right please. 🌙</code>
+✸ <i>Try /request if it's not here!</i> 📩""",
+    """<b>I just provide the links. Generating the right name is on you! 🦋</b>
+✸ <i>Try /request if it's not here!</i> 📩""",
+    """<i>ये 'नहीं' सुनकर मुझे बहुत बुरा लगता है। सही नाम दे दो ना! 🌙</i>""",
+    """<b>इतनी मेहनत से ढूंढती हूँ, और तुम 'नहीं' बोल देते हो? 🥺</b>""",
+    """<b>मैंने 10,000 स्टोरी छान मारी, पर ये नाम नहीं मिला! 🎀</b>""",
+    """<code>You gave me the wrong name, how is that my fault? 🤷‍♀️</code>
+✸ <i>Try /request if it's not here!</i> 📩""",
+    """<i>Oh come on! Just tell me the right name, I'll take care of the rest. 🦋</i>""",
+    """<code>Arey baba, sahi naam likhoge toh 2 second mein link de dungi. 🌙</code>""",
+    """<b>इतना ड्रामा क्यों? सीधे-सीधे नाम क्यों नहीं लिखते? 🦋</b>""",
+    """<b><i>Mujhe malum hai tum confused ho, par sahi naam toh do! 🌺</i></b>
+✸ <i>Try /request if it's not here!</i> 📩""",
+    """<b><i>You're just one correct spelling away from your story! 🧚‍♀️</i></b>""",
+    """<b>Your spellings are literally making me dizzy! 😵‍💫</b>""",
+    """<b>I searched through 10,000 stories and couldn't find this. 💭</b>""",
+    """<b>अरे, ये कौन सा नाम हुआ? सही से टाइप करो मैं हूँ ना ढूंढने के लिए। 🎀</b>""",
+    """<b><i>तुमने नाम ही गलत दिया है, मेरी क्या गलती? 🤷‍♀️</i></b>""",
+    """<i>Don't torture me with typos, please! 🌙</i>""",
+    """<code>I search so hard and you just say 'no'? 🥺</code>""",
+    """<b>I searched through 10,000 stories and couldn't find this. ✨</b>""",
+    """<code>Theek hai, maaf kiya. Ab sahi naam likho. 😌</code>""",
+    """<code>ये 'नहीं' सुनकर मुझे बहुत बुरा लगता है। सही नाम दे दो ना! 💅</code>
+✸ <i>Try /request if it's not here!</i> 📩""",
+    """<b><i>Give me the right name and I'll fetch the story. Try again! 🎀</i></b>""",
+    """<b><i>Give me the right name and I'll fetch the story. Try again! 🦋</i></b>""",
+    """<i>Mujhe toh chakkar aa rahe hain tumhare naam dekhkar! 😵‍💫</i>""",
+    """<code>मैंने 10,000 स्टोरी छान मारी, पर ये नाम नहीं मिला! 💖</code>""",
+    """<code>Ye sab mere saath hi kyu hota hai? Sahi naam likho na yaar! 💖</code>""",
+    """<b>मुझे तो चक्कर आ रहे हैं तुम्हारे नाम देखकर! 😵‍💫</b>
+✸ <i>Try /request if it's not here!</i> 📩""",
+    """<code>यार, मैं तुम्हारा दिमाग नहीं पढ़ सकती। सही नाम बताओ। 🌺</code>
+✸ <i>Try /request if it's not here!</i> 📩""",
+    """<b>Itni mehnat se dhundhti hoon, aur tum 'nahi' bol dete ho. 🥺</b>""",
+    """<i>अच्छा चलो, एक बार और ट्राई करो। 🔁 🌙</i>""",
+    """<code>I'm a bot, not a mind reader! Spell it right please. 🎀</code>""",
+    """<b>भाई, मैं लड़की हूँ, कोई गूगल का सुपर कंप्यूटर थोड़ी! सही नाम लिखो। 🦋</b>""",
+    """<code>Oh come on! Just tell me the right name, I'll take care of the rest. 🌙</code>""",
+    """<code>क्या यार! इतनी सी बात? सही नाम बताओ, मैं सब संभाल लूंगी। ✨</code>""",
+    """<b>I'm a girl doing her best here! Check your spelling. ✨</b>""",
+    """<i>गलत नाम लिखोगे तो गलत ही मिलेगा ना। थोड़ा ध्यान से लिखो! 🌙</i>""",
+    """<code>Arey bhai, thoda sa toh dimaag khud bhi laga lo. 🌸</code>
+✸ <i>Try /request if it's not here!</i> 📩""",
+    """<i>नाम सही दोगे तभी तो कहानी दे पाउंगी। फिर से ट्राई करो! 💅</i>""",
+    """<b><i>ये 'नहीं' सुनकर मुझे बहुत बुरा लगता है। सही नाम दे दो ना! 🎀</i></b>""",
+    """<b><i>मुझे परेशान मत करो, सही स्पेलिंग लिखो प्लीज! 💅</i></b>""",
+    """<code>Accha chalo, ek baar aur try karo. 🔁 💫</code>
+✸ <i>Try /request if it's not here!</i> 📩""",
+    """<i>What's the point of being advanced if you can't spell? 🌸</i>
+✸ <i>Try /request if it's not here!</i> 📩""",
+    """<b>क्या यार! इतनी सी बात? सही नाम बताओ, मैं सब संभाल लूंगी। 🌸</b>
+✸ <i>Try /request if it's not here!</i> 📩""",
+    """<b><i>ठीक है, माफ किया। अब सही नाम लिखो। 😌</i></b>
+✸ <i>Try /request if it's not here!</i> 📩""",
+    """<b><i>Your spellings are literally making me dizzy! 😵‍💫</i></b>""",
+    """<b><i>I'm a girl doing her best here! Check your spelling. 🌺</i></b>""",
+    """<i>यार, मैं तुम्हारा दिमाग नहीं पढ़ सकती। सही नाम बताओ। ✨</i>
+✸ <i>Try /request if it's not here!</i> 📩""",
+    """<b>मुझे तो चक्कर आ रहे हैं तुम्हारे नाम देखकर! 😵‍💫</b>""",
+    """<b><i>Arey, ye kaun sa naam hua? Sahi se type karo main hoon na dhundhne ke liye. 💭</i></b>""",
+]
+
+_THANKS_REPLIES = [
+    """<b><i>Mention not! Riya is always here. 💭</i></b>""",
+    """<b><i>Anytime, seriously. Riya is here 24/7. 🫧</i></b>""",
+    """<b><i>Always happy to help! Just drop the name for the next story. 💅</i></b>""",
+    """<b>You're welcome! Keep reading, keep enjoying. 💖</b>""",
+    """<code>You're welcome! Keep reading, keep enjoying. 🧚‍♀️</code>""",
+    """<b>No worries at all! Let me know if you need another one. 💖</b>""",
+    """<code>शुक्रिया कहने की ज़रूरत नहीं, मुझे अच्छा लगा! 💫</code>""",
+    """<code>You're welcome! Keep reading, keep enjoying. 💫</code>""",
+    """<code>You're welcome! Keep reading, keep enjoying. 💖</code>""",
+    """<code>आपकी सेवा में सदा तत्पर! बस नाम लिखो, लिंक हाज़िर। ✧</code>""",
+    """<code>Mention not! Riya is always here. 🫧</code>""",
+    """<code>Mention not! Riya is always here. 💫</code>""",
+    """<b>Anytime, seriously. Riya is here 24/7. 🦋</b>""",
+    """<b><i>No worries at all! Let me know if you need another one. 💭</i></b>""",
+    """<b><i>कोई बात नहीं! Riya हमेशा यहाँ है आपकी मदद के लिए। 🌸</i></b>""",
+    """<b>No worries at all! Let me know if you need another one. 🫧</b>""",
+    """<b>शुक्रिया कहने की ज़रूरत नहीं, मुझे अच्छा लगा! 💫</b>""",
+    """<b><i>Always happy to help! Just drop the name for the next story. ✨</i></b>""",
+    """<code>Koi baat nahi! Yahi mera kaam hai. Aur kuch chahiye toh batao. 🫧</code>""",
+    """<i>Mention not! Riya is always here. 🌙</i>""",
+    """<i>शुक्रिया कहने की ज़रूरत नहीं, मुझे अच्छा लगा! ✧</i>""",
+    """<code>आपकी सेवा में सदा तत्पर! बस नाम लिखो, लिंक हाज़िर। 🌺</code>""",
+    """<b><i>You're welcome! Keep reading, keep enjoying. ✧</i></b>""",
+    """<b>आपकी सेवा में सदा तत्पर! बस नाम लिखो, लिंक हाज़िर। ✨</b>""",
+    """<code>Koi baat nahi! Yahi mera kaam hai. Aur kuch chahiye toh batao. ✧</code>""",
+    """<i>Glad I could help. Just ask anytime! 💅</i>""",
+    """<b><i>No worries at all! Let me know if you need another one. 🌸</i></b>""",
+    """<b><i>My pleasure! Let's find some more stories together. 🌙</i></b>""",
+    """<b>Always happy to help! Just drop the name for the next story. 🌸</b>""",
+    """<b>बहुत बहुत स्वागत है! अगली स्टोरी के लिए बस नाम टाइप करो। 💭</b>""",
+]
+
 import logging
 import os
 import signal
@@ -2996,7 +3155,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user = query.from_user
 
-    if not query.data.startswith(("fav|", "check_sub")):
+    if not query.data.startswith(("fav|", "check_sub", "whisper|")):
         try:
             await query.answer()
         except Exception:
@@ -5106,104 +5265,28 @@ _NO_WORDS = {
 
 # ── 30 savage + funny replies — mix of English, Hinglish, and Hindi ──────────
 # Some include /request hints (marked with ✸)
-_NAHI_REPLIES = [
-    # English / Hinglish
-    "𝑩𝒓𝒐, 𝑰 𝒂𝒎 𝒂 𝒃𝒐𝒕 𝒏𝒐𝒕 𝒂 𝒎𝒊𝒏𝒅 𝒓𝒆𝒂𝒅𝒆𝒓. ✦\n𝑻𝒚𝒑𝒆 𝒕𝒉𝒆 𝒔𝒕𝒐𝒓𝒚 𝒏𝒂𝒎𝒆 𝒑𝒓𝒐𝒑𝒆𝒓𝒍𝒚 𝒂𝒏𝒅 𝑰'𝒍𝒍 𝒇𝒊𝒏𝒅 𝒊𝒕 𝒊𝒏 2 𝒔𝒆𝒄𝒐𝒏𝒅𝒔. ⌛",
-
-    "𝑵𝒐? 𝑻𝒉𝒆𝒏 𝒔𝒑𝒆𝒍𝒍 𝒊𝒕 𝒐𝒖𝒕. ✦\n𝑰 𝒈𝒐𝒕 10,000 𝒔𝒕𝒐𝒓𝒊𝒆𝒔. 𝑮𝒖𝒆𝒔𝒔𝒊𝒏𝒈 𝒊𝒔 𝒏𝒐𝒕 𝒎𝒚 𝒋𝒐𝒃. 📖\n✸ 𝑰𝒇 𝒊𝒕'𝒔 𝒏𝒐𝒕 𝒖𝒑𝒍𝒐𝒂𝒅𝒆𝒅 𝒚𝒆𝒕, 𝒖𝒔𝒆 /𝒓𝒆𝒒𝒖𝒆𝒔𝒕 𝒕𝒐 𝒓𝒆𝒒𝒖𝒆𝒔𝒕 𝒊𝒕. 📩",
-
-    "𝑰 𝒓𝒂𝒏 10,000 𝒔𝒕𝒐𝒓𝒊𝒆𝒔 𝒕𝒉𝒓𝒐𝒖𝒈𝒉 𝒎𝒚 𝒃𝒓𝒂𝒊𝒏.\n𝒀𝒐𝒖 𝒘𝒓𝒐𝒕𝒆 𝒕𝒉𝒆 𝒘𝒓𝒐𝒏𝒈 𝒏𝒂𝒎𝒆. 𝑻𝒉𝒂𝒕'𝒔 𝒐𝒏 𝒚𝒐𝒖. ✦",
-
-    "𝑺𝒊𝒓𝒊 𝒃𝒉𝒊 𝒊𝒕𝒏𝒂 𝒌𝒖𝒄𝒉 𝒏𝒂𝒉𝒊 𝒔𝒂𝒎𝒂𝒋𝒉𝒕𝒊. ✦\n𝑵𝒂𝒎 𝒃𝒕𝒂𝒐, 𝒌𝒂𝒂𝒎 𝒃𝒂𝒏𝒂𝒐. ✎",
-
-    "𝑩𝒓𝒐 𝑰 𝒂𝒎 𝒋𝒖𝒔𝒕 𝒂 𝒃𝒐𝒕, 𝒏𝒐𝒕 𝒚𝒐𝒖𝒓 𝒑𝒆𝒓𝒔𝒐𝒏𝒂𝒍 𝒂𝒔𝒔𝒊𝒔𝒕𝒂𝒏𝒕. ✦\n𝑻𝒚𝒑𝒆 𝒄𝒍𝒆𝒂𝒓𝒍𝒚 𝒂𝒏𝒅 𝑰'𝒍𝒍 𝒅𝒐 𝒎𝒚 𝒋𝒐𝒃. ✎",
-
-    "𝑵𝒐 𝒎𝒆𝒂𝒏𝒔 𝒃𝒂𝒅 𝒔𝒑𝒆𝒍𝒍𝒊𝒏𝒈 𝒐𝒓 𝒃𝒂𝒅 𝒍𝒖𝒄𝒌. ✦\n𝑬𝒊𝒕𝒉𝒆𝒓 𝒘𝒂𝒚, 𝒕𝒚𝒑𝒆 𝒂𝒈𝒂𝒊𝒏. 🔁\n✸ 𝑰𝒇 𝒊𝒕 𝒊𝒔𝒏'𝒕 𝒖𝒑𝒍𝒐𝒂𝒅𝒆𝒅, 𝒕𝒓𝒚 /𝒓𝒆𝒒𝒖𝒆𝒔𝒕 📩",
-
-    "𝑮𝒐𝒐𝒈𝒍𝒆 𝒃𝒉𝒊 𝒑𝒆𝒉𝒍𝒆 𝒏𝒂𝒂𝒎 𝒑𝒖𝒄𝒉𝒉𝒕𝒂 𝒉𝒂𝒊. ✦\n𝑺𝒕𝒐𝒓𝒚 𝒌𝒂 𝒏𝒂𝒂𝒎 𝒃𝒕𝒂𝒐 𝒑𝒆𝒉𝒍𝒆. 🗂",
-
-    "𝑩𝒓𝒐, 𝑰 𝒂𝒎 𝒂 𝒔𝒕𝒐𝒓𝒚 𝒃𝒐𝒕. ✦\n𝑴𝒐𝒐𝒅 𝒃𝒐𝒕 𝒏𝒂𝒉𝒊. 𝑵𝒂𝒎𝒆 𝒃𝒕𝒂𝒐. 🙂",
-
-    # Hinglish / casual
-    "𝑩𝒉𝒂𝒊 𝒎𝒂𝒊𝒏 𝒌𝒐𝒊 𝒅𝒊𝒗𝒚𝒂𝒅𝒓𝒊𝒔𝒉𝒕𝒊 𝒘𝒂𝒂𝒍𝒂 𝒃𝒂𝒃𝒂 𝒏𝒂𝒉𝒊 𝒉𝒐𝒐𝒏. ✦\n𝑺𝒉𝒊 𝒏𝒂𝒂𝒎 𝒍𝒊𝒌𝒉𝒐. 🙏",
-
-    "𝑶𝒌𝒂𝒚 𝒔𝒉𝒆𝒓𝒍𝒐𝒄𝒌, 𝒂𝒃 𝒌𝒚𝒂 𝒄𝒉𝒂𝒉𝒊𝒚𝒆? ✦\n𝑺𝒕𝒐𝒓𝒚 𝒌𝒂 𝒏𝒂𝒂𝒎 𝒅𝒆 𝒅𝒐. ✎\n✸ 𝑵𝒂𝒉𝒊 𝒎𝒊𝒍𝒊 𝒕𝒐 /𝒓𝒆𝒒𝒖𝒆𝒔𝒕 𝒌𝒂𝒓𝒐 📩",
-
-    "𝒀𝒂𝒂𝒓 𝒊𝒕𝒏𝒊 𝒔𝒊 𝒃𝒂𝒂𝒕. ✦\n𝑺𝒉𝒊 𝒏𝒂𝒂𝒎 𝒃𝒕𝒂𝒐, 𝒎𝒂𝒊𝒏 𝒃𝒂𝒂𝒌𝒊 𝒔𝒃 𝒔𝒂𝒎𝒃𝒉𝒂𝒍 𝒍𝒆𝒕𝒂 𝒉𝒐𝒐𝒏. 🫡",
-
-    "𝑴𝒂𝒊𝒏 𝒃𝒐𝒕 𝒉𝒐𝒐𝒏 𝒚𝒂𝒂𝒓, 𝒋𝒂𝒅𝒖𝒈𝒂𝒓 𝒏𝒂𝒉𝒊. ✦\n𝑺𝒉𝒊 𝒔𝒑𝒆𝒍𝒍𝒊𝒏𝒈 + 𝒔𝒉𝒊 𝒏𝒂𝒂𝒎 = 𝒎𝒂𝒊𝒏 𝒅𝒆 𝒅𝒐𝒐𝒏𝒈𝒂. 📦",
-
-    "𝑩𝒉𝒂𝒊 𝒕𝒖𝒎 𝒌𝒊𝒔𝒊 𝒅𝒐𝒔𝒕 𝒔𝒆 𝒑𝒖𝒄𝒉𝒉𝒐 𝒔𝒕𝒐𝒓𝒚 𝒌𝒂 𝒏𝒂𝒂𝒎. ✦\n𝑴𝒂𝒊𝒏 𝒕𝒐 𝒃𝒂𝒔 𝒍𝒊𝒏𝒌 𝒅𝒆𝒕𝒂 𝒉𝒐𝒐𝒏, 𝒅𝒊𝒎𝒂𝒈 𝒏𝒂𝒉𝒊. ✧",
-
-    "𝑴𝒖𝒋𝒉𝒆 𝒑𝒂𝒕𝒂 𝒉𝒂𝒊 𝒕𝒖𝒎 𝒄𝒐𝒏𝒇𝒖𝒔𝒆𝒅 𝒉𝒐. ✦\n𝑩𝒂𝒔 𝒔𝒉𝒊 𝒏𝒂𝒂𝒎 𝒅𝒐, 𝒎𝒂𝒊𝒏 𝒋𝒂𝒅𝒖 𝒅𝒊𝒌𝒉𝒂𝒕𝒂 𝒉𝒐𝒐𝒏. ✨\n✸ 𝑵𝒂𝒉𝒊 𝒎𝒊𝒍𝒊 𝒕𝒐 /𝒓𝒆𝒒𝒖𝒆𝒔𝒕 𝒌𝒂𝒓𝒐 📩",
-
-    # Pure Hindi
-    "𝒃𝒉𝒂𝒊 𝒎𝒂𝒊𝒏 𝒌𝒐𝒅 𝒑𝒓 𝒄𝒉𝒂𝒍𝒕𝒂 𝒉𝒐𝒐𝒏. ✦\nभाई मैं कोड पर चलता हूँ, दिमाग पर नहीं।\nसही नाम लिखो तो मिलेगा। ✎",
-
-    "यार इतनी सी बात है। ✦\nसही नाम बताओ, मैं बाकी सब संभाल लेता हूँ। 🫡\n✸ स्टोरी अपलोड नहीं है तो /request करो 📩",
-
-    "भाई मैं कोई दिव्यदृष्टि वाला बाबा नहीं हूँ। ✦\nसही नाम लिखो। 🙏",
-
-    "ये 'नहीं' सुनकर एक पल के लिए दिल टूट गया। 😢 ✦\nसही नाम लिखो, मैं ढूंढ देता हूँ।",
-
-    "गलत नाम लिखोगे तो गलत स्टोरी ही मिलेगी। ✦\nठीक से टाइप करो। 🔎\n✸ स्टोरी नहीं है डेटाबेस में? /request करो 📩",
-
-    "भाई, मेरे पास 10,000 स्टोरी हैं। ✦\nपर तुम्हारा नाम गलत था, इसमें मेरी क्या गलती? 😌",
-
-    "𝑷𝒓𝒊𝒚 𝒖𝒔𝒆𝒓, मैं टेलीपैथी नहीं जानता। ✦\nनाम सही लिखो, काम जल्दी होगा। ✎",
-
-    "ठीक है ठीक है, समझ गया। ✦\nअब सही नाम बताओ — एक बार और मौका है। 🔁\n✸ नहीं मिली? /request से माँगो 📩",
-
-    "अरे, नहीं मतलब क्या? ✦\nनाम बदल के दोबारा सर्च करो। 🔎",
-
-    "मेरे पास हर स्टोरी का लिंक है — बस सही नाम चाहिए। ✦\nGoogling से पहले यहाँ ट्राई करो। 😎",
-
-    "भाई, Siri भी इतना नहीं समझती। ✦\nसीधे नाम लिखो, काम बनाओ। ✎",
-
-    "मैं बोट हूँ यार। दिमाग नहीं पढ़ता। ✦\nनाम लिखो, स्टोरी लो। Simple. ✸ नहीं मिली? /request करो 📩",
-
-    "𝑩𝒉𝒂𝒊 𝒊𝒕𝒏𝒂 𝒅𝒓𝒂𝒎𝒂? ✦\nसिर्फ सही नाम टाइप करो। बस इतना काफी है। 🙂",
-
-    "नहीं नहीं नहीं… पर कौन सा नहीं? ✦\nस्पष्ट करो ज़रा। फिर मैं ढूंढता हूँ। 📖",
-
-    "यार तुम बोट से 'नहीं' कहते हो? ✦\nईमानदारी से — सही नाम दोगे तो सही स्टोरी मिलेगी। 😄",
-
-    "ओके, गलत हो गया। ✦\nअब सही नाम लो और फिर से टाइप करो। मैं तैयार हूँ। 🫡\n✸ डेटाबेस में नहीं? /request भेजो 📩",
-]
 
 # ── "Thanks" word set ────────────────────────────────────────────────────────
 _THANKS_WORDS = {
     "thanks", "thank you", "thankyou", "ty", "thx", "thnks", "thnx",
     "thank", "thanks bhai", "thanks yaar", "tysm", "tq",
     "shukriya", "dhanyavaad", "dhanyawad", "shukriyaa",
+    "dhannyavad", "dhanyavad", "dhanyevad", "dhanywad",
     "शुक्रिया", "धन्यवाद", "थैंक्स", "थैंक यू",
 }
 
 # ── 10 friendly "you're welcome" replies ────────────────────────────────────
-_THANKS_REPLIES = [
-    "𝑯𝒂𝒎𝒆𝒔𝒉𝒂 𝒔𝒘𝒂𝒈𝒂𝒕 𝒉𝒂𝒊! ✦\nजब भी कोई स्टोरी चाहिए, बस नाम लिखो। 📖",
-    "𝑴𝒆𝒏𝒕𝒊𝒐𝒏 𝒏𝒐𝒕! ✦\nRiya हमेशा यहाँ है। 😊",
-    "बहुत बहुत स्वागत है! ✦\nअगली स्टोरी के लिए — बस नाम टाइप करो। ✎",
-    "𝑨𝒍𝒘𝒂𝒚𝒔 𝒉𝒂𝒑𝒑𝒚 𝒕𝒐 𝒉𝒆𝒍𝒑! ✦\nAur stories padhni ho toh name type karo. 📚",
-    "कोई बात नहीं! यही मेरा काम है। ✦\nAur kuch chahiye toh batao. 🫡",
-    "𝑾𝒆𝒍𝒄𝒐𝒎𝒆! ✦ पढ़ते रहो, मज़े करते रहो। 📖✨",
-    "𝑵𝒐 𝒑𝒓𝒐𝒃! ✦\nNext story search karo — I'm ready. 🚀",
-    "शुक्रिया कहने की ज़रूरत नहीं — पर अच्छा लगा! ✦ 😄",
-    "𝑨𝒏𝒚𝒕𝒊𝒎𝒆, 𝒔𝒆𝒓𝒊𝒐𝒖𝒔𝒍𝒚. ✦\nRiya is here 24/7 — story ho ya na ho. 🌸",
-    "आपकी सेवा में सदा तत्पर! ✦\nबस नाम लिखो, लिंक हाज़िर। 📩",
-]
 
 # ── Reactions by mood ────────────────────────────────────────────────────────
-# Riya's full reaction palette — varied and mood-fitted
+# Riya's full reaction palette — ONLY standard Telegram reaction emojis allowed
 _REACTIONS_NO = [
-    "🤓", "😐", "🤡", "😶", "🙄", "🤨", "😑", "💅",
-    "🥲", "😮‍💨", "🫠", "😤", "🫤", "🤪",
+    "🤓", "😐", "🤡", "🤨", "💅", "🤪", "🤔", "🤣", "🥱", "🤝",
 ]
 _REACTIONS_NOT_FOUND = [
-    "😶", "🤷", "💔", "😢", "🫥", "🥺", "😔",
+    "🤷", "💔", "😢", "😭", "😱", "😨", "🙈", "😔",
 ]
 _REACTIONS_THANKS = [
-    "🥰", "❤", "🌸", "🎉", "👍", "🤩", "😊",
+    "🥰", "❤", "❤‍🔥", "🎉", "🤩", "🔥", "💯", "🕊", "💘", "😘", "😇", "🤗",
 ]
 
 
@@ -5255,17 +5338,9 @@ async def _handle_no_or_thanks(update: Update, context: ContextTypes.DEFAULT_TYP
     # ── 1. Thanks handler ────────────────────────────────────────────────────
     if _is_thanks_msg(raw):
         react = _random.choice(_REACTIONS_THANKS)
-        asyncio.create_task(_try_react(context.bot, chat_id, msg.message_id, react))
+        asyncio.create_task(_try_react(context.bot, chat_id, msg.message_id, react, big=True))
         reply = _random.choice(_THANKS_REPLIES)
-        sent = await msg.reply_text(reply, parse_mode=None)
-        # Auto-delete the reply after 60 seconds
-        async def _del_thanks(m):
-            await asyncio.sleep(60)
-            try:
-                await m.delete()
-            except Exception:
-                pass
-        asyncio.create_task(_del_thanks(sent))
+        await msg.reply_text(reply, parse_mode="HTML")
         return True
 
     # ── 2. No/Nahi handler ───────────────────────────────────────────────────
@@ -5291,7 +5366,7 @@ async def _handle_no_or_thanks(update: Update, context: ContextTypes.DEFAULT_TYP
     react  = _random.choice(_REACTIONS_NO)
 
     asyncio.create_task(_try_react(context.bot, chat_id, msg.message_id, react, big=True))
-    await msg.reply_text(savage, parse_mode=None)
+    await msg.reply_text(savage, parse_mode="HTML")
     return True
 
 
@@ -5616,47 +5691,6 @@ _NO_WORDS = {
 }
 
 # 20 savage + funny bot replies — Unicode bold-italic styling
-_NAHI_REPLIES = [
-    "𝑩𝒓𝒐, 𝑰 𝒂𝒎 𝒂 𝒃𝒐𝒕 𝒏𝒐𝒕 𝒂 𝒎𝒊𝒏𝒅 𝒓𝒆𝒂𝒅𝒆𝒓. ✦\n𝑻𝒚𝒑𝒆 𝒕𝒉𝒆 𝒔𝒕𝒐𝒓𝒚 𝒏𝒂𝒎𝒆 𝒑𝒓𝒐𝒑𝒆𝒓𝒍𝒚 𝒂𝒏𝒅 𝑰'𝒍𝒍 𝒇𝒊𝒏𝒅 𝒊𝒕 𝒊𝒏 2 𝒔𝒆𝒄𝒐𝒏𝒅𝒔. ⌛",
-
-    "𝑩𝒉𝒂𝒊 𝒕𝒖𝒔𝒊 \'𝑵𝒂𝒉𝒊\' 𝒌𝒆𝒉 𝒅𝒊𝒕𝒕𝒂, 𝒑𝒂𝒓 𝒎𝒖𝒋𝒉𝒆 𝒃𝒕𝒂𝒚𝒂 𝒌𝒚𝒂? ✦\n𝑴𝒆𝒊𝒏 𝒐𝒓𝒂𝒄𝒍𝒆 𝒏𝒂𝒉𝒊 𝒉𝒐𝒐𝒏. 😭",
-
-    "𝑶𝒌𝒂𝒚 𝒔𝒉𝒆𝒓𝒍𝒐𝒄𝒌, 𝒕𝒐 𝑨𝑩 𝒌𝒚𝒂 𝒄𝒉𝒂𝒉𝒊𝒚𝒆? ✦\n𝑵𝒂𝒎𝒆 𝒅𝒆 𝒅𝒐 𝒔𝒕𝒐𝒓𝒚 𝒌𝒂. ✎",
-
-    "𝑻𝒐 𝒚𝒂𝒂𝒓 𝒔𝒉𝒊 𝒔𝒑𝒆𝒍𝒍𝒊𝒏𝒈 𝒍𝒊𝒌𝒉𝒐. ✦\n𝑴𝒂𝒊𝒏 𝒕𝒖𝒎𝒉𝒂𝒓𝒆 𝒅𝒊𝒎𝒂𝒈 𝒌𝒊 𝒓𝒆𝒄𝒐𝒓𝒅𝒊𝒏𝒈 𝒏𝒂𝒉𝒊 𝒑𝒂𝒅𝒉 𝒔𝒂𝒌𝒕𝒂. 😌",
-
-    "𝑵𝒐? 𝑻𝒉𝒆𝒏 𝒔𝒑𝒆𝒍𝒍 𝒊𝒕 𝒐𝒖𝒕. ✦\n𝑰 𝒈𝒐𝒕 10,000 𝒔𝒕𝒐𝒓𝒊𝒆𝒔. 𝑮𝒖𝒆𝒔𝒔𝒊𝒏𝒈 𝒊𝒔 𝒏𝒐𝒕 𝒎𝒚 𝒋𝒐𝒃. 📖",
-
-    "𝑩𝒉𝒂𝒊 𝒕𝒖𝒎 𝒌𝒊𝒔𝒊 𝒅𝒐𝒔𝒕 𝒔𝒆 𝒑𝒖𝒄𝒉𝒉𝒐 𝒔𝒕𝒐𝒓𝒚 𝒌𝒂 𝒏𝒂𝒎. ✦\n𝑴𝒂𝒊𝒏 𝒕𝒐 𝒃𝒂𝒔 𝒍𝒊𝒏𝒌 𝒅𝒆𝒕𝒂 𝒉𝒐𝒐𝒏, 𝒅𝒊𝒎𝒂𝒈 𝒏𝒂𝒉𝒊. ✧",
-
-    "𝑺𝒊𝒓𝒊 𝒃𝒉𝒊 𝒊𝒕𝒏𝒂 𝒌𝒖𝒄𝒉 𝒏𝒂𝒉𝒊 𝒔𝒂𝒎𝒂𝒋𝒉𝒕𝒊. ✦\n𝑵𝒂𝒎 𝒃𝒕𝒂𝒐, 𝒌𝒂𝒂𝒎 𝒃𝒂𝒏𝒂𝒐. ✎",
-
-    "𝑰 𝒓𝒂𝒏 10,000 𝒔𝒕𝒐𝒓𝒊𝒆𝒔 𝒕𝒉𝒓𝒐𝒖𝒈𝒉 𝒎𝒚 𝒃𝒓𝒂𝒊𝒏.\n𝒀𝒐𝒖 𝒘𝒓𝒐𝒕𝒆 𝒕𝒉𝒆 𝒘𝒓𝒐𝒏𝒈 𝒏𝒂𝒎𝒆. 𝑻𝒉𝒂𝒕'𝒔 𝒐𝒏 𝒚𝒐𝒖. ✦",
-
-    "𝑵𝒂𝒉𝒊 𝒎𝒂𝒕𝒍𝒂𝒃 𝒌𝒚𝒂? ✦\n𝑨𝒄𝒉𝒉𝒂 𝒏𝒂𝒎 𝒃𝒅𝒍𝒌𝒆 𝒅𝒐𝒃𝒂𝒓𝒂 𝒔𝒆𝒂𝒓𝒄𝒉 𝒌𝒂𝒓𝒐. 🔎",
-
-    "𝑩𝒓𝒐 𝑰 𝒂𝒎 𝒋𝒖𝒔𝒕 𝒂 𝒃𝒐𝒕, 𝒏𝒐𝒕 𝒚𝒐𝒖𝒓 𝒑𝒆𝒓𝒔𝒐𝒏𝒂𝒍 𝒂𝒔𝒔𝒊𝒔𝒕𝒂𝒏𝒕. ✦\n𝑻𝒚𝒑𝒆 𝒄𝒍𝒆𝒂𝒓𝒍𝒚 𝒂𝒏𝒅 𝑰'𝒍𝒍 𝒅𝒐 𝒎𝒚 𝒋𝒐𝒃. ✎",
-
-    "𝑩𝒉𝒂𝒊 𝒎𝒂𝒊𝒏 𝒌𝒐𝒊 𝒅𝒊𝒗𝒚𝒂𝒅𝒓𝒊𝒔𝒉𝒕𝒊 (𝒗𝒊𝒔𝒊𝒐𝒏) 𝒘𝒂𝒂𝒍𝒂 𝒃𝒂𝒃𝒂 𝒏𝒂𝒉𝒊 𝒉𝒐𝒐𝒏. ✦\n𝑺𝒉𝒊 𝒏𝒂𝒎 𝒍𝒊𝒌𝒉𝒐. 🙏",
-
-    "𝑰𝒕 𝒔𝒂𝒊𝒅 \'𝑵𝒐\' 𝒕𝒐 𝒎𝒆 𝒕𝒐𝒅𝒂𝒚. 𝑰 𝒇𝒆𝒆𝒍 𝒔𝒐 𝒔𝒂𝒅. 😢\n𝑱𝒖𝒔𝒕 𝒕𝒚𝒑𝒆 𝒕𝒉𝒆 𝒄𝒐𝒓𝒓𝒆𝒄𝒕 𝒏𝒂𝒎𝒆 𝒑𝒍𝒔. 🥺",
-
-    "𝑷𝒓𝒊𝒚 𝒖𝒔𝒆𝒓, 𝑰 𝒂𝒎 𝒓𝒖𝒏𝒏𝒊𝒏𝒈 𝒐𝒏 𝒄𝒐𝒅𝒆 𝒏𝒐𝒕 𝒕𝒆𝒍𝒆𝒑𝒂𝒕𝒉𝒚. ✦\n𝑾𝒓𝒊𝒕𝒆 𝒕𝒉𝒆 𝒏𝒂𝒎𝒆 𝒄𝒍𝒆𝒂𝒓𝒍𝒚. ✎",
-
-    "𝒀𝒂𝒂𝒓 𝒊𝒕𝒏𝒊 𝒔𝒊 𝒃𝒂𝒂𝒕. ✦\n𝑺𝒉𝒊 𝒏𝒂𝒂𝒎 𝒃𝒕𝒂𝒐, 𝒎𝒂𝒊𝒏 𝒃𝒂𝒂𝒌𝒊 𝒔𝒃 𝒔𝒂𝒎𝒃𝒉𝒂𝒍 𝒍𝒆𝒕𝒂 𝒉𝒐𝒐𝒏. 🫡",
-
-    "𝑴𝒂𝒊𝒏 𝒃𝒐𝒕 𝒉𝒐𝒐𝒏 𝒚𝒂𝒂𝒓 𝒋𝒂𝒅𝒖𝒈𝒂𝒓 𝒏𝒂𝒉𝒊. ✦\n𝑺𝒉𝒊 𝒔𝒑𝒆𝒍𝒍𝒊𝒏𝒈 + 𝒔𝒉𝒊 𝒔𝒕𝒐𝒓𝒚 𝒏𝒂𝒎𝒆 = 𝑰 𝒅𝒆𝒍𝒊𝒗𝒆𝒓. 📦",
-
-    "𝑮𝒐𝒐𝒈𝒍𝒆 𝒃𝒉𝒊 𝒚𝒆 \'𝑵𝒐\' 𝒃𝒂𝒂𝒅 𝒎𝒆𝒊𝒏 𝒔𝒖𝒏𝒕𝒂. ✦\n𝑺𝒕𝒐𝒓𝒚 𝒌𝒂 𝒏𝒂𝒂𝒎 𝒃𝒕𝒂𝒐 𝒑𝒆𝒉𝒍𝒆. 🗂",
-
-    "𝑴𝒖𝒋𝒉𝒆 𝒑𝒂𝒕𝒂 𝒉𝒂𝒊 𝒕𝒖𝒎 𝒃𝒐𝒕 𝒔𝒆 𝒉𝒂𝒊𝒓𝒂𝒂𝒏 𝒉𝒐. ✦\n𝑩𝒂𝒔 𝒔𝒉𝒊 𝒏𝒂𝒂𝒎 𝒅𝒐 𝒐𝒓 𝒎𝒆𝒊𝒏 𝒋𝒂𝒅𝒖 𝒅𝒊𝒌𝒉𝒂𝒕𝒂 𝒉𝒐𝒐𝒏. ✨",
-
-    "𝑵𝒐 𝒎𝒆𝒂𝒏𝒔 𝒃𝒂𝒅 𝒔𝒑𝒆𝒍𝒍𝒊𝒏𝒈 𝒐𝒓 𝒃𝒂𝒅 𝒍𝒖𝒄𝒌. ✦\n𝑬𝒊𝒕𝒉𝒆𝒓 𝒘𝒂𝒚, 𝒕𝒚𝒑𝒆 𝒂𝒈𝒂𝒊𝒏. 🔁",
-
-    "𝑩𝒓𝒐, 𝑰 𝒂𝒎 𝒂 𝒔𝒕𝒐𝒓𝒚 𝒃𝒐𝒕. ✦\n𝑴𝒐𝒐𝒅 𝒃𝒐𝒕 𝒏𝒂𝒉𝒊, 𝒆𝒙𝒑𝒍𝒂𝒊𝒏 𝒃𝒂𝒂𝒅 𝒎𝒆𝒊𝒏 𝒌𝒂𝒓𝒏𝒂. 𝑵𝒂𝒎𝒆 𝒃𝒕𝒂𝒐. 🙂",
-
-    "𝑩𝒉𝒂𝒊 𝒎𝒂𝒊𝒏 𝒃𝒉𝒊 𝒕𝒖𝒎𝒉𝒂𝒓𝒊 𝒕𝒂𝒓𝒂𝒉 𝒄𝒐𝒏𝒇𝒖𝒔𝒆𝒅 𝒉𝒐𝒐𝒏. ✦\n𝑻𝒖𝒎 𝒄𝒆𝒍𝒆𝒃𝒓𝒊𝒕𝒚 𝒏𝒂𝒂𝒎 𝒍𝒊𝒌𝒉𝒐, 𝒎𝒂𝒊𝒏 𝒔𝒕𝒐𝒓𝒚 𝒅𝒐𝒐𝒏𝒈𝒂. 📚",
-]
 
 
 
@@ -5739,12 +5773,12 @@ async def whisper_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     sender_mention = user.mention_html()
     card = (
-        f"🔒 <b>Secret Message</b>\n\n"
-        f"<i>{sender_mention} has a private message for {target_mention}.</i>\n\n"
-        f"✦ <i>Only the intended person can read it.</i>"
+        f"🔒 <b>𝗦𝗲𝗰𝗿𝗲𝘁 𝗠𝗲𝘀𝘀𝗮𝗴𝗲</b>\n\n"
+        f"<i>{sender_mention} 𝗵𝗮𝘀 𝗮 𝗽𝗿𝗶𝘃𝗮𝘁𝗲 𝗺𝗲𝘀𝘀𝗮𝗴𝗲 𝗳𝗼𝗿 {target_mention} .</i>\n\n"
+        f"✦ <i>𝗢𝗻𝗹𝘆 𝘁𝗵𝗲 𝗶𝗻𝘁𝗲𝗻𝗱𝗲𝗱 𝗽𝗲𝗿𝘀𝗼𝗻 𝗰𝗮𝗻 𝗿𝗲𝗮𝗱 𝗶𝘁.</i>"
     )
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("👁 Read Secret Message", callback_data=f"whisper|{token}")]
+        [InlineKeyboardButton("👁 𝗥𝗲𝗮𝗱 𝗦𝗲𝗰𝗿𝗲𝘁", callback_data=f"whisper|{token}")]
     ])
     # Delete the original /whisper command message to keep the chat clean
     try:
@@ -5783,18 +5817,31 @@ async def _handle_whisper_callback(query, context: ContextTypes.DEFAULT_TYPE):
         is_target = True
 
     if not is_target:
-        await query.answer(
-            "⛔ This message is not for you!\n\nOnly the intended person can read it.",
-            show_alert=True,
-        )
+        try:
+            await query.answer(
+                "⛔ 𝗧𝗵𝗶𝘀 𝗺𝗲𝘀𝘀𝗮𝗴𝗲 𝗶𝘀 𝗻𝗼𝘁 𝗳𝗼𝗿 𝘆𝗼𝘂!\n\n𝗢𝗻𝗹𝘆 𝘁𝗵𝗲 𝗶𝗻𝘁𝗲𝗻𝗱𝗲𝗱 𝗽𝗲𝗿𝘀𝗼𝗻 𝗰𝗮𝗻 𝗿𝗲𝗮𝗱 𝗶𝘁.",
+                show_alert=True,
+            )
+        except Exception as e:
+            logger.error("Whisper error answer failed: %s", e)
         return
 
     secret = entry["text"]
     sender = entry["sender_name"]
-    await query.answer(
-        f"🔓 Secret from {sender}:\n\n{secret}",
-        show_alert=True,
-    )
+    
+    # Telegram popup limit is ~200 chars. Ensure no silent crash.
+    prefix = f"🔓 𝗦𝗲𝗰𝗿𝗲𝘁 𝗳𝗿𝗼𝗺 {sender}:\n\n"
+    max_len = 195 - len(prefix)
+    if len(secret) > max_len:
+        secret = secret[:max_len-3] + "..."
+        
+    try:
+        await query.answer(
+            f"{prefix}{secret}",
+            show_alert=True,
+        )
+    except Exception as e:
+        logger.error("Whisper secret answer failed: %s", e)
 
 
 async def storylist_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
