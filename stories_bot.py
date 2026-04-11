@@ -3014,6 +3014,10 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _handle_cmdmenu(query, context)
         return
 
+    if query.data.startswith("whisper|"):
+        await _handle_whisper_callback(query, context)
+        return
+
     # -----------------------
     # Admin Request Management (Reject / Warn)
     # -----------------------
@@ -5213,15 +5217,17 @@ def _is_thanks_msg(text: str) -> bool:
     return t in _THANKS_WORDS
 
 
-async def _try_react(bot, chat_id: int, message_id: int, emoji: str):
-    """Silently attempt to set a Telegram reaction on a message."""
+async def _try_react(bot, chat_id: int, message_id: int, emoji: str, big: bool = False):
+    """Silently attempt to set a Telegram reaction on a message.
+    big=True uses the enhanced full-screen animation (equivalent of long-press).
+    """
     try:
         from telegram import ReactionTypeEmoji
         await bot.set_message_reaction(
             chat_id=chat_id,
             message_id=message_id,
             reaction=[ReactionTypeEmoji(emoji=emoji)],
-            is_big=False,
+            is_big=big,
         )
     except Exception as _re:
         logger.debug("Reaction failed: %s", _re)
@@ -5280,11 +5286,11 @@ async def _handle_no_or_thanks(update: Update, context: ContextTypes.DEFAULT_TYP
     if not replied_to_bot_search and not recent_search:
         return False
 
-    # Fire!
+    # Fire! — big=True gives the full-screen enhanced reaction animation
     savage = _random.choice(_NAHI_REPLIES)
     react  = _random.choice(_REACTIONS_NO)
 
-    asyncio.create_task(_try_react(context.bot, chat_id, msg.message_id, react))
+    asyncio.create_task(_try_react(context.bot, chat_id, msg.message_id, react, big=True))
     await msg.reply_text(savage, parse_mode=None)
     return True
 
@@ -5652,86 +5658,143 @@ _NAHI_REPLIES = [
     "𝑩𝒉𝒂𝒊 𝒎𝒂𝒊𝒏 𝒃𝒉𝒊 𝒕𝒖𝒎𝒉𝒂𝒓𝒊 𝒕𝒂𝒓𝒂𝒉 𝒄𝒐𝒏𝒇𝒖𝒔𝒆𝒅 𝒉𝒐𝒐𝒏. ✦\n𝑻𝒖𝒎 𝒄𝒆𝒍𝒆𝒃𝒓𝒊𝒕𝒚 𝒏𝒂𝒂𝒎 𝒍𝒊𝒌𝒉𝒐, 𝒎𝒂𝒊𝒏 𝒔𝒕𝒐𝒓𝒚 𝒅𝒐𝒐𝒏𝒈𝒂. 📚",
 ]
 
-# Reactions to use on the *user's* "No" message
-_REACTION_ON_NO = ["🤓", "😐", "🤡", "😶"]
-
-# Reactions to use on bot's "story not found" message
-_REACTION_ON_NOT_FOUND = ["😶", "🤷", "💔"]
 
 
-def _is_no_reply(text: str) -> bool:
-    """Return True if the message text is a 'No/Nahi' type rejection."""
-    t = text.strip().lower()
-    # strip punctuation
-    t = re.sub(r"[!?.,'\"…]+$", "", t).strip()
-    return t in _NO_WORDS
+
+# ════════════════════════════════════════════════════════════
+#  𝑾𝒉𝒊𝒔𝒑𝒆𝒓  —  𝑬𝒑𝒉𝒆𝒎𝒆𝒓𝒂𝒍 / 𝑺𝒆𝒄𝒓𝒆𝒕 𝑴𝒆𝒔𝒔𝒂𝒈𝒆
+#  /whisper @user secret message
+#  Only the target user can read the message via a popup.
+#  Everyone else clicking the button gets "Not for you ⛔"
+# ════════════════════════════════════════════════════════════
+
+# { token: {target_id, sender_id, sender_name, text, expires} }
+_whisper_store: dict = {}
+
+def _whisper_cleanup():
+    """Remove expired whisper entries."""
+    now = time.time()
+    expired = [k for k, v in _whisper_store.items() if now > v["expires"]]
+    for k in expired:
+        _whisper_store.pop(k, None)
 
 
-async def _try_react(bot, chat_id: int, message_id: int, emoji: str):
-    """Silently attempt to set a Telegram reaction on a message."""
-    try:
-        from telegram import ReactionTypeEmoji
-        await bot.set_message_reaction(
-            chat_id=chat_id,
-            message_id=message_id,
-            reaction=[ReactionTypeEmoji(emoji=emoji)],
-            is_big=False,
-        )
-    except Exception as _re:
-        logger.debug("Reaction failed (may not be supported): %s", _re)
-
-
-async def _handle_no_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+async def whisper_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Detect if the user is replying "No/Nahi" to one of the bot's search-result messages.
-    If so, send a savage reply and return True (caller should stop processing).
+    /whisper @username your secret message here
+    Works in groups. Sends a card visible to all, but the message
+    content is revealed only to the tagged user via a popup alert.
     """
     msg = update.message
-    if not msg or not msg.text:
-        return False
-
-    # Must be a reply-to a message
-    reply_to = getattr(msg, "reply_to_message", None)
-    if not reply_to:
-        return False
-
-    # That replied-to message must be FROM the bot and tracked as a search result
-    bot_user = context.bot.id
-    if reply_to.from_user and reply_to.from_user.id != bot_user:
-        return False
-
-    chat_id = msg.chat_id
-    ref_key = (chat_id, reply_to.message_id)
-    if ref_key not in _bot_search_replies:
-        return False
-
-    if not _is_no_reply(msg.text):
-        return False
-
-    # ── It IS a "No" reply to a search result ──
-    import random
-
-    savage = random.choice(_NAHI_REPLIES)
-    react_emoji = random.choice(_REACTION_ON_NO)
-
-    # React to the user's "No" message itself
-    asyncio.create_task(_try_react(context.bot, chat_id, msg.message_id, react_emoji))
-
-    # Send savage reply (does NOT auto-delete by design)
-    await msg.reply_text(savage, parse_mode=None)
-
-    return True
-
-
-async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if context.chat_data and context.chat_data.get("config_state"):
-        return await handle_config_input(update, context)
-
-    # Check "No/Nahi" reply BEFORE normal search
-    if await _handle_no_reply(update, context):
+    user = update.effective_user
+    if not msg or not user:
         return
 
-    return await search(update, context)
+    # Must have at least 2 args: @target + message
+    raw = msg.text or ""
+    # Strip the command part
+    parts = raw.split(None, 2)
+    # parts[0] = /whisper, parts[1] = @target or "to", parts[2] = message
+    if len(parts) < 3:
+        usage = (
+            "<b>✦ Whisper Usage</b>\n\n"
+            "<code>/whisper @username your secret message</code>\n\n"
+            "<i>Only the tagged user can see the message content.</i>"
+        )
+        await msg.reply_text(usage, parse_mode="HTML")
+        return
+
+    target_arg = parts[1].lstrip("@")
+    secret_text = parts[2].strip()
+
+    if not secret_text:
+        await msg.reply_text("Please include a message after the username.", parse_mode="HTML")
+        return
+
+    # Try to resolve target user from the message entities
+    target_user = None
+    target_mention = f"@{target_arg}"
+    if msg.entities:
+        for ent in msg.entities:
+            if ent.type == "mention":
+                mentioned = raw[ent.offset : ent.offset + ent.length]
+                if mentioned.lstrip("@").lower() == target_arg.lower():
+                    target_mention = mentioned
+            elif ent.type == "text_mention" and ent.user:
+                target_user = ent.user
+                target_mention = ent.user.mention_html()
+
+    # Build a unique token for this whisper
+    import secrets as _secrets
+    token = _secrets.token_hex(8)
+    _whisper_cleanup()
+    _whisper_store[token] = {
+        "target_id":   target_user.id if target_user else None,
+        "target_name": target_arg.lower(),
+        "sender_id":   user.id,
+        "sender_name": user.first_name,
+        "text":        secret_text,
+        "expires":     time.time() + 1800,   # 30 min TTL
+    }
+
+    sender_mention = user.mention_html()
+    card = (
+        f"🔒 <b>Secret Message</b>\n\n"
+        f"<i>{sender_mention} has a private message for {target_mention}.</i>\n\n"
+        f"✦ <i>Only the intended person can read it.</i>"
+    )
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("👁 Read Secret Message", callback_data=f"whisper|{token}")]
+    ])
+    # Delete the original /whisper command message to keep the chat clean
+    try:
+        await msg.delete()
+    except Exception:
+        pass
+    await context.bot.send_message(
+        chat_id=msg.chat_id,
+        text=card,
+        parse_mode="HTML",
+        reply_markup=keyboard,
+    )
+
+
+async def _handle_whisper_callback(query, context: ContextTypes.DEFAULT_TYPE):
+    """Handle inline button press for a whisper message."""
+    _whisper_cleanup()
+    token = query.data.split("|", 1)[1] if "|" in query.data else ""
+    entry = _whisper_store.get(token)
+
+    if not entry:
+        await query.answer("⌛ This whisper has expired.", show_alert=True)
+        return
+
+    clicker_id = query.from_user.id
+    clicker_name = (query.from_user.username or "").lower()
+
+    # Check if the clicker is the intended recipient
+    is_target = False
+    if entry["target_id"] and clicker_id == entry["target_id"]:
+        is_target = True
+    elif not entry["target_id"] and clicker_name == entry["target_name"].lower():
+        is_target = True
+    # Also allow the original sender to read their own whisper
+    if clicker_id == entry["sender_id"]:
+        is_target = True
+
+    if not is_target:
+        await query.answer(
+            "⛔ This message is not for you!\n\nOnly the intended person can read it.",
+            show_alert=True,
+        )
+        return
+
+    secret = entry["text"]
+    sender = entry["sender_name"]
+    await query.answer(
+        f"🔓 Secret from {sender}:\n\n{secret}",
+        show_alert=True,
+    )
 
 
 async def storylist_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -5970,6 +6033,7 @@ def start_bot():
     app.add_handler(CommandHandler("addalias", addalias_cmd))
     app.add_handler(CommandHandler("removealias", removealias_cmd))
     app.add_handler(CommandHandler("listalias", listalias_cmd))
+    app.add_handler(CommandHandler("whisper", whisper_cmd))
 
     # react when bot is added/removed
     app.add_handler(ChatMemberHandler(chat_member_update))
