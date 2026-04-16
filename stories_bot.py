@@ -3059,6 +3059,8 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         if result.get("format") == "LIGHT_PRO" and result.get("episodes"):
             caption += f"🎬<b>Episodes</b> : <b>{html.escape(str(result['episodes']))}</b>\n"
+        if result.get("is_paid"):
+            caption += "\n💎 <b>Paid Story</b> — <i>Purchase required for access.</i>\n"
         caption += f"\n<tg-spoiler>◒ This reply will be deleted automatically in 5 minutes.</tg-spoiler>"
     else:
         caption = (

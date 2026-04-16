@@ -204,6 +204,12 @@ def extract_light_pro_format(message):
         except Exception:
             link = None
 
+    # Also detect is_paid from the caption text itself
+    # (in case the post was scanned before Buy Now button was added)
+    _PAID_MARKERS = ("paid story", "after purchase", "खरीदना होगा", "फ्री नहीं है")
+    if not is_paid and any(m in text for m in _PAID_MARKERS):
+        is_paid = True
+
     key = re.sub(r"\s+", " ", name).strip().lower()
     return {
         "name": key, "text": name,
@@ -298,6 +304,11 @@ def extract_light_format(message):
                         break
         except Exception:
             link = None
+
+    # Also detect is_paid from the caption text itself
+    _PAID_MARKERS = ("paid story", "after purchase", "खरीदना होगा", "फ्री नहीं है")
+    if not is_paid and any(m in text for m in _PAID_MARKERS):
+        is_paid = True
 
     key = re.sub(r"\s+", " ", name).strip().lower()
 

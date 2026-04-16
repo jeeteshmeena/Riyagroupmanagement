@@ -283,27 +283,63 @@ def apply_watermark(image_bytes: bytes) -> bytes:
         return image_bytes  # Return original if watermark fails
 
 
+
+# Telegram photo caption hard limit is 1024 characters.
+# Text messages allow 4096, but since Light Pro posts always include an image,
+# we must stay within 1024.
+_TG_CAPTION_LIMIT = 1024
+
+# The paid note (both languages), placed in its own collapsible blockquote.
+_PAID_NOTE_RAW = (
+    "❏ Note: This is a paid story. Access will be available after purchase.\n"
+    "❏ नोट: यह स्टोरी फ्री नहीं है, इसे देखने के लिए खरीदना होगा।"
+)
+_PAID_NOTE_BLOCK = f"\n<blockquote expandable>{html.escape(_PAID_NOTE_RAW)}</blockquote>"
+
+
 def build_light_pro_format(data):
-    name        = data.get("name", "Unknown")
-    status      = data.get("status", "Ongoing")
-    platform    = data.get("platform", DEFAULT_PLATFORM)
-    genre       = data.get("genre", "Unknown")
-    desc        = data.get("desc", "")
+    name         = data.get("name", "Unknown")
+    status       = data.get("status", "Ongoing")
+    platform     = data.get("platform", DEFAULT_PLATFORM)
+    genre        = data.get("genre", "Unknown")
+    desc         = data.get("desc", "")
     episodes_raw = data.get("episodes", "0")
+    is_paid      = data.get("is_paid", False)
 
     episode_line = build_episode_line(episodes_raw, status)
 
-    t  = f"♨️<b>Story</b> : <b>{html.escape(name)}</b>\n"
-    t += f"🔰<b>Status</b> : <b>{html.escape(status)}</b>\n"
-    t += f"🖥<b>Platform</b> : <b>{html.escape(platform)}</b>\n"
-    t += f"🧩<b>Genre</b> : <b>{html.escape(genre)}</b>\n"
-    t += f"🎬<b>Episodes</b> : <b>{html.escape(episode_line)}</b>"
+    # ── Fixed story-info block ─────────────────────────────────────────────────
+    fixed  = f"♨️<b>Story</b> : <b>{html.escape(name)}</b>\n"
+    fixed += f"🔰<b>Status</b> : <b>{html.escape(status)}</b>\n"
+    fixed += f"🖥<b>Platform</b> : <b>{html.escape(platform)}</b>\n"
+    fixed += f"🧩<b>Genre</b> : <b>{html.escape(genre)}</b>\n"
+    fixed += f"🎬<b>Episodes</b> : <b>{html.escape(episode_line)}</b>"
 
+    # ── Paid note block (only for paid posts) ──────────────────────────────────
+    paid_block = _PAID_NOTE_BLOCK if is_paid else ""
+
+    # ── Description block ─────────────────────────────────────────────────────
+    desc_block = ""
     if desc:
-        bold_desc = to_bold_unicode(desc)
-        t += f"\n<b>📝 Story Description :-</b>\n<blockquote expandable>{html.escape(bold_desc)}</blockquote>"
+        desc_header = "\n<b>📝 Story Description :-</b>\n"
+        BQ_OPEN  = "<blockquote expandable>"
+        BQ_CLOSE = "</blockquote>"
 
-    return t
+        # How many characters are left for the description content?
+        used = len(fixed) + len(paid_block) + len(desc_header) + len(BQ_OPEN) + len(BQ_CLOSE)
+        budget = _TG_CAPTION_LIMIT - used - 5  # 5-char safety margin
+
+        bold_desc = to_bold_unicode(desc)
+        safe_desc = html.escape(bold_desc)
+
+        if len(safe_desc) > budget:
+            # Trim and append ellipsis (…) so the reader knows it's truncated
+            safe_desc = safe_desc[:max(0, budget - 1)] + "…"
+
+        desc_block = f"{desc_header}{BQ_OPEN}{safe_desc}{BQ_CLOSE}"
+
+    return fixed + desc_block + paid_block
+
 
 
 def get_light_pro_kb(data):
