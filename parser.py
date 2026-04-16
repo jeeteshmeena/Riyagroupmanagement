@@ -168,15 +168,21 @@ def extract_light_pro_format(message):
                 desc_lines.append(stripped)
     description = "\n".join(desc_lines).strip()
 
-    # Extract Play Now link only
+    # Extract Play/Buy link only
     link = None
+    is_paid = False
     if getattr(message, "reply_markup", None):
         try:
             if hasattr(message.reply_markup, "inline_keyboard"):
                 for row in message.reply_markup.inline_keyboard:
                     for btn in row:
                         btn_txt = btn.text or ""
-                        if "play" in btn_txt.lower() or "\u1d18\u029f\u1d00\u028f" in btn_txt:
+                        lower_txt = btn_txt.lower()
+                        if "buy" in lower_txt or "ʙᴜʏ" in btn_txt:
+                            link = btn.url
+                            is_paid = True
+                            break
+                        elif "play" in lower_txt or "\u1d18\u029f\u1d00\u028f" in btn_txt:
                             link = btn.url
                             break
                     if link:
@@ -185,7 +191,12 @@ def extract_light_pro_format(message):
                 for row in message.reply_markup.rows:
                     for btn in row.buttons:
                         btn_text = getattr(btn, "text", "") or ""
-                        if "play" in btn_text.lower() or "\u1d18\u029f\u1d00\u028f" in btn_text:
+                        lower_txt = btn_text.lower()
+                        if "buy" in lower_txt or "ʙᴜʏ" in btn_text:
+                            link = btn.url
+                            is_paid = True
+                            break
+                        elif "play" in lower_txt or "\u1d18\u029f\u1d00\u028f" in btn_text:
                             link = btn.url
                             break
                     if link:
@@ -200,6 +211,7 @@ def extract_light_pro_format(message):
         "genre": genre, "episodes": episodes,
         "description": description, "link": link, "image": None,
         "format": "LIGHT_PRO",
+        "is_paid": is_paid,
         "message_id": getattr(message, "id", 0),
         "caption": text, "story_type": genre
     }
@@ -251,15 +263,21 @@ def extract_light_format(message):
 
     description = "\n".join(desc_lines).strip()
 
-    # Extract ONLY the "Play Now" button link; ignore Backup and others
+    # Extract ONLY the "Play Now" or "Buy Now" button link
     link = None
+    is_paid = False
     if getattr(message, "reply_markup", None):
         try:
             if hasattr(message.reply_markup, "inline_keyboard"):
                 for row in message.reply_markup.inline_keyboard:
                     for btn in row:
                         btn_txt = btn.text or ""
-                        if "play" in btn_txt.lower() or "ᴘʟᴀʏ" in btn_txt:
+                        lower_txt = btn_txt.lower()
+                        if "buy" in lower_txt or "ʙᴜʏ" in btn_txt:
+                            link = btn.url
+                            is_paid = True
+                            break
+                        elif "play" in lower_txt or "ᴘʟᴀʏ" in btn_txt:
                             link = btn.url
                             break
                     if link:
@@ -268,7 +286,12 @@ def extract_light_format(message):
                 for row in message.reply_markup.rows:
                     for btn in row.buttons:
                         btn_text = getattr(btn, "text", "") or ""
-                        if "play" in btn_text.lower() or "ᴘʟᴀʏ" in btn_text:
+                        lower_txt = btn_text.lower()
+                        if "buy" in lower_txt or "ʙᴜʏ" in btn_text:
+                            link = btn.url
+                            is_paid = True
+                            break
+                        elif "play" in lower_txt or "ᴘʟᴀʏ" in btn_text:
                             link = btn.url
                             break
                     if link:
@@ -290,6 +313,7 @@ def extract_light_format(message):
         "link": link,
         "image": image,
         "format": "LIGHT",
+        "is_paid": is_paid,
         "message_id": getattr(message, "id", 0),
         "caption": text,
         "story_type": genre

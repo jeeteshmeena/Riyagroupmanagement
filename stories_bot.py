@@ -3025,8 +3025,10 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if story_link:
         if not story_link.startswith(("http://", "https://", "tg://")):
             story_link = "https://" + story_link.lstrip("/")
-        keyboard.append([InlineKeyboardButton("Open Story", url=story_link)])
-    
+        
+        btn_text = "Buy Now" if result.get("is_paid") else "Open Story"
+        keyboard.append([InlineKeyboardButton(btn_text, url=story_link)])
+
     # safeguard for long lengths
     fav_data = f"fav|{story_key}"
     if len(fav_data) > 64: fav_data = "fav|toolong"
