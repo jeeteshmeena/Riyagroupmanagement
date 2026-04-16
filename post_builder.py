@@ -58,7 +58,8 @@ _log = logging.getLogger(__name__)
     STATE_DEST_INPUT,
     STATE_DEST_TOPIC,
     STATE_CONFIRM,
-) = range(20)
+    STATE_IS_PAID,
+) = range(21)
 
 _LIGHT_GENRES = ["Fantasy", "Suspense", "Romance", "Thriller", "Action", "Horror", "Mystery"]
 
@@ -222,10 +223,36 @@ def build_episode_line(episodes_raw, status):
 
 
 def apply_watermark(image_bytes: bytes) -> bytes:
-    """Overlay watermark (top-right corner) on image bytes. Returns new bytes."""
+    """Overlay watermark (top-right corner) on image bytes. Optionally upscale first. Returns new bytes."""
     try:
         from PIL import Image
         import os
+        from database import load_config
+        cfg = load_config()
+        rep_api = getattr(cfg, "replicate_api_key", cfg.get("replicate_api_key")) if cfg else None
+
+        # Replicate Upscale check
+        if rep_api:
+            try:
+                import replicate
+                _log.info("Triggering Replicate API Upscale...")
+                import tempfile
+                with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as t:
+                    t.write(image_bytes)
+                    t.flush()
+                    
+                    rep_client = replicate.Client(api_token=rep_api)
+                    output = rep_client.run(
+                        "nightmareai/real-esrgan:42fed1c4974146d4d2414e2be2c5277c7fcf05fcc3a73abf41610695738c1d7b",
+                        input={"image": open(t.name, "rb"), "scale": 2, "face_enhance": True}
+                    )
+                    
+                    import urllib.request
+                    req = urllib.request.urlopen(output)
+                    image_bytes = req.read()
+            except Exception as re_err:
+                _log.warning(f"[REPLICATE] Failed to upscale: {re_err}")
+                
         base = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
         bw, bh = base.size
         # Load local watermark
@@ -284,8 +311,9 @@ def get_light_pro_kb(data):
     backup_link = data.get("backup_link") or link
     if not link:
         return None
+    play_text = "ʙᴜʏ ɴᴏᴡ" if data.get("is_paid") else "ᴘʟᴀʏ ɴᴏᴡ"
     return InlineKeyboardMarkup([[
-        InlineKeyboardButton("ᴘʟᴀʏ ɴᴏᴡ", url=link),
+        InlineKeyboardButton(play_text, url=link),
         InlineKeyboardButton("ʙᴀᴄᴋᴜᴘ",   url=backup_link),
     ]])
 
@@ -788,9 +816,19 @@ async def handle_episodes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["pb_data"]["episodes"] = update.message.text.strip()
     fmt = context.user_data["pb_data"].get("format", "1")
     if fmt == "light_pro":
-        # Already have status and platform; go directly to dest
-        return await _go_to_dest(update, context)
+        kb = _kb([["Yes", "No"], ["/cancel"]])
+        await update.message.reply_text("¤ Is this a Paid post?", reply_markup=kb)
+        return STATE_IS_PAID
     return await _go_to_status(update, context)
+
+# ── Paid ───────────────────────────────────────────────────────────────────────
+async def handle_is_paid(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip().lower()
+    if text in ["yes", "y", "paid"]:
+        context.user_data["pb_data"]["is_paid"] = True
+    else:
+        context.user_data["pb_data"]["is_paid"] = False
+    return await _go_to_dest(update, context)
 
 # ── Status ─────────────────────────────────────────────────────────────────────
 async def _go_to_status(update, context):
@@ -1210,6 +1248,7 @@ post_builder_handler = ConversationHandler(
             CommandHandler("skip", handle_dest_topic),
         ],
         STATE_CONFIRM:   [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_confirm)],
+        STATE_IS_PAID:   [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_is_paid)],
     },
     fallbacks=[
         CommandHandler("cancel", cancel_handler),

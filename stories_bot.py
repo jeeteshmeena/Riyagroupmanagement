@@ -5715,6 +5715,92 @@ def _whisper_cleanup():
         _whisper_store.pop(k, None)
 
 
+# ── /setreplicate — Owner-only Replicate API Key setup ──────────────────────────
+async def setreplicate_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /setreplicate <API_KEY>
+    Owner-only. Saves the Replicate API key to the bot config.
+    Once set, all Light Pro image uploads are auto-upscaled via Replicate before watermarking.
+    """
+    user = update.effective_user
+    if not user or user.id != OWNER_ID:
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+        return  # Silent deny — don't reveal command exists to others
+
+    args = context.args
+    if not args:
+        await update.message.reply_text(
+            "<b>🔑 Replicate API Key</b>\n\n"
+            "Usage: <code>/setreplicate r8_xxxxxxxxxxxxxxxxxxxx</code>\n\n"
+            "<i>Get your key from: replicate.com/account/api-tokens</i>\n\n"
+            "Once set, every Light Pro image will be auto-upscaled (unblur + enhance) "
+            "using Real-ESRGAN before the watermark is applied.",
+            parse_mode="HTML"
+        )
+        return
+
+    api_key = args[0].strip()
+    
+    # Handle removal
+    if api_key.lower() == "remove":
+        try:
+            from database import load_config, save_config
+            cfg = load_config()
+            cfg.pop("replicate_api_key", None)
+            save_config(cfg)
+            try:
+                await update.message.delete()
+            except Exception:
+                pass
+            await context.bot.send_message(
+                chat_id=user.id,
+                text="✅ <b>Replicate API Key removed.</b>\n\n<i>Images will no longer be upscaled before watermarking.</i>",
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            await update.message.reply_text(f"❌ Failed to remove: <code>{e}</code>", parse_mode="HTML")
+        return
+
+    if not api_key.startswith("r8_") or len(api_key) < 10:
+        await update.message.reply_text(
+            "❌ <b>Invalid key format.</b>\n\n"
+            "Replicate API keys start with <code>r8_</code>.\n"
+            "Get yours at: replicate.com/account/api-tokens",
+            parse_mode="HTML"
+        )
+        return
+
+    try:
+        from database import load_config, save_config
+        cfg = load_config()
+        cfg["replicate_api_key"] = api_key
+        save_config(cfg)
+
+        # Delete the message immediately so the key isn't visible in chat
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+
+        await context.bot.send_message(
+            chat_id=user.id,
+            text=(
+                "<b>✅ Replicate API Key saved.</b>\n\n"
+                f"<code>{api_key[:8]}...{api_key[-4:]}</code>\n\n"
+                "<i>All future Light Pro image uploads will now be auto-upscaled "
+                "via Real-ESRGAN before watermarking.</i>\n\n"
+                "To remove it, use: <code>/setreplicate remove</code>"
+            ),
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error("[setreplicate] %s", e)
+        await update.message.reply_text(f"❌ Failed to save: <code>{e}</code>", parse_mode="HTML")
+
+
 async def whisper_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     /whisper @username your secret message here
@@ -6083,6 +6169,7 @@ def start_bot():
     app.add_handler(CommandHandler("removealias", removealias_cmd))
     app.add_handler(CommandHandler("listalias", listalias_cmd))
     app.add_handler(CommandHandler("whisper", whisper_cmd))
+    app.add_handler(CommandHandler("setreplicate", setreplicate_cmd))
 
     # react when bot is added/removed
     app.add_handler(ChatMemberHandler(chat_member_update))
