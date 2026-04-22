@@ -5790,6 +5790,105 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return await search(update, context)
 
 
+async def voice_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle incoming voice/audio — reply with Sarvam TTS when Riya session is active."""
+    user_id   = update.effective_user.id
+    user_name = update.effective_user.first_name or "User"
+    ai_cfg    = bot_config.get("ai", {})
+    sarvam_key = ai_cfg.get("sarvam_key", "")
+
+    if not gemini_chat.is_gemini_active(user_id):
+        return   # not in a Riya convo — silently ignore
+
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="record_voice")
+
+    reply_text, _ = await gemini_chat.process_gemini_message(
+        user_id, user_name,
+        "User ne voice message bheja hai. Ek short friendly reply do 1-2 lines mein Hinglish mein."
+    )
+    reply_text = reply_text or "◌ suna nahi pada, type kar ke batao ✦"
+
+    if sarvam_key:
+        try:
+            from sarvam_tts import synthesize
+            import io as _io
+            voice_id    = ai_cfg.get("voice_female", "sarvam:default-meera")
+            audio_bytes = await synthesize(reply_text, voice_id, sarvam_key, gender="female")
+            await update.message.reply_voice(
+                voice=_io.BytesIO(audio_bytes),
+                caption=f"<i>{reply_text[:200]}</i>",
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            logger.warning(f"[TTS] Sarvam failed: {e}")
+            await update.message.reply_text(reply_text, parse_mode="HTML")
+    else:
+        await update.message.reply_text(
+            reply_text + "\n\n<i>◌ Voice replies ke liye admin Sarvam key set kare — /config ✦</i>",
+            parse_mode="HTML"
+        )
+
+
+async def guide_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send Riya Bot guide — user section always, admin-only section for admins."""
+    user_id = update.effective_user.id
+
+    user_text = (
+        "<b>✦ Riya Bot — Guide</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        "<b>◈ Story Search</b>\n"
+        "▸ Bas story ka naam type karo — Riya dhundh degi!\n"
+        "▸ Example: <code>TDMB</code> ya <code>Tere Dil Mein Base</code>\n\n"
+        "<b>◈ Riya se Baat Karo</b>\n"
+        "▸ Message mein <b>Riya</b> likho — chat shuru ho jayegi\n"
+        "▸ Phir har message ka reply milega\n"
+        "▸ Band karne ke liye: <code>chup</code> ya <code>band karo</code>\n\n"
+        "<b>◈ Voice Messages</b>\n"
+        "▸ Active Riya chat mein voice message bhejo\n"
+        "▸ Riya voice note mein reply karegi ✦\n\n"
+        "<b>◈ Commands</b>\n"
+        "▸ /saved — Saved stories\n"
+        "▸ /request [naam] — Story request karo\n"
+        "▸ /browse — Categories\n"
+        "▸ /new — Nayi stories\n"
+        "▸ /subscribe — New story alerts\n"
+        "▸ /guide — Yahi guide\n\n"
+        "<b>◈ Tips</b>\n"
+        "▸ Spelling thodi galat ho toh bhi match hogi!\n"
+        "▸ Story nahi mili? → /request use karo"
+    )
+    await update.message.reply_text(user_text, parse_mode="HTML")
+
+    if is_admin(user_id):
+        admin_text = (
+            "<b>⚙️ Admin Controls</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
+            "<b>◈ Core</b>\n"
+            "▸ /config — Full settings panel\n"
+            "▸ /scan — Channel scan\n"
+            "▸ /rescan — Force re-scan\n"
+            "▸ /stats — Usage stats\n"
+            "▸ /status — System health\n\n"
+            "<b>◈ Post Builder</b>\n"
+            "▸ /pb — Create &amp; publish posts\n"
+            "▸ Config → 📑 Saved Posts — Re-publish old posts\n\n"
+            "<b>◈ AI &amp; Voice</b>\n"
+            "▸ Config → 🤖 AI — Groq / Gemini / Sarvam keys\n"
+            "▸ Voice model selection (male/female)\n\n"
+            "<b>◈ Moderation</b>\n"
+            "▸ /gban [user_id] — Global ban\n"
+            "▸ /copyright_mute — Copyright cooldown\n"
+            "▸ /userinfo [user_id] — User info\n"
+            "▸ /cleardata — Reset queues\n\n"
+            "<b>◈ Sources</b>\n"
+            "▸ /addsource [id] — Add channel\n"
+            "▸ /removesource [id] — Remove\n"
+            "▸ /addalias [story] [alias] — Search alias\n\n"
+            "<b>◈ Broadcast</b>\n"
+            "▸ /announce [text] — All subscribers"
+        )
+        await update.message.reply_text(admin_text, parse_mode="HTML")
+
 
 async def saved_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id_str = str(update.effective_user.id)
