@@ -4717,7 +4717,7 @@ def _cfg_voice_select_panel(caller_id: int, gender: str) -> tuple:
     for v in voices:
         buttons.append([InlineKeyboardButton(f"🗣 {v.capitalize()}", callback_data=f"cfg|aivoiceselect|{gender}|{v}||{caller_id}")])
     
-    buttons.append([_cfg_nav(caller_id, back="aiconfig")])
+    buttons.append(_cfg_nav(caller_id, back="aiconfig"))
     return text, InlineKeyboardMarkup(buttons)
 
 
@@ -4740,7 +4740,7 @@ def _cfg_saved_posts_panel(caller_id: int) -> tuple:
         if posts:
             buttons.append([InlineKeyboardButton(f"📁 {str(fmt).capitalize()} ({len(posts)} posts)", callback_data=f"cfg|sp_fmt|{fmt}|0|{caller_id}")])
             
-    buttons.append([_cfg_nav(caller_id, back="main")])
+    buttons.append(_cfg_nav(caller_id, back="main"))
     return text, InlineKeyboardMarkup(buttons)
 
 def _cfg_saved_posts_list_panel(caller_id: int, fmt: str, page: int = 0) -> tuple:
@@ -4773,7 +4773,7 @@ def _cfg_saved_posts_list_panel(caller_id: int, fmt: str, page: int = 0) -> tupl
     if nav_row:
         buttons.append(nav_row)
         
-    buttons.append([_cfg_nav(caller_id, back="savedposts")])
+    buttons.append(_cfg_nav(caller_id, back="savedposts"))
     return text, InlineKeyboardMarkup(buttons)
 
 def _cfg_saved_post_action_panel(caller_id: int, fmt: str, post_id: str) -> tuple:
@@ -4783,7 +4783,7 @@ def _cfg_saved_post_action_panel(caller_id: int, fmt: str, post_id: str) -> tupl
     post = next((p for p in posts if p["id"] == post_id), None)
     
     if not post:
-        return "<i>Post not found.</i>", InlineKeyboardMarkup([[_cfg_nav(caller_id, back=f"sp_fmt|{fmt}")]])
+        return "<i>Post not found.</i>", InlineKeyboardMarkup([_cfg_nav(caller_id, back=f"sp_fmt|{fmt}")])
         
     text = (
         f"<b>📑 Repost / Publish</b>\n"
@@ -4796,7 +4796,7 @@ def _cfg_saved_post_action_panel(caller_id: int, fmt: str, post_id: str) -> tupl
     buttons = [
         [InlineKeyboardButton("📤 Publish 1-by-1 (Destinations Select)", callback_data=f"cfg|sp_republish_one|{fmt}|{post_id}||{caller_id}")],
         [InlineKeyboardButton("🚀 Publish to ALL Config Sources", callback_data=f"cfg|sp_republish_all|{fmt}|{post_id}||{caller_id}")],
-        [_cfg_nav(caller_id, back=f"sp_fmt|{fmt}|0|{caller_id}")]
+        _cfg_nav(caller_id, back=f"sp_fmt|{fmt}|0|{caller_id}")
     ]
     return text, InlineKeyboardMarkup(buttons)
 
@@ -4910,9 +4910,10 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
     # Format: cfg|section|action|caller_id
     section  = parts[1] if len(parts) > 1 else "main"
     action   = parts[2] if len(parts) > 2 else ""
+    # Parse caller_id: look for the last numeric segment in the pipe-split parts
     try:
-        caller_id = int(parts[3]) if len(parts) > 3 else 0
-    except ValueError:
+        caller_id = int(parts[-1]) if parts[-1].lstrip('-').isdigit() else 0
+    except (ValueError, IndexError):
         caller_id = 0
     user     = query.from_user
     chat_id  = query.message.chat.id
@@ -5182,8 +5183,8 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
             return
             
     if section == "aivoiceselect":
-        gender = args[2]
-        voice = args[3]
+        gender = parts[2]
+        voice = parts[3]
         ai_cfg = bot_config.get("ai", {})
         if gender == "male":
             ai_cfg["voice_male"] = f"sarvam:default-{voice}"
@@ -5204,24 +5205,24 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
         return
         
     if section == "sp_fmt":
-        fmt = args[2]
-        page = int(args[3]) if len(args) > 3 and args[3] else 0
+        fmt = parts[2]
+        page = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 0
         text, markup = _cfg_saved_posts_list_panel(caller_id, fmt, page)
         await _edit_cfg(query, text, markup)
         await query.answer()
         return
         
     if section == "sp_post":
-        fmt = args[2]
-        post_id = args[3]
+        fmt = parts[2]
+        post_id = parts[3]
         text, markup = _cfg_saved_post_action_panel(caller_id, fmt, post_id)
         await _edit_cfg(query, text, markup)
         await query.answer()
         return
 
     if section.startswith("sp_republish_"):
-        fmt = args[2]
-        post_id = args[3]
+        fmt = parts[2]
+        post_id = parts[3]
         from database import load_saved_posts
         saved_db = load_saved_posts()
         posts = saved_db.get(fmt, [])

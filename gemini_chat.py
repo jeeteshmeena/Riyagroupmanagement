@@ -35,7 +35,7 @@ Hamesha small caps, italics, ya bold ka estemal karke formatting maintain karo (
 try:
     if API_KEY:
         model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash",
+            model_name="gemini-2.0-flash",
             generation_config=generation_config,
             system_instruction=persona,
         )
@@ -96,7 +96,7 @@ def reinit_gemini(api_key: str):
         try:
             genai.configure(api_key=API_KEY)
             model = genai.GenerativeModel(
-                model_name="gemini-1.5-flash",
+                model_name="gemini-2.0-flash",
                 generation_config=generation_config,
                 system_instruction=persona,
             )
