@@ -5732,7 +5732,14 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text_content = update.message.text
         user_id      = update.effective_user.id
 
+        # Voice request via text: "voice mein bolo", "awaaz mein reply do" etc.
+        _voice_txt_kw = ["voice mein", "voice me ", "voice reply", "awaaz mein",
+                         "awaaz me ", "voice note bhejo", "voice note do",
+                         "speech mein", "audio mein bolo"]
+        wants_voice_text = any(kw in text_content.lower() for kw in _voice_txt_kw)
+
         is_riya_mentioned = "riya" in text_content.lower()
+
         if is_riya_mentioned or gemini_chat.is_gemini_active(user_id):
             await context.bot.send_chat_action(
                 chat_id=update.effective_chat.id, action="typing"
@@ -5741,46 +5748,58 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 gemini_chat.activate_gemini(user_id)
 
             user_name = update.effective_user.first_name or "User"
-            reply_text, search_query = await gemini_chat.process_gemini_message(
-                user_id, user_name, text_content
-            )
+            reply_text, search_query, wants_voice, wants_stop = \
+                await gemini_chat.process_gemini_message(user_id, user_name, text_content)
 
-            # If AI flagged a story search, perform it and append result
+            # ── Story search ──────────────────────────────────────────────────
             if search_query:
-                story_result = get_story(search_query)
+                # Use the proper search engine (handles case, aliases, fuzzy)
+                story_result = search_story_exact_or_alias(search_query)
                 if story_result:
-                    link  = story_result.get("link", "")
-                    name  = story_result.get("name") or search_query
-                    extra = (
-                        f"\n\n<b>✦ {html.escape(name)}</b>\n"
+                    link = story_result.get("link", "")
+                    name = story_result.get("text") or story_result.get("name") or search_query
+                    reply_text = (
+                        f"{reply_text}\n\n"
+                        f"<b>✦ {html.escape(name)}</b>\n"
                         f"▸ <a href='{link}'>Listen / Read here</a>"
                     )
-                    reply_text = (reply_text or "") + extra
                 else:
-                    # Try fuzzy search
                     suggestions = get_suggestions(search_query, limit=1)
                     if suggestions:
-                        sname = suggestions[0]
-                        sres  = get_story(sname)
+                        sname  = suggestions[0]
+                        sres   = search_story_exact_or_alias(sname)
                         if sres:
-                            link  = sres.get("link", "")
-                            extra = (
-                                f"\n\n<b>✦ {html.escape(sname)}</b>\n"
+                            link = sres.get("link", "")
+                            reply_text = (
+                                f"{reply_text}\n\n"
+                                f"<b>✦ {html.escape(sname)}</b>\n"
                                 f"▸ <a href='{link}'>Listen / Read here</a>"
                             )
-                            reply_text = (reply_text or "") + extra
                         else:
-                            reply_text = (reply_text or "") + f"\n\n<i>◌ '{html.escape(search_query)}' — abhi available nahi hai. /request kar do!</i>"
+                            reply_text += (
+                                f"\n\n<i>◌ '{html.escape(search_query)}' abhi nahi hai — "
+                                f"/request se maang lo! 📩</i>"
+                            )
                     else:
-                        reply_text = (reply_text or "") + f"\n\n<i>◌ '{html.escape(search_query)}' — database mein nahi mili. Spelling check karo ya /request karo.</i>"
+                        reply_text += (
+                            f"\n\n<i>◌ '{html.escape(search_query)}' database mein nahi mili. "
+                            f"Spelling check karo ya /request karo 📩</i>"
+                        )
 
-            # Stop keyword from AI itself ends the session
-            if "silent mode on" in (reply_text or "").lower():
+            # ── Session end ────────────────────────────────────────────────────
+            if wants_stop:
                 gemini_chat.deactivate_gemini(user_id)
 
+            # ── Voice reply (text-triggered or AI-flagged) ─────────────────────
+            if (wants_voice or wants_voice_text) and reply_text:
+                await _send_tts_or_text(update, context, reply_text)
+                return
+
             if reply_text:
-                await update.message.reply_text(reply_text, parse_mode="HTML",
-                                                disable_web_page_preview=True)
+                await update.message.reply_text(
+                    reply_text, parse_mode="HTML",
+                    disable_web_page_preview=True
+                )
             return
 
     # Handle No/Nahi + Thanks BEFORE is_valid_query filters them out
@@ -5790,43 +5809,61 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return await search(update, context)
 
 
-async def voice_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle incoming voice/audio — reply with Sarvam TTS when Riya session is active."""
-    user_id   = update.effective_user.id
-    user_name = update.effective_user.first_name or "User"
-    ai_cfg    = bot_config.get("ai", {})
+async def _send_tts_or_text(update, context, reply_text: str):
+    """Try Sarvam TTS first; fall back to plain text if key missing or call fails."""
+    import re as _re
+    ai_cfg     = bot_config.get("ai", {})
     sarvam_key = ai_cfg.get("sarvam_key", "")
-
-    if not gemini_chat.is_gemini_active(user_id):
-        return   # not in a Riya convo — silently ignore
-
-    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="record_voice")
-
-    reply_text, _ = await gemini_chat.process_gemini_message(
-        user_id, user_name,
-        "User ne voice message bheja hai. Ek short friendly reply do 1-2 lines mein Hinglish mein."
-    )
-    reply_text = reply_text or "◌ suna nahi pada, type kar ke batao ✦"
 
     if sarvam_key:
         try:
             from sarvam_tts import synthesize
             import io as _io
             voice_id    = ai_cfg.get("voice_female", "sarvam:default-meera")
-            audio_bytes = await synthesize(reply_text, voice_id, sarvam_key, gender="female")
+            # Strip HTML for TTS
+            clean_text  = _re.sub(r"<[^>]+>", "", reply_text)
+            audio_bytes = await synthesize(clean_text, voice_id, sarvam_key, gender="female")
+            await context.bot.send_chat_action(
+                chat_id=update.effective_chat.id, action="upload_voice"
+            )
             await update.message.reply_voice(
                 voice=_io.BytesIO(audio_bytes),
-                caption=f"<i>{reply_text[:200]}</i>",
+                caption=f"<i>{html.escape(clean_text[:150])}</i>",
                 parse_mode="HTML"
             )
+            return
         except Exception as e:
             logger.warning(f"[TTS] Sarvam failed: {e}")
-            await update.message.reply_text(reply_text, parse_mode="HTML")
-    else:
-        await update.message.reply_text(
-            reply_text + "\n\n<i>◌ Voice replies ke liye admin Sarvam key set kare — /config ✦</i>",
-            parse_mode="HTML"
-        )
+
+    # Fallback: plain text
+    await update.message.reply_text(
+        reply_text + "\n\n<i>◌ Voice reply ke liye Sarvam API key set karo /config mein ✦</i>",
+        parse_mode="HTML",
+        disable_web_page_preview=True
+    )
+
+
+async def voice_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle incoming voice/audio messages — always reply with TTS if Riya is active."""
+    user_id   = update.effective_user.id
+    user_name = update.effective_user.first_name or "User"
+
+    # Auto-activate Riya if not already active (sending voice = wanting to talk to Riya)
+    gemini_chat.activate_gemini(user_id)
+
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+
+    reply_text, _, _, wants_stop = await gemini_chat.process_gemini_message(
+        user_id, user_name,
+        "User ne voice message bheja hai. Short, warm reply do 1-2 lines mein Hinglish mein. ##VOICE##"
+    )
+    if wants_stop:
+        gemini_chat.deactivate_gemini(user_id)
+
+    reply_text = reply_text or "haan bolo! 😊"
+    await _send_tts_or_text(update, context, reply_text)
+
+
 
 
 async def guide_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):

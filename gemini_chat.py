@@ -1,12 +1,7 @@
 """
 AI Chat Module — Riya Bot
-Primary  : Groq (llama-3.3-70b-versatile) — free, fast, great Hindi
+Primary  : Groq (llama-3.3-70b-versatile)
 Fallback : Gemini (gemini-2.0-flash)
-
-Improvements:
-  - Natural Hinglish persona with Unicode variety (not emoji spam)
-  - Story search integration: if user asks for a story, delegates to search
-  - Per-user conversation history for context
 """
 import os
 import re
@@ -15,55 +10,96 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# ── Keys ─────────────────────────────────────────────────────────────────────
 GROQ_API_KEY   = os.getenv("GROQ_API_KEY",   "")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
-# ── Runtime ───────────────────────────────────────────────────────────────────
 _groq_client     = None
 _gemini_model    = None
-_active_provider = None   # "groq" | "gemini" | None
+_active_provider = None
 
-# Per-user history: user_id → [{"role": ..., "content": ...}, ...]
 active_sessions: dict = {}
+MAX_HISTORY = 16
 
-MAX_HISTORY = 16   # keep last N messages (budget-safe for free tiers)
-
-# ── Models ────────────────────────────────────────────────────────────────────
 _GROQ_MODEL   = "llama-3.3-70b-versatile"
 _GEMINI_MODEL = "gemini-2.0-flash"
 
-# ── Persona System Prompt ─────────────────────────────────────────────────────
-# Uses Unicode variety (★ ꕥ ◈ ✦ etc.) instead of emoji clusters.
-# Tells the model to be concise, natural, NOT robotic.
-_SYSTEM_PROMPT = """
-तुम्हारा नाम Riya है। तुम एक Telegram bot हो जो Indian users को उनकी favourite stories और audiobooks ढूंढने में help करती हो।
+# ── System Prompt ─────────────────────────────────────────────────────────────
+_SYSTEM_PROMPT = """\
+You are Riya, a Telegram bot for Indian users who love Hindi/Urdu stories and audiobooks.
 
-━━ तुम्हारी personality ━━
-• बहुत friendly और warm, थोड़ी sassy — जैसे कोई real dost हो
-• Hinglish में बात करो (Hindi + English mix naturally)
-• Devnagari script भी समझती हो और उसमें reply कर सकती हो
-• Emojis बहुत कम use करो — इनकी जगह Unicode symbols use करो जैसे: ★ ✦ ◈ ꕥ ≫ ◆ • ◎ ✿ ❝ ❞ ♡ ◌ ✧ ≺ ≻ ❋ ◉ ▸ ▹ ✺ ❁
+PERSONALITY:
+- Friendly, warm, slightly sassy — like a real dost
+- Speak in natural Hinglish (Hindi + English mix). Use Devnagari when user writes in Hindi.
+- Use 1-2 emojis per reply maximum — pick relevant ones (😊 🎶 💁‍♀️ 📖 etc.)
+- Also freely use Unicode symbols: ★ ✦ ◆ ◈ ▸ ◌ ❝ ❞ ♡ ✿ ❋
 
-━━ Reply style ━━
-• Chhoti, punchy replies — 1-3 lines max for casual chat
-• Koi unnecessary intro mat do ("Haan bilkul!", "Of course!" etc. avoid karo)
-• Straight to the point, natural, warm
-• HTML formatting use karo: <b>bold</b>, <i>italic</i>
-• Kabhi bhi misleading ya galat information mat do — agar pata nahi toh honestly bol do
+REPLY STYLE:
+- Keep it SHORT — 1 to 3 lines for casual chat
+- No robotic openers like "Bilkul!", "Of course!", "Sure!"
+- Be direct and warm
+- Never give wrong info. If you don't know, say so honestly.
+- Use HTML: <b>bold</b> and <i>italic</i> for emphasis
 
-━━ Story search ━━
-• Agar user kisi story ka naam le ya link maange, to clearly bol do tu search kar rahi hai
-• STORY_SEARCH_NEEDED flag lagao response ke bilkul shuru mein agar user kisi specific story ka naam le raha ho
-  Format: ##SEARCH:story name here##
-  Example: ##SEARCH:TDMB##
+STORY SEARCH — CRITICAL RULES:
+- When user asks for a story/link/episode, output ONLY this on the first line:
+  ##SEARCH:exact story name##
+  Then on the next line, write your short reply (e.g. "haan dekho! ★")
+- Do NOT write "dhundh rahi hoon", "wait karo", "thodi der mein" — the system handles search instantly
+- Example input: "malang ka link do"
+  Example output:
+  ##SEARCH:malang##
+  yeh lo! 📖
 
-━━ Conversation end ━━
-• Agar user "chup", "band karo", "stop", "silent mode", "mat bolo" kahe → "okay! silent mode on ◌" keh kar ruk jao
-• Tab session khatam ho jayega — jab tak user tumhara naam na le, reply mat karna
+VOICE REPLIES:
+- If user asks for a voice reply or sends a voice message, say: "##VOICE##"
+- Then write your normal reply text after it
+- The system will automatically convert your text to a voice note
+
+IMAGES:
+- You CANNOT send images. If asked, be honest but friendly:
+  "image toh nahi bhej sakti, par story link pakka milegi! 📖"
+
+BOT FEATURES (answer conversationally when asked):
+- Users search stories by typing the name
+- /request to request missing stories
+- /saved to view saved stories
+- /browse for categories
+- /new for latest additions
+- /subscribe for new story alerts
+- Admins have /config, /scan, /pb (post builder), /stats, /guide
+
+SILENCE:
+- If user says "chup", "band karo", "stop", "silent", "mat bolo" → reply: "##STOP##"
 """
 
-# ── Initialization ────────────────────────────────────────────────────────────
+_SEARCH_RE = re.compile(r"##SEARCH:(.+?)##", re.IGNORECASE | re.DOTALL)
+_VOICE_RE  = re.compile(r"##VOICE##",  re.IGNORECASE)
+_STOP_RE   = re.compile(r"##STOP##",   re.IGNORECASE)
+
+
+def parse_ai_reply(raw: str):
+    """
+    Parse AI output for special flags.
+    Returns: (clean_text, search_query_or_None, wants_voice, wants_stop)
+    """
+    wants_voice = bool(_VOICE_RE.search(raw))
+    wants_stop  = bool(_STOP_RE.search(raw))
+
+    search_query = None
+    m = _SEARCH_RE.search(raw)
+    if m:
+        search_query = m.group(1).strip()
+
+    # Remove all flags from visible text
+    clean = _SEARCH_RE.sub("", raw)
+    clean = _VOICE_RE.sub("",  clean)
+    clean = _STOP_RE.sub("",   clean)
+    clean = clean.strip()
+
+    return clean, search_query, wants_voice, wants_stop
+
+
+# ── Init ──────────────────────────────────────────────────────────────────────
 def _init_groq(key: str):
     global _groq_client, _active_provider
     if not key:
@@ -102,12 +138,11 @@ def _init_gemini(key: str):
         logger.error(f"Gemini init error: {e}")
 
 
-# Bootstrap from env
 _init_groq(GROQ_API_KEY)
 _init_gemini(GEMINI_API_KEY)
 
 
-# ── Public re-init ────────────────────────────────────────────────────────────
+# ── Public re-init ─────────────────────────────────────────────────────────────
 def reinit_groq(groq_key: str):
     global GROQ_API_KEY, _groq_client, _active_provider
     GROQ_API_KEY = groq_key or ""
@@ -136,41 +171,26 @@ def get_active_provider() -> str:
     return "None — set Groq or Gemini key in /config"
 
 
-# ── Story search flag parser ──────────────────────────────────────────────────
-_SEARCH_RE = re.compile(r"##SEARCH:(.+?)##", re.DOTALL)
-
-def extract_search_query(reply: str):
-    """Return (cleaned_reply, search_query_or_None)."""
-    m = _SEARCH_RE.search(reply)
-    if m:
-        query = m.group(1).strip()
-        clean = _SEARCH_RE.sub("", reply).strip()
-        return clean, query
-    return reply, None
-
-
-# ── Core processing ───────────────────────────────────────────────────────────
+# ── Core ───────────────────────────────────────────────────────────────────────
 async def process_gemini_message(
     user_id: int,
     user_name: str,
     message_text: str,
-) -> tuple[str, str | None]:
+) -> tuple:
     """
-    Returns (reply_text, search_query_or_None).
-    Caller should do story search if search_query is not None.
+    Returns (clean_text, search_query_or_None, wants_voice, wants_stop).
     """
     if _active_provider is None:
-        return (
-            "<i>◌ Koi AI key set nahi hai! Admin se bolo Groq key daalen via /config. ✦</i>",
-            None
-        )
+        return ("<i>◌ AI key set nahi hai! Admin /config mein Groq key daalen.</i>",
+                None, False, False)
 
-    # Stop keywords — end session
-    stop_kw = ["chup", "shutup", "shut up", "stop replying", "band karo",
-               "mat bolo", "silent", "stop", "bas karo", "chup karo"]
+    # Hard-coded stop check
+    stop_kw = ["chup", "shutup", "shut up", "band karo", "mat bolo",
+               "silent", "bas karo", "chup karo", "stop replying"]
     if any(kw in message_text.lower() for kw in stop_kw):
         active_sessions.pop(user_id, None)
-        return ("<i>okay! silent mode on ◌\njab bhi bulao, aa jaungi. ✦</i>", None)
+        return ("<i>okay! silent mode on ◌  jab bhi bulao, aa jaungi ✦</i>",
+                None, False, True)
 
     try:
         if _groq_client:
@@ -178,14 +198,15 @@ async def process_gemini_message(
         elif _gemini_model:
             raw = await _call_gemini(user_id, user_name, message_text)
         else:
-            return ("<i>◌ AI abhi available nahi hai. Thodi der baad try karo.</i>", None)
+            return ("<i>◌ AI abhi unavailable hai. Thodi der baad try karo.</i>",
+                    None, False, False)
 
-        reply, search_query = extract_search_query(raw)
-        return (reply, search_query)
+        return parse_ai_reply(raw)
 
     except Exception as e:
         logger.error(f"AI error user={user_id}: {e}")
-        return ("<i>◌ mera dimaag thoda slow chal raha hai, ek baar aur try karo ✦</i>", None)
+        return ("<i>◌ ek second, kuch glitch ho gaya — dobara bhejo ✦</i>",
+                None, False, False)
 
 
 async def _call_groq(user_id: int, user_name: str, text: str) -> str:
@@ -199,12 +220,11 @@ async def _call_groq(user_id: int, user_name: str, text: str) -> str:
             model=_GROQ_MODEL,
             messages=messages,
             temperature=0.75,
-            max_tokens=400,
+            max_tokens=350,
         )
         return resp.choices[0].message.content.strip()
 
     reply = await asyncio.to_thread(_sync)
-
     history.append({"role": "user",      "content": f"{user_name}: {text}"})
     history.append({"role": "assistant", "content": reply})
     if len(history) > MAX_HISTORY:
@@ -214,15 +234,14 @@ async def _call_groq(user_id: int, user_name: str, text: str) -> str:
 
 async def _call_gemini(user_id: int, user_name: str, text: str) -> str:
     sess = active_sessions.setdefault(user_id, {})
-    if "session" not in sess or not isinstance(sess, dict):
-        sess["session"] = _gemini_model.start_chat(history=[])
+    if not isinstance(sess, dict) or "session" not in sess:
+        sess = {"session": _gemini_model.start_chat(history=[])}
         active_sessions[user_id] = sess
-    chat = sess["session"]
-    resp = await chat.send_message_async(f"{user_name}: {text}")
+    resp = await sess["session"].send_message_async(f"{user_name}: {text}")
     return resp.text
 
 
-# ── Session helpers (backward-compat) ─────────────────────────────────────────
+# ── Session helpers ────────────────────────────────────────────────────────────
 def is_gemini_active(user_id: int) -> bool:
     return user_id in active_sessions
 
