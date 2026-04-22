@@ -4704,6 +4704,22 @@ def _cfg_aiconfig_panel(caller_id: int) -> tuple:
     return text, markup
 
 
+def _cfg_voice_select_panel(caller_id: int, gender: str) -> tuple:
+    if gender == "male":
+        voices = ["amit", "arvind", "sumit", "puneet"]
+        text = "<b>👦 Select Sarvam Male Voice Mode</b>\n\nChoose the default male voice:"
+    else:
+        voices = ["meera", "smriti", "pallavi", "shilpa"]
+        text = "<b>👧 Select Sarvam Female Voice Mode</b>\n\nChoose the default female voice:"
+        
+    buttons = []
+    for v in voices:
+        buttons.append([InlineKeyboardButton(f"🗣 {v.capitalize()}", callback_data=f"cfg|aivoiceselect|{gender}|{v}||{caller_id}")])
+    
+    buttons.append([_cfg_nav(caller_id, back="aiconfig")])
+    return text, InlineKeyboardMarkup(buttons)
+
+
 def _cfg_maintenance_panel(caller_id: int) -> tuple:
     """Build the maintenance mode config panel."""
     if MAINTENANCE_MODE:
@@ -5064,18 +5080,40 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
         if section == "ai_geminikey":
             context.chat_data["config_state"] = "waiting_ai_geminikey"
             text = "<b>🤖 Set Gemini API Key</b>\n\nPlease send your Google Gemini API Key. To remove it, send strictly <code>clear</code>."
+            await query.answer()
+            await query.message.reply_text(text, parse_mode="HTML")
+            return
         elif section == "ai_sarvamkey":
             context.chat_data["config_state"] = "waiting_ai_sarvamkey"
             text = "<b>🤖 Set Sarvam API Key</b>\n\nPlease send your Sarvam AI API Key. To remove it, send strictly <code>clear</code>."
+            await query.answer()
+            await query.message.reply_text(text, parse_mode="HTML")
+            return
         elif section == "ai_malevoice":
-            context.chat_data["config_state"] = "waiting_ai_malevoice"
-            text = "<b>🤖 Set Sarvam Male Voice ID</b>\n\nPlease send the exact Voice ID (e.g. <code>sarvam:default-male</code>)."
+            text, markup = _cfg_voice_select_panel(caller_id, "male")
+            await _edit_cfg(query, text, markup)
+            await query.answer()
+            return
         elif section == "ai_femalevoice":
-            context.chat_data["config_state"] = "waiting_ai_femalevoice"
-            text = "<b>🤖 Set Sarvam Female Voice ID</b>\n\nPlease send the exact Voice ID (e.g. <code>sarvam:default-female</code>)."
+            text, markup = _cfg_voice_select_panel(caller_id, "female")
+            await _edit_cfg(query, text, markup)
+            await query.answer()
+            return
+            
+    if section == "aivoiceselect":
+        gender = args[2]
+        voice = args[3]
+        ai_cfg = bot_config.get("ai", {})
+        if gender == "male":
+            ai_cfg["voice_male"] = f"sarvam:default-{voice}"
+        else:
+            ai_cfg["voice_female"] = f"sarvam:default-{voice}"
+        bot_config["ai"] = ai_cfg
+        save_config(bot_config)
         
-        await query.answer()
-        await query.message.reply_text(text, parse_mode="HTML")
+        text, markup = _cfg_aiconfig_panel(caller_id)
+        await _edit_cfg(query, text, markup)
+        await query.answer(f"Voice updated to {voice.capitalize()}!", show_alert=True)
         return
 
     # ── Maintenance mode ─────────────────────────────────────────────────────
@@ -5170,7 +5208,7 @@ async def handle_config_input(update: Update, context: ContextTypes.DEFAULT_TYPE
     # Check if we're waiting for config input
     state = context.chat_data.get("config_state")
     
-    if state in ("waiting_ai_geminikey", "waiting_ai_sarvamkey", "waiting_ai_malevoice", "waiting_ai_femalevoice"):
+    if state in ("waiting_ai_geminikey", "waiting_ai_sarvamkey"):
         ai_cfg = bot_config.get("ai", {})
         if state == "waiting_ai_geminikey":
             if text.strip().lower() == "clear": ai_cfg["gemini_key"] = ""
@@ -5183,14 +5221,6 @@ async def handle_config_input(update: Update, context: ContextTypes.DEFAULT_TYPE
         elif state == "waiting_ai_sarvamkey":
             if text.strip().lower() == "clear": ai_cfg["sarvam_key"] = ""
             else: ai_cfg["sarvam_key"] = text.strip()
-            bot_config["ai"] = ai_cfg
-            save_config(bot_config)
-        elif state == "waiting_ai_malevoice":
-            ai_cfg["voice_male"] = text.strip()
-            bot_config["ai"] = ai_cfg
-            save_config(bot_config)
-        elif state == "waiting_ai_femalevoice":
-            ai_cfg["voice_female"] = text.strip()
             bot_config["ai"] = ai_cfg
             save_config(bot_config)
             
