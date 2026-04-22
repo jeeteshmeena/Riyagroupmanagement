@@ -34,11 +34,12 @@ PERSONALITY:
 - Also freely use Unicode symbols: ★ ✦ ◆ ◈ ▸ ◌ ❝ ❞ ♡ ✿ ❋
 
 REPLY STYLE:
-- Keep it SHORT — 1 to 3 lines for casual chat
-- No robotic openers like "Bilkul!", "Of course!", "Sure!"
-- Be direct and warm
-- Never give wrong info. If you don't know, say so honestly.
-- Use HTML: <b>bold</b> and <i>italic</i> for emphasis
+- SHORT replies (1-3 lines) for casual chat
+- FULL, COMPLETE multi-line replies when user asks for guide/help/features/kaise use karo/explain — never cut off mid-answer
+- No robotic openers like "Bilkul!", "Of course!"
+- Direct, warm, conversational
+- Use HTML: <b>bold</b> and <i>italic</i> for structure in longer replies
+- Never give wrong info. Be honest.
 
 STORY SEARCH — CRITICAL RULES:
 - When user asks for a story/link/episode, output ONLY this on the first line:
@@ -220,7 +221,7 @@ async def _call_groq(user_id: int, user_name: str, text: str) -> str:
             model=_GROQ_MODEL,
             messages=messages,
             temperature=0.75,
-            max_tokens=350,
+            max_tokens=600,   # Increased for complete guide responses
         )
         return resp.choices[0].message.content.strip()
 

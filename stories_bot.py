@@ -4675,42 +4675,74 @@ def _cfg_gban_panel(caller_id: int) -> tuple:
     return text, markup
 
 
+def _get_voice_provider_now(ai_cfg: dict) -> str:
+    """Return which TTS provider is active right now based on IST time."""
+    from datetime import datetime, timezone, timedelta
+    IST = timezone(timedelta(hours=5, minutes=30))
+    hour = datetime.now(IST).hour
+    el_key = ai_cfg.get("elevenlabs_key", "")
+    sarv_key = ai_cfg.get("sarvam_key", "")
+    if not el_key and not sarv_key:
+        return "none"
+    if el_key and sarv_key:
+        # Subah 6-12: Sarvam | Dopahar 12-20: ElevenLabs | Raat 20-6: Sarvam
+        if 6 <= hour < 12:
+            return "sarvam"
+        elif 12 <= hour < 20:
+            return "elevenlabs"
+        else:
+            return "sarvam"
+    return "elevenlabs" if el_key else "sarvam"
+
+
 def _cfg_aiconfig_panel(caller_id: int) -> tuple:
-    ai_cfg = bot_config.get("ai", {})
-    groq_key  = "✅ Set" if ai_cfg.get("groq_key")   else "❌ Not Set"
-    gem_key   = "✅ Set" if ai_cfg.get("gemini_key") else "❌ Not Set"
-    sarv_key  = "✅ Set" if ai_cfg.get("sarvam_key") else "❌ Not Set"
-    male   = ai_cfg.get("voice_male",   "sarvam:default-male")
-    female = ai_cfg.get("voice_female", "sarvam:default-female")
-    
+    ai_cfg   = bot_config.get("ai", {})
+    groq_key = "✅ Set" if ai_cfg.get("groq_key")        else "❌ Not Set"
+    gem_key  = "✅ Set" if ai_cfg.get("gemini_key")      else "❌ Not Set"
+    sarv_key = "✅ Set" if ai_cfg.get("sarvam_key")      else "❌ Not Set"
+    el_key   = "✅ Set" if ai_cfg.get("elevenlabs_key")  else "❌ Not Set"
+    el_voice = ai_cfg.get("elevenlabs_voice_id", "Not Set")
+    female_v = ai_cfg.get("voice_female", "sarvam:default-anushka")
+
     try:
-        active_prov = gemini_chat.get_active_provider()
+        active_ai  = gemini_chat.get_active_provider()
     except Exception:
-        active_prov = "Unknown"
-    
+        active_ai  = "Unknown"
+
+    voice_now = _get_voice_provider_now(ai_cfg)
+    voice_map  = {"sarvam": "Sarvam AI ✦ bulbul:v2", "elevenlabs": "ElevenLabs ✦ multilingual-v2", "none": "No TTS key set"}
+
     text = (
         "<b>🤖 AI & Voice Configuration</b>\n"
-        "<i>Groq (free) is the primary AI. Gemini is the fallback.</i>\n"
+        "<i>Groq = primary chat AI | Gemini = fallback</i>\n"
         f"{_CFG_DIV}\n\n"
-        f"▪ <b>Active Provider:</b> <code>{active_prov}</code>\n\n"
-        f"▪ <b>Groq API Key:</b>   <code>{groq_key}</code>  — <i>primary (free, fast Hindi)</i>\n"
-        f"▪ <b>Gemini API Key:</b> <code>{gem_key}</code>  — <i>fallback</i>\n"
-        f"▪ <b>Sarvam API Key:</b> <code>{sarv_key}</code>\n"
-        f"▪ <b>Sarvam Male Voice:</b>   <code>{male}</code>\n"
-        f"▪ <b>Sarvam Female Voice:</b> <code>{female}</code>\n\n"
-        "<i>Send 'clear' when prompted to remove a key.</i>"
+        f"▪ <b>Chat Provider:</b> <code>{active_ai}</code>\n\n"
+        "<b>── Chat AI ──</b>\n"
+        f"▪ Groq Key:      <code>{groq_key}</code>  <i>(primary, free)</i>\n"
+        f"▪ Gemini Key:    <code>{gem_key}</code>  <i>(fallback)</i>\n\n"
+        "<b>── Voice TTS ──</b>\n"
+        f"▪ Sarvam Key:      <code>{sarv_key}</code>\n"
+        f"▪ ElevenLabs Key:  <code>{el_key}</code>\n"
+        f"▪ ElevenLabs Voice ID: <code>{el_voice[:28]}...</code>\n"
+        f"▪ Sarvam Female Voice: <code>{female_v}</code>\n\n"
+        f"▪ <b>Active TTS now:</b> <code>{voice_map.get(voice_now)}</code>\n"
+        "<i>Schedule → Morning/Night: Sarvam | Afternoon/Eve: ElevenLabs</i>\n\n"
+        "<i>Send 'clear' when prompted to remove any key.</i>"
     )
     markup = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("🔑 Set Groq Key",   callback_data=f"cfg|ai_groqkey||{caller_id}"),
-            InlineKeyboardButton("🔑 Set Gemini Key", callback_data=f"cfg|ai_geminikey||{caller_id}"),
+            InlineKeyboardButton("🔑 Set Groq Key",        callback_data=f"cfg|ai_groqkey||{caller_id}"),
+            InlineKeyboardButton("🔑 Set Gemini Key",      callback_data=f"cfg|ai_geminikey||{caller_id}"),
         ],
         [
-            InlineKeyboardButton("Set Sarvam Key",  callback_data=f"cfg|ai_sarvamkey||{caller_id}"),
+            InlineKeyboardButton("🎙 Set Sarvam Key",     callback_data=f"cfg|ai_sarvamkey||{caller_id}"),
+            InlineKeyboardButton("🎙 Set ElevenLabs Key", callback_data=f"cfg|ai_elkey||{caller_id}"),
         ],
         [
-            InlineKeyboardButton("Set Male Voice",   callback_data=f"cfg|ai_malevoice||{caller_id}"),
-            InlineKeyboardButton("Set Female Voice", callback_data=f"cfg|ai_femalevoice||{caller_id}"),
+            InlineKeyboardButton("🗣 Set ElevenLabs Voice", callback_data=f"cfg|ai_elvoice||{caller_id}"),
+        ],
+        [
+            InlineKeyboardButton("👩 Female Voice (Sarvam)", callback_data=f"cfg|ai_femalevoice||{caller_id}"),
         ],
         _cfg_nav(caller_id, back="main")
     ])
@@ -4718,13 +4750,13 @@ def _cfg_aiconfig_panel(caller_id: int) -> tuple:
 
 
 def _cfg_voice_select_panel(caller_id: int, gender: str) -> tuple:
-    # bulbul:v2 has exactly 7 speakers: anushka, manisha, vidya, arya (female) + abhilash, karun, hitesh (male)
+    # bulbul:v2 confirmed speakers: 4 female + 3 male
     if gender == "male":
         voices = ["abhilash", "karun", "hitesh"]
-        text = "<b>✦ Select Male Voice</b>\n<i>Sarvam bulbul:v2 — 3 male voices</i>"
+        text = "<b>✦ Select Male Voice (Sarvam bulbul:v2)</b>"
     else:
         voices = ["anushka", "manisha", "vidya", "arya"]
-        text = "<b>✦ Select Female Voice</b>\n<i>Sarvam bulbul:v2 — 4 female voices</i>"
+        text = "<b>✦ Select Female Voice (Sarvam bulbul:v2)</b>\n<i>Riya is female — these 4 voices are confirmed working ✓</i>"
 
     buttons = []
     for v in voices:
@@ -5192,7 +5224,37 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
             return
         elif section == "ai_sarvamkey":
             context.chat_data["config_state"] = "waiting_ai_sarvamkey"
-            text = "<b>🤖 Set Sarvam API Key</b>\n\nPlease send your Sarvam AI API Key. To remove it, send <code>clear</code>."
+            text = (
+                "<b>🎙 Set Sarvam API Key</b>\n\n"
+                "Get your key at: <code>dashboard.sarvam.ai</code>\n\n"
+                "Send your Sarvam API Key now. To remove it, send <code>clear</code>."
+            )
+            await query.answer()
+            await query.message.reply_text(text, parse_mode="HTML")
+            return
+        elif section == "ai_elkey":
+            context.chat_data["config_state"] = "waiting_ai_elkey"
+            text = (
+                "<b>🎙 Set ElevenLabs API Key</b>\n\n"
+                "Get your free key at: <code>elevenlabs.io</code> → Profile → API Keys\n\n"
+                "ElevenLabs provides ultra-realistic human voice in Hindi + English.\n"
+                "Send your ElevenLabs API Key now. To remove it, send <code>clear</code>."
+            )
+            await query.answer()
+            await query.message.reply_text(text, parse_mode="HTML")
+            return
+        elif section == "ai_elvoice":
+            context.chat_data["config_state"] = "waiting_ai_elvoice"
+            text = (
+                "<b>🗣 Set ElevenLabs Voice ID</b>\n\n"
+                "Browse voices at <code>elevenlabs.io/voice-library</code>\n\n"
+                "<b>Recommended female voices:</b>\n"
+                "▸ Aria (warm) — <code>9BWtsMINqrJLrRacOk9x</code>\n"
+                "▸ Sarah (clear) — <code>EXAVITQu4vr4xnSDxMaL</code>\n"
+                "▸ Charlotte — <code>XB0fDUnXU5powFXDhCwa</code>\n"
+                "▸ Matilda (nurturing) — <code>XrExE9yKIg1WjnnlVkGX</code>\n\n"
+                "Send the Voice ID now (or send <code>clear</code> to use default)."
+            )
             await query.answer()
             await query.message.reply_text(text, parse_mode="HTML")
             return
@@ -5206,7 +5268,7 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
             await _edit_cfg(query, text, markup)
             await query.answer()
             return
-            
+
     if section == "aivoiceselect":
         gender = parts[2]
         voice = parts[3]
@@ -5373,7 +5435,8 @@ async def handle_config_input(update: Update, context: ContextTypes.DEFAULT_TYPE
     # Check if we're waiting for config input
     state = context.chat_data.get("config_state")
     
-    if state in ("waiting_ai_groqkey", "waiting_ai_geminikey", "waiting_ai_sarvamkey"):
+    if state in ("waiting_ai_groqkey", "waiting_ai_geminikey", "waiting_ai_sarvamkey",
+                 "waiting_ai_elkey",   "waiting_ai_elvoice"):
         ai_cfg = bot_config.get("ai", {})
         val = text.strip()
         is_clear = val.lower() == "clear"
@@ -5396,13 +5459,25 @@ async def handle_config_input(update: Update, context: ContextTypes.DEFAULT_TYPE
             ai_cfg["sarvam_key"] = "" if is_clear else val
             bot_config["ai"] = ai_cfg
             save_config(bot_config)
-            action_text = "Sarvam API Key cleared." if is_clear else "✅ Sarvam key saved."
+            action_text = "Sarvam API Key cleared." if is_clear else "✅ Sarvam key saved — voice active Morning/Night!"
+
+        elif state == "waiting_ai_elkey":
+            ai_cfg["elevenlabs_key"] = "" if is_clear else val
+            bot_config["ai"] = ai_cfg
+            save_config(bot_config)
+            action_text = "ElevenLabs key cleared." if is_clear else "✅ ElevenLabs key saved — ultra-realistic voice active Afternoon/Evening!"
+
+        elif state == "waiting_ai_elvoice":
+            ai_cfg["elevenlabs_voice_id"] = "" if is_clear else val
+            bot_config["ai"] = ai_cfg
+            save_config(bot_config)
+            action_text = "ElevenLabs voice ID reset to default (Aria)." if is_clear else f"✅ ElevenLabs voice set to: <code>{val}</code>"
 
         context.chat_data.pop("config_state", None)
         provider_now = gemini_chat.get_active_provider()
         await update.message.reply_text(
             f"<b>🤖 AI Config Updated</b>\n{action_text}\n\n"
-            f"<b>Active provider now:</b> <code>{provider_now}</code>",
+            f"<b>Active chat provider:</b> <code>{provider_now}</code>",
             parse_mode="HTML"
         )
         return
@@ -5813,37 +5888,79 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _send_tts_or_text(update, context, reply_text: str):
-    """Try Sarvam TTS first; fall back to plain text if key missing or call fails."""
+    """
+    Smart TTS dispatch — time-based IST switching:
+      06:00–12:00 IST → Sarvam AI
+      12:00–20:00 IST → ElevenLabs
+      20:00–06:00 IST → Sarvam AI
+    Falls back gracefully if a provider fails.
+    If no TTS keys configured → plain text.
+    """
     import re as _re
     import io as _io
-    ai_cfg     = bot_config.get("ai", {})
-    sarvam_key = ai_cfg.get("sarvam_key", "")
+    ai_cfg = bot_config.get("ai", {})
 
-    if not sarvam_key:
-        # Key not configured — just send text silently, no hint needed
-        await update.message.reply_text(
-            reply_text, parse_mode="HTML", disable_web_page_preview=True
-        )
+    clean_text = _re.sub(r"<[^>]+>", "", reply_text).strip()
+    if not clean_text:
         return
 
-    # Key exists — try TTS
-    try:
-        from sarvam_tts import synthesize
-        voice_id   = ai_cfg.get("voice_female", "sarvam:default-meera")
-        clean_text = _re.sub(r"<[^>]+>", "", reply_text).strip()
-        audio_bytes = await synthesize(clean_text, voice_id, sarvam_key, gender="female")
-        await context.bot.send_chat_action(
-            chat_id=update.effective_chat.id, action="upload_voice"
-        )
-        await update.message.reply_voice(
-            voice=_io.BytesIO(audio_bytes),
-            caption=f"<i>{html.escape(clean_text[:150])}</i>",
-            parse_mode="HTML"
-        )
-        return
-    except Exception as e:
-        logger.error(f"[TTS] Sarvam call failed: {e}")
-        # Fall back to text — no noisy footer, just send the actual reply
+    provider = _get_voice_provider_now(ai_cfg)
+
+    async def _try_elevenlabs() -> bool:
+        el_key      = ai_cfg.get("elevenlabs_key", "")
+        el_voice_id = ai_cfg.get("elevenlabs_voice_id", "")
+        if not el_key:
+            return False
+        try:
+            from elevenlabs_tts import synthesize as el_synth, DEFAULT_VOICE_ID
+            vid         = el_voice_id or DEFAULT_VOICE_ID
+            audio_bytes = await el_synth(clean_text, vid, el_key)
+            await context.bot.send_chat_action(
+                chat_id=update.effective_chat.id, action="upload_voice"
+            )
+            await update.message.reply_voice(
+                voice=_io.BytesIO(audio_bytes),
+                caption=f"<i>{html.escape(clean_text[:150])}</i>",
+                parse_mode="HTML"
+            )
+            return True
+        except Exception as e:
+            logger.error(f"[EL-TTS] Failed: {e}")
+            return False
+
+    async def _try_sarvam() -> bool:
+        sarvam_key = ai_cfg.get("sarvam_key", "")
+        if not sarvam_key:
+            return False
+        try:
+            from sarvam_tts import synthesize as sarv_synth
+            voice_id    = ai_cfg.get("voice_female", "sarvam:default-anushka")
+            audio_bytes = await sarv_synth(clean_text, voice_id, sarvam_key, gender="female")
+            await context.bot.send_chat_action(
+                chat_id=update.effective_chat.id, action="upload_voice"
+            )
+            await update.message.reply_voice(
+                voice=_io.BytesIO(audio_bytes),
+                caption=f"<i>{html.escape(clean_text[:150])}</i>",
+                parse_mode="HTML"
+            )
+            return True
+        except Exception as e:
+            logger.error(f"[TTS] Sarvam failed: {e}")
+            return False
+
+    # Try primary provider first, then failover to secondary
+    if provider == "elevenlabs":
+        success = await _try_elevenlabs()
+        if not success:
+            success = await _try_sarvam()
+    else:
+        success = await _try_sarvam()
+        if not success:
+            success = await _try_elevenlabs()
+
+    if not success:
+        # No TTS available — send plain text silently
         await update.message.reply_text(
             reply_text, parse_mode="HTML", disable_web_page_preview=True
         )

@@ -82,9 +82,9 @@ def _do_tts(text: str, speaker: str, api_key: str) -> bytes:
         "target_language_code": "hi-IN",
         "speaker": speaker,
         "pitch": 0,
-        "pace": 1.05,
+        "pace": 1.0,          # Natural pace — not too fast
         "loudness": 1.5,
-        "speech_sample_rate": 8000,
+        "speech_sample_rate": 22050,   # High quality — was 8000 (phone quality)
         "enable_preprocessing": True,
         "model": "bulbul:v2"
     }
