@@ -1,11 +1,13 @@
 """
 Sarvam AI — Text to Speech helper
-Converts text to Hindi voice using Sarvam API and returns raw WAV bytes.
+Valid bulbul:v1 speakers (from Sarvam docs):
+  Female: meera, pavithra, maitreyi, diya, misha, maya
+  Male:   arvind, amol, amartya, neel, vian, arjun
 """
 import asyncio
 import base64
 import logging
-import io
+import re
 
 import requests
 
@@ -13,38 +15,45 @@ logger = logging.getLogger(__name__)
 
 SARVAM_TTS_URL = "https://api.sarvam.ai/text-to-speech"
 
-# Map the short voice names stored in config to Sarvam speaker IDs
-_SPEAKER_MAP = {
-    # Male
-    "sarvam:default-amit":   "anushka",   # placeholder — update per Sarvam docs
-    "sarvam:default-arvind": "manisha",
-    "sarvam:default-sumit":  "vidya",
-    "sarvam:default-puneet": "arjun",
-    # Female
-    "sarvam:default-meera":   "meera",
-    "sarvam:default-smriti":  "smriti",
-    "sarvam:default-pallavi": "pallavi",
-    "sarvam:default-shilpa":  "shilpa",
-}
+# ── Verified speaker IDs from Sarvam bulbul:v1 docs ──────────────────────────
+_FEMALE_SPEAKERS = ["meera", "pavithra", "maitreyi", "diya", "misha", "maya"]
+_MALE_SPEAKERS   = ["arvind", "amol", "amartya", "neel", "vian", "arjun"]
 
-# Sarvam actual speaker IDs (male)
-_MALE_SPEAKERS   = ["anushka", "vikram", "arjun", "advaith"]
-# Sarvam actual speaker IDs (female)
-_FEMALE_SPEAKERS = ["meera", "smriti", "pallavi", "shilpa"]
+# Config key (stored as "sarvam:default-<name>") → real Sarvam speaker ID
+_SPEAKER_MAP = {
+    # Female
+    "sarvam:default-meera":     "meera",
+    "sarvam:default-pavithra":  "pavithra",
+    "sarvam:default-maitreyi":  "maitreyi",
+    "sarvam:default-diya":      "diya",
+    "sarvam:default-misha":     "misha",
+    "sarvam:default-maya":      "maya",
+    # Male
+    "sarvam:default-arvind":    "arvind",
+    "sarvam:default-amol":      "amol",
+    "sarvam:default-amartya":   "amartya",
+    "sarvam:default-neel":      "neel",
+    "sarvam:default-vian":      "vian",
+    "sarvam:default-arjun":     "arjun",
+    # Legacy names kept for backward compat
+    "sarvam:default-smriti":    "meera",
+    "sarvam:default-pallavi":   "pavithra",
+    "sarvam:default-shilpa":    "maitreyi",
+    "sarvam:default-amit":      "arvind",
+    "sarvam:default-sumit":     "amol",
+    "sarvam:default-puneet":    "arjun",
+}
 
 
 def _resolve_speaker(voice_id: str, gender: str = "female") -> str:
-    """Resolve a config voice_id to an actual Sarvam speaker string."""
     if voice_id and voice_id in _SPEAKER_MAP:
         return _SPEAKER_MAP[voice_id]
-    # Fallback
-    return _FEMALE_SPEAKERS[0] if gender == "female" else _MALE_SPEAKERS[0]
+    return _FEMALE_SPEAKERS[0] if gender != "male" else _MALE_SPEAKERS[0]
 
 
 def _do_tts(text: str, speaker: str, api_key: str) -> bytes:
-    """Blocking HTTP call — run in thread from async context."""
-    # Sarvam supports max ~500 chars per call — truncate safely
-    text = text[:500]
+    """Blocking HTTP call — run in thread."""
+    text = text[:490]  # Sarvam limit is ~500 chars
     payload = {
         "inputs": [text],
         "target_language_code": "hi-IN",
@@ -60,17 +69,21 @@ def _do_tts(text: str, speaker: str, api_key: str) -> bytes:
         "Content-Type": "application/json",
         "api-subscription-key": api_key
     }
+    logger.info(f"[TTS] Calling Sarvam: speaker={speaker!r}, text_len={len(text)}")
     resp = requests.post(SARVAM_TTS_URL, json=payload, headers=headers, timeout=30)
-    resp.raise_for_status()
+    if not resp.ok:
+        logger.error(f"[TTS] Sarvam HTTP {resp.status_code}: {resp.text[:300]}")
+        resp.raise_for_status()
     data = resp.json()
     audio_b64 = data["audios"][0]
+    logger.info(f"[TTS] Sarvam OK, audio_b64_len={len(audio_b64)}")
     return base64.b64decode(audio_b64)
 
 
 async def synthesize(text: str, voice_id: str, api_key: str, gender: str = "female") -> bytes:
     """Async wrapper — returns WAV bytes or raises on failure."""
-    speaker = _resolve_speaker(voice_id, gender)
-    # Strip HTML tags before sending to TTS
-    import re
-    clean = re.sub(r"<[^>]+>", "", text)
+    speaker  = _resolve_speaker(voice_id, gender)
+    clean    = re.sub(r"<[^>]+>", "", text).strip()
+    if not clean:
+        raise ValueError("Empty text after HTML strip")
     return await asyncio.to_thread(_do_tts, clean, speaker, api_key)

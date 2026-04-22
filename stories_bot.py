@@ -4718,17 +4718,18 @@ def _cfg_aiconfig_panel(caller_id: int) -> tuple:
 
 
 def _cfg_voice_select_panel(caller_id: int, gender: str) -> tuple:
+    # Use only verified Sarvam bulbul:v1 speakers
     if gender == "male":
-        voices = ["amit", "arvind", "sumit", "puneet"]
-        text = "<b>👦 Select Sarvam Male Voice Mode</b>\n\nChoose the default male voice:"
+        voices = ["arvind", "amol", "amartya", "neel", "vian", "arjun"]
+        text = "<b>✦ Select Male Voice (Sarvam bulbul:v1)</b>\n\nChoose the default male voice:"
     else:
-        voices = ["meera", "smriti", "pallavi", "shilpa"]
-        text = "<b>👧 Select Sarvam Female Voice Mode</b>\n\nChoose the default female voice:"
-        
+        voices = ["meera", "pavithra", "maitreyi", "diya", "misha", "maya"]
+        text = "<b>✦ Select Female Voice (Sarvam bulbul:v1)</b>\n\nChoose the default female voice:"
+
     buttons = []
     for v in voices:
-        buttons.append([InlineKeyboardButton(f"🗣 {v.capitalize()}", callback_data=f"cfg|aivoiceselect|{gender}|{v}||{caller_id}")])
-    
+        buttons.append([InlineKeyboardButton(f"◈ {v.capitalize()}", callback_data=f"cfg|aivoiceselect|{gender}|{v}||{caller_id}")])
+
     buttons.append(_cfg_nav(caller_id, back="aiconfig"))
     return text, InlineKeyboardMarkup(buttons)
 
@@ -5812,35 +5813,38 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def _send_tts_or_text(update, context, reply_text: str):
     """Try Sarvam TTS first; fall back to plain text if key missing or call fails."""
     import re as _re
+    import io as _io
     ai_cfg     = bot_config.get("ai", {})
     sarvam_key = ai_cfg.get("sarvam_key", "")
 
-    if sarvam_key:
-        try:
-            from sarvam_tts import synthesize
-            import io as _io
-            voice_id    = ai_cfg.get("voice_female", "sarvam:default-meera")
-            # Strip HTML for TTS
-            clean_text  = _re.sub(r"<[^>]+>", "", reply_text)
-            audio_bytes = await synthesize(clean_text, voice_id, sarvam_key, gender="female")
-            await context.bot.send_chat_action(
-                chat_id=update.effective_chat.id, action="upload_voice"
-            )
-            await update.message.reply_voice(
-                voice=_io.BytesIO(audio_bytes),
-                caption=f"<i>{html.escape(clean_text[:150])}</i>",
-                parse_mode="HTML"
-            )
-            return
-        except Exception as e:
-            logger.warning(f"[TTS] Sarvam failed: {e}")
+    if not sarvam_key:
+        # Key not configured — just send text silently, no hint needed
+        await update.message.reply_text(
+            reply_text, parse_mode="HTML", disable_web_page_preview=True
+        )
+        return
 
-    # Fallback: plain text
-    await update.message.reply_text(
-        reply_text + "\n\n<i>◌ Voice reply ke liye Sarvam API key set karo /config mein ✦</i>",
-        parse_mode="HTML",
-        disable_web_page_preview=True
-    )
+    # Key exists — try TTS
+    try:
+        from sarvam_tts import synthesize
+        voice_id   = ai_cfg.get("voice_female", "sarvam:default-meera")
+        clean_text = _re.sub(r"<[^>]+>", "", reply_text).strip()
+        audio_bytes = await synthesize(clean_text, voice_id, sarvam_key, gender="female")
+        await context.bot.send_chat_action(
+            chat_id=update.effective_chat.id, action="upload_voice"
+        )
+        await update.message.reply_voice(
+            voice=_io.BytesIO(audio_bytes),
+            caption=f"<i>{html.escape(clean_text[:150])}</i>",
+            parse_mode="HTML"
+        )
+        return
+    except Exception as e:
+        logger.error(f"[TTS] Sarvam call failed: {e}")
+        # Fall back to text — no noisy footer, just send the actual reply
+        await update.message.reply_text(
+            reply_text, parse_mode="HTML", disable_web_page_preview=True
+        )
 
 
 async def voice_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
