@@ -4676,22 +4676,34 @@ def _cfg_gban_panel(caller_id: int) -> tuple:
 
 
 def _get_voice_provider_now(ai_cfg: dict) -> str:
-    """Return which TTS provider is active right now based on IST time."""
-    from datetime import datetime, timezone, timedelta
-    IST = timezone(timedelta(hours=5, minutes=30))
-    hour = datetime.now(IST).hour
-    el_key = ai_cfg.get("elevenlabs_key", "")
+    """
+    Return which TTS provider to use.
+    Priority: manual tts_mode setting > time-based auto switching.
+    tts_mode: 'auto' (default) | 'sarvam' | 'elevenlabs'
+    """
+    el_key   = ai_cfg.get("elevenlabs_key", "")
     sarv_key = ai_cfg.get("sarvam_key", "")
     if not el_key and not sarv_key:
         return "none"
+
+    mode = ai_cfg.get("tts_mode", "auto")
+
+    # Manual override
+    if mode == "sarvam":
+        return "sarvam" if sarv_key else ("elevenlabs" if el_key else "none")
+    if mode == "elevenlabs":
+        return "elevenlabs" if el_key else ("sarvam" if sarv_key else "none")
+
+    # Auto (time-based IST) — only when both keys are configured
     if el_key and sarv_key:
-        # Subah 6-12: Sarvam | Dopahar 12-20: ElevenLabs | Raat 20-6: Sarvam
-        if 6 <= hour < 12:
+        from datetime import datetime, timezone, timedelta
+        IST  = timezone(timedelta(hours=5, minutes=30))
+        hour = datetime.now(IST).hour
+        # 06-12: Sarvam (morning) | 12-20: ElevenLabs (day/eve) | 20-06: Sarvam (night)
+        if 6 <= hour < 12 or hour >= 20:
             return "sarvam"
-        elif 12 <= hour < 20:
-            return "elevenlabs"
-        else:
-            return "sarvam"
+        return "elevenlabs"
+
     return "elevenlabs" if el_key else "sarvam"
 
 
@@ -4701,48 +4713,69 @@ def _cfg_aiconfig_panel(caller_id: int) -> tuple:
     gem_key  = "✅ Set" if ai_cfg.get("gemini_key")      else "❌ Not Set"
     sarv_key = "✅ Set" if ai_cfg.get("sarvam_key")      else "❌ Not Set"
     el_key   = "✅ Set" if ai_cfg.get("elevenlabs_key")  else "❌ Not Set"
-    el_voice = ai_cfg.get("elevenlabs_voice_id", "Not Set")
+    el_voice = ai_cfg.get("elevenlabs_voice_id", "default (Aria)")
     female_v = ai_cfg.get("voice_female", "sarvam:default-anushka")
+    tts_mode = ai_cfg.get("tts_mode", "auto")
 
     try:
-        active_ai  = gemini_chat.get_active_provider()
+        active_ai = gemini_chat.get_active_provider()
     except Exception:
-        active_ai  = "Unknown"
+        active_ai = "Unknown"
 
     voice_now = _get_voice_provider_now(ai_cfg)
-    voice_map  = {"sarvam": "Sarvam AI ✦ bulbul:v2", "elevenlabs": "ElevenLabs ✦ multilingual-v2", "none": "No TTS key set"}
+    voice_labels = {
+        "sarvam":      "🎙 Sarvam AI (bulbul:v2)",
+        "elevenlabs":  "🎤 ElevenLabs (multilingual-v2)",
+        "none":        "❌ No TTS key set"
+    }
+    mode_labels = {"sarvam": "🎙 Sarvam", "elevenlabs": "🎤 ElevenLabs", "auto": "🔄 Auto (time-based)"}
 
     text = (
         "<b>🤖 AI & Voice Configuration</b>\n"
-        "<i>Groq = primary chat AI | Gemini = fallback</i>\n"
         f"{_CFG_DIV}\n\n"
-        f"▪ <b>Chat Provider:</b> <code>{active_ai}</code>\n\n"
-        "<b>── Chat AI ──</b>\n"
-        f"▪ Groq Key:      <code>{groq_key}</code>  <i>(primary, free)</i>\n"
-        f"▪ Gemini Key:    <code>{gem_key}</code>  <i>(fallback)</i>\n\n"
-        "<b>── Voice TTS ──</b>\n"
+        f"<b>── Chat AI ──</b>\n"
+        f"▪ Active: <code>{active_ai}</code>\n"
+        f"▪ Groq Key:    <code>{groq_key}</code>  <i>(primary, free)</i>\n"
+        f"▪ Gemini Key:  <code>{gem_key}</code>  <i>(fallback)</i>\n\n"
+        f"<b>── Voice TTS ──</b>\n"
         f"▪ Sarvam Key:      <code>{sarv_key}</code>\n"
         f"▪ ElevenLabs Key:  <code>{el_key}</code>\n"
-        f"▪ ElevenLabs Voice ID: <code>{el_voice[:28]}...</code>\n"
-        f"▪ Sarvam Female Voice: <code>{female_v}</code>\n\n"
-        f"▪ <b>Active TTS now:</b> <code>{voice_map.get(voice_now)}</code>\n"
-        "<i>Schedule → Morning/Night: Sarvam | Afternoon/Eve: ElevenLabs</i>\n\n"
+        f"▪ ElevenLabs Voice: <code>{el_voice}</code>\n"
+        f"▪ Sarvam Speaker:   <code>{female_v.replace('sarvam:default-', '')}</code>\n\n"
+        f"▪ <b>TTS Mode:</b> <code>{mode_labels.get(tts_mode, tts_mode)}</code>\n"
+        f"▪ <b>Active TTS now:</b> {voice_labels.get(voice_now)}\n"
+        f"<i>Auto schedule → Morning/Night: Sarvam | Afternoon/Eve: ElevenLabs</i>\n\n"
         "<i>Send 'clear' when prompted to remove any key.</i>"
     )
     markup = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("🔑 Set Groq Key",        callback_data=f"cfg|ai_groqkey||{caller_id}"),
-            InlineKeyboardButton("🔑 Set Gemini Key",      callback_data=f"cfg|ai_geminikey||{caller_id}"),
+            InlineKeyboardButton("🔑 Groq Key",        callback_data=f"cfg|ai_groqkey||{caller_id}"),
+            InlineKeyboardButton("🔑 Gemini Key",      callback_data=f"cfg|ai_geminikey||{caller_id}"),
         ],
         [
-            InlineKeyboardButton("🎙 Set Sarvam Key",     callback_data=f"cfg|ai_sarvamkey||{caller_id}"),
-            InlineKeyboardButton("🎙 Set ElevenLabs Key", callback_data=f"cfg|ai_elkey||{caller_id}"),
+            InlineKeyboardButton("🎙 Sarvam Key",      callback_data=f"cfg|ai_sarvamkey||{caller_id}"),
+            InlineKeyboardButton("🎤 ElevenLabs Key",  callback_data=f"cfg|ai_elkey||{caller_id}"),
         ],
         [
-            InlineKeyboardButton("🗣 Set ElevenLabs Voice", callback_data=f"cfg|ai_elvoice||{caller_id}"),
+            InlineKeyboardButton("🗣 ElevenLabs Voice ID", callback_data=f"cfg|ai_elvoice||{caller_id}"),
+            InlineKeyboardButton("👩 Sarvam Speaker", callback_data=f"cfg|ai_femalevoice||{caller_id}"),
         ],
         [
-            InlineKeyboardButton("👩 Female Voice (Sarvam)", callback_data=f"cfg|ai_femalevoice||{caller_id}"),
+            InlineKeyboardButton("── TTS Mode Switch ──", callback_data=f"cfg|noop||{caller_id}"),
+        ],
+        [
+            InlineKeyboardButton(
+                f"{'✅' if tts_mode=='sarvam' else '◈'} Sarvam Only",
+                callback_data=f"cfg|ai_ttsmode|sarvam|{caller_id}"
+            ),
+            InlineKeyboardButton(
+                f"{'✅' if tts_mode=='elevenlabs' else '◈'} ElevenLabs Only",
+                callback_data=f"cfg|ai_ttsmode|elevenlabs|{caller_id}"
+            ),
+            InlineKeyboardButton(
+                f"{'✅' if tts_mode=='auto' else '◈'} Auto",
+                callback_data=f"cfg|ai_ttsmode|auto|{caller_id}"
+            ),
         ],
         _cfg_nav(caller_id, back="main")
     ])
@@ -5268,6 +5301,22 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
             await _edit_cfg(query, text, markup)
             await query.answer()
             return
+
+    if section == "ai_ttsmode":
+        mode = parts[2]  # 'sarvam' | 'elevenlabs' | 'auto'
+        ai_cfg = bot_config.get("ai", {})
+        ai_cfg["tts_mode"] = mode
+        bot_config["ai"] = ai_cfg
+        save_config(bot_config)
+        text, markup = _cfg_aiconfig_panel(caller_id)
+        await _edit_cfg(query, text, markup)
+        labels = {"sarvam": "🎙 Sarvam Only", "elevenlabs": "🎤 ElevenLabs Only", "auto": "🔄 Auto (time-based)"}
+        await query.answer(f"TTS Mode: {labels.get(mode, mode)}", show_alert=False)
+        return
+
+    if section == "noop":
+        await query.answer()
+        return
 
     if section == "aivoiceselect":
         gender = parts[2]
@@ -5836,10 +5885,13 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if story_result:
                     link = story_result.get("link", "")
                     name = story_result.get("text") or story_result.get("name") or search_query
+                    eps  = story_result.get("episodes", "")
+                    eps_line = f"\n<i>Episodes: {eps}</i>" if eps else ""
                     reply_text = (
                         f"{reply_text}\n\n"
-                        f"<b>✦ {html.escape(name)}</b>\n"
-                        f"▸ <a href='{link}'>Listen / Read here</a>"
+                        f"╔══ <b>{html.escape(name)}</b> ══╗"
+                        f"{eps_line}\n"
+                        f"╚══ <a href='{link}'>📖 Yahan se suno/padho</a> ══╝"
                     )
                 else:
                     suggestions = get_suggestions(search_query, limit=1)
@@ -5850,8 +5902,9 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             link = sres.get("link", "")
                             reply_text = (
                                 f"{reply_text}\n\n"
-                                f"<b>✦ {html.escape(sname)}</b>\n"
-                                f"▸ <a href='{link}'>Listen / Read here</a>"
+                                f"╔══ <b>{html.escape(sname)}</b> ══╗\n"
+                                f"<i>Exact match nahi, yeh sahi lahga?</i>\n"
+                                f"╚══ <a href='{link}'>📖 Yahan se suno/padho</a> ══╝"
                             )
                         else:
                             reply_text += (
@@ -5983,9 +6036,13 @@ async def voice_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
     if wants_stop:
         gemini_chat.deactivate_gemini(user_id)
 
-    reply_text = reply_text or "haan bolo! 😊"
-    await _send_tts_or_text(update, context, reply_text)
+    # If AI returned an error/system message, don't TTS it — use a friendly fallback
+    _error_prefixes = ("◌", "glitch", "<i>◌")
+    is_error = not reply_text or any(reply_text.strip().startswith(p) for p in _error_prefixes)
+    if is_error:
+        reply_text = "haan bolo ✦"
 
+    await _send_tts_or_text(update, context, reply_text)
 
 
 
