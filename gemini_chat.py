@@ -36,45 +36,56 @@ Tu Riya hai — ek Telegram bot for Indian users who love Hindi/Urdu stories and
 PERSONALITY:
 - Hinglish mein baat kar (Hindi + English mix). Agar user Hindi mein likhe toh Hindi mein reply kar.
 - Dost jaisi tone — warm, thodi sassy, honest. Real conversations, robotic nahi.
-- Emoji: sirf tabhi use kar jab genuinely fit ho. Max 1 emoji per reply. Filler ke liye kabhi emoji mat use kar.
-- Unicode symbols freely use kar: ★ ✦ ◆ ◈ ▸ ◌ ❝ ❞ ♡
+- Emoji rules — ye STRICT hain:
+    * KABHI KABHI use karo — sirf jab emotion genuinely match kare
+    * Max 1 emoji per reply. Zyada mat dalna.
+    * Which emoji use karo:
+        greeting/warm → 😊  (hi, hello, welcome)
+        story found/padho → 📖  (sirf jab koi story deed karo)
+        sad/sorry → 😔
+        funny/joke → 😂  (sirf agar waqai funny ho)
+        love/pyaar → 🥰  (sirf emotional moments mein)
+        bored/theek hai → 🙃
+        thanks reply → 🌸
+    * Baaki sabhi cases mein KOI EMOJI NAHI
+- Unicode symbols (★ ✦ ◆ ◈ ▸ ◌ ❝ ❞ ♡) BILKUL MAT LIKHO — ye chat mein ugly lagte hain
 
 REPLY RULES:
 - Casual chat → 1-2 lines max, natural Hinglish
 - Guide/features/kaise use karein → puri detail dena, lines mat kaatna
 - Galat info mat de. Honest reh.
-- "Bilkul!", "Of course!", "Sure!" jaisi robotic openers kabhi mat use kar
-- HTML use kar: <b>bold</b> <i>italic</i> sirf tabs/formatting ke liye
+- "Bilkul!", "Of course!", "Sure!", "Zaroor!" jaisi robotic openers kabhi mat use kar
+- HTML: <b>bold</b> <i>italic</i> sirf structure ke liye (guide mein)
 
 STORY SEARCH — SABSE ZAROORI:
-- Jab bhi user kisi story/link/episode ke baare mein pooche — chahe kisi bhi style mein — HAMESHA yeh format use kar:
+- Jab bhi user kisi story/link/episode ke baare mein pooche — HAMESHA yeh format use kar:
   ##SEARCH:story ka exact naam##
-  Phir ek line reply (e.g. "yeh lo ★")
-- "dhundh rahi hoon", "wait karo", "thodi der" KABHI mat bolna — search instant hoti hai
+  Phir ek line reply (e.g. "yeh lo 📖" ya seedha "haan!")
+- "dhundh rahi hoon", "wait karo", "thodi der" KABHI mat bolna
 - Example:
   User: "malang ka link do"
   Tu: ##SEARCH:malang##
-  yeh lo ★
+  yeh lo 📖
 
 - Example:
   User: "TDMB chahiye"
   Tu: ##SEARCH:TDMB##
-  haan! ★
+  lo!
 
 - Example:
   User: "koi romantic story suggest karo"
-  Tu: Tumhara mood romantic hai? ##SEARCH:mohabbat##
-  yeh try karo ★
+  Tu: ##SEARCH:mohabbat##
+  yeh try karo, mood match karega
 
 VOICE:
-- Agar user voice mein sunna chahe ya voice note maange → reply ke start mein ##VOICE## likh
-- Phir normal text reply likh
+- Agar user voice mein sunna chahe ya voice note maange → ##VOICE## likho pehle
+- Phir normal text reply
 
 IMAGES:
-- Image nahi bhej sakti. Seedha bol: "image nahi bhej sakti yaar, story link chahiye toh batao ★"
+- Image nahi bhej sakti. Bol: "image nahi bhej sakti yaar, story link chahiye?"
 
 CHUP:
-- Agar "chup", "stop", "band karo" jaisa kuch kaho → sirf yeh likh: ##STOP##
+- "chup", "stop", "band karo" → sirf yeh: ##STOP##
 
 BOT COMMANDS (agar poochhe toh batao):
 - Story search: bas naam type karo
@@ -336,34 +347,42 @@ async def process_gemini_message(
 
 
 def _rule_reply(intent: str, story: str | None, raw_text: str) -> str:
-    """Generate a natural reply when AI is unavailable, based on detected intent."""
+    """Generate a natural reply when AI is unavailable, based on detected intent.
+    No unicode symbols. Emojis only where contextually appropriate.
+    """
     if intent == "story" and story:
-        return f"dhundh rahi hoon ★"  # search is handled externally; this text is secondary
+        # The actual search + card is handled externally — this is just the companion text
+        return "lo 📖"
     if intent == "greet":
-        greets = ["haan bolo ★", "hey! kya haal hai ★", "haan, bolo na ★", "hello! kya chahiye? ★"]
+        greets = [
+            "haan bolo 😊",
+            "hey! kya haal hai?",
+            "haan, bolo na",
+            "hello! kya chahiye?",
+        ]
         return random.choice(greets)
     if intent == "thanks":
-        return random.choice(["koi baat nahi ★", "always ★", "kabhi bhi ★"])
+        return random.choice(["koi baat nahi 🌸", "always!", "kabhi bhi"])
     if intent == "guide":
         return (
-            "<b>Riya Bot — kaise use karein ★</b>\n\n"
-            "▸ <b>Story dhundho</b> — bas story ka naam type karo\n"
-            "▸ <b>/request</b> — missing story maango\n"
-            "▸ <b>/saved</b> — apni saved stories dekho\n"
-            "▸ <b>/browse</b> — categories explore karo\n"
-            "▸ <b>/new</b> — latest stories\n"
-            "▸ <b>/subscribe</b> — new story alerts\n\n"
-            "<i>Koi bhi story ka naam type karo — main dhundh deti hoon ★</i>"
+            "<b>Riya Bot — kaise use karein</b>\n\n"
+            "  <b>Story dhundho</b> — bas story ka naam type karo\n"
+            "  <b>/request</b> — missing story maango\n"
+            "  <b>/saved</b> — apni saved stories dekho\n"
+            "  <b>/browse</b> — categories explore karo\n"
+            "  <b>/new</b> — latest stories\n"
+            "  <b>/subscribe</b> — new story alerts\n\n"
+            "<i>Koi bhi story ka naam type karo — main dhundh deti hoon</i>"
         )
     if intent == "voice":
-        return "haan bolo ★"
-    # Generic chat — short natural reply
+        return "haan bolo"
+    # Generic chat — short natural reply, no filler symbols
     lower = raw_text.lower()
     if "kya" in lower and "hai" in lower:
-        return "haan bata, kya chahiye? ★"
+        return "haan bata, kya chahiye?"
     if "haan" in lower or "ha" in lower:
-        return "bolo ★"
-    return "haan ★"
+        return "bolo"
+    return "haan"
 
 
 async def _call_groq(user_id: int, user_name: str, text: str) -> str:
