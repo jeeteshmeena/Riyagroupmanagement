@@ -99,7 +99,7 @@ def _do_tts(text: str, speaker: str, api_key: str) -> bytes:
         "loudness": 1.5,
         "speech_sample_rate": 8000,
         "enable_preprocessing": True,
-        "model": "bulbul:v1"
+        "model": "bulbul:v2"
     }
     headers = {
         "Content-Type": "application/json",
