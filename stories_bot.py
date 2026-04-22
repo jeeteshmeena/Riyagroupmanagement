@@ -5237,7 +5237,99 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
         await _edit_cfg(query, text, markup)
         await query.answer()
         return
-        
+
+    # ── Premium Account ───────────────────────────────────────────────────────
+    if section == "premium_account":
+        import premium_userbot
+        p_cfg    = bot_config.get("premium_account", {})
+        pid      = p_cfg.get("api_id", "")
+        sess_set = "✅ Set" if p_cfg.get("session_string") else "❌ Not Set"
+        connected = "🟢 Connected" if premium_userbot.is_connected() else "🔴 Disconnected"
+        text = (
+            "<b>⭐ Premium Telegram Account</b>\n"
+            f"{_CFG_DIV}\n\n"
+            f"▪ <b>Status:</b> <code>{connected}</code>\n"
+            f"▪ <b>Session:</b> <code>{sess_set}</code>\n"
+            f"▪ <b>API ID:</b> <code>{pid or 'Not Set'}</code>\n\n"
+            "<b>── How to connect ──</b>\n"
+            "1. Get API ID+Hash from <code>my.telegram.org</code>\n"
+            "2. Run on server to generate session:\n"
+            "<pre>python3 -c \"\n"
+            "from telethon.sync import TelegramClient\n"
+            "c = TelegramClient('riya', API_ID, API_HASH)\n"
+            "c.start(); print(c.session.save()); c.disconnect()\n"
+            "\"</pre>\n"
+            "3. Set API ID → API Hash → Session String below\n\n"
+            "<i>Once connected, Riya sends premium emoji reactions ⭐</i>"
+        )
+        markup = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("Set API ID",    callback_data=f"cfg|prem_apiid||{caller_id}"),
+                InlineKeyboardButton("Set API Hash",  callback_data=f"cfg|prem_apihash||{caller_id}"),
+            ],
+            [InlineKeyboardButton("Set Session String", callback_data=f"cfg|prem_session||{caller_id}")],
+            [InlineKeyboardButton("🔌 Connect Now",     callback_data=f"cfg|prem_connect||{caller_id}")],
+            [InlineKeyboardButton("❌ Disconnect",      callback_data=f"cfg|prem_disconnect||{caller_id}")],
+            _cfg_nav(caller_id, back="main")
+        ])
+        await _edit_cfg(query, text, markup)
+        await query.answer()
+        return
+
+    if section == "prem_apiid":
+        context.chat_data["config_state"] = "waiting_prem_apiid"
+        await query.answer()
+        await query.message.reply_text(
+            "<b>⭐ Set Premium API ID</b>\n\nGet it from <code>my.telegram.org</code> → API development tools.\nSend your API ID (numeric):",
+            parse_mode="HTML"
+        )
+        return
+
+    if section == "prem_apihash":
+        context.chat_data["config_state"] = "waiting_prem_apihash"
+        await query.answer()
+        await query.message.reply_text(
+            "<b>⭐ Set Premium API Hash</b>\n\nGet it from <code>my.telegram.org</code> → API development tools.\nSend your API Hash:",
+            parse_mode="HTML"
+        )
+        return
+
+    if section == "prem_session":
+        context.chat_data["config_state"] = "waiting_prem_session"
+        await query.answer()
+        await query.message.reply_text(
+            "<b>⭐ Set Session String</b>\n\n"
+            "Generate with Telethon on the server:\n"
+            "<pre>python3 -c \"\nfrom telethon.sync import TelegramClient\nc = TelegramClient('riya', API_ID, API_HASH)\nc.start(); print(c.session.save()); c.disconnect()\n\"</pre>\n\n"
+            "Paste the session string here (starts with <code>1BJWap1</code>...):",
+            parse_mode="HTML"
+        )
+        return
+
+    if section == "prem_connect":
+        import premium_userbot
+        p_cfg = bot_config.get("premium_account", {})
+        sess  = p_cfg.get("session_string", "")
+        pid   = p_cfg.get("api_id", 0)
+        ph    = p_cfg.get("api_hash", "")
+        if not (sess and pid and ph):
+            await query.answer("❌ Set API ID, API Hash, and Session String first!", show_alert=True)
+            return
+        await query.answer("Connecting...", show_alert=False)
+        ok = await premium_userbot.connect_userbot(sess, int(pid), ph)
+        if ok:
+            await query.message.reply_text("✅ <b>Premium userbot connected!</b>\nRiya can now react with premium emoji.", parse_mode="HTML")
+        else:
+            await query.message.reply_text("❌ Connection failed. Check the session string and API credentials.", parse_mode="HTML")
+        return
+
+    if section == "prem_disconnect":
+        import premium_userbot
+        await premium_userbot.disconnect_userbot()
+        await query.answer("Disconnected", show_alert=False)
+        await query.message.reply_text("🔴 Premium userbot disconnected.", parse_mode="HTML")
+        return
+
     if section.startswith("ai_"):
         if section == "ai_groqkey":
             context.chat_data["config_state"] = "waiting_ai_groqkey"
@@ -5528,6 +5620,29 @@ async def handle_config_input(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"<b>🤖 AI Config Updated</b>\n{action_text}\n\n"
             f"<b>Active chat provider:</b> <code>{provider_now}</code>",
             parse_mode="HTML"
+        )
+        return
+
+    if state in ("waiting_prem_apiid", "waiting_prem_apihash", "waiting_prem_session"):
+        p_cfg = bot_config.get("premium_account", {})
+        val   = (update.message.text or "").strip()
+        is_clear = val.lower() == "clear"
+
+        if state == "waiting_prem_apiid":
+            p_cfg["api_id"] = "" if is_clear else val
+            done_text = "API ID cleared." if is_clear else f"✅ API ID saved: <code>{val}</code>"
+        elif state == "waiting_prem_apihash":
+            p_cfg["api_hash"] = "" if is_clear else val
+            done_text = "API Hash cleared." if is_clear else "✅ API Hash saved."
+        elif state == "waiting_prem_session":
+            p_cfg["session_string"] = "" if is_clear else val
+            done_text = "Session string cleared." if is_clear else "✅ Session string saved!\nNow tap <b>🔌 Connect Now</b> in the Premium Account panel."
+
+        bot_config["premium_account"] = p_cfg
+        save_config(bot_config)
+        context.chat_data.pop("config_state", None)
+        await update.message.reply_text(
+            f"<b>⭐ Premium Account</b>\n{done_text}", parse_mode="HTML"
         )
         return
 
@@ -5914,23 +6029,30 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     else:
                         reply_text += (
                             f"\n\n<i>◌ '{html.escape(search_query)}' database mein nahi mili. "
-                            f"Spelling check karo ya /request karo 📩</i>"
+                            f"Spelling check karo ya /request karo</i>"
                         )
 
             # ── Session end ────────────────────────────────────────────────────
             if wants_stop:
                 gemini_chat.deactivate_gemini(user_id)
 
+            # Safety guard: never show raw AI error / system strings to user
+            _ERR_MARKERS = ("◌ ek second", "glitch ho gaya", "dobara bhejo", "◌ AI abhi")
+            if reply_text and any(m in reply_text for m in _ERR_MARKERS):
+                reply_text = ""   # suppress silently
+
+            if not reply_text:
+                return  # nothing to send
+
             # ── Voice reply (text-triggered or AI-flagged) ─────────────────────
-            if (wants_voice or wants_voice_text) and reply_text:
+            if wants_voice or wants_voice_text:
                 await _send_tts_or_text(update, context, reply_text)
                 return
 
-            if reply_text:
-                await update.message.reply_text(
-                    reply_text, parse_mode="HTML",
-                    disable_web_page_preview=True
-                )
+            await update.message.reply_text(
+                reply_text, parse_mode="HTML",
+                disable_web_page_preview=True
+            )
             return
 
     # Handle No/Nahi + Thanks BEFORE is_valid_query filters them out
@@ -6923,12 +7045,25 @@ def start_bot():
     async def _post_init(application):
         if str(AUTO_SCAN).lower() == "true" and CHANNEL_ID:
             asyncio.create_task(auto_scan_loop(application.bot))
-        # Start background link checker
         asyncio.create_task(start_link_checker())
-        # Start background voting poll timeout manager
         asyncio.create_task(poll_timeout_manager(application))
-        # Start message scheduling loop task
         asyncio.create_task(schedule_loop_task(application))
+
+        # ── Premium userbot auto-connect ──────────────────────────────────────
+        p_cfg = bot_config.get("premium_account", {})
+        sess  = p_cfg.get("session_string", "")
+        pid   = p_cfg.get("api_id",   0)
+        ph    = p_cfg.get("api_hash", "")
+        if sess and pid and ph:
+            try:
+                import premium_userbot
+                ok = await premium_userbot.connect_userbot(sess, int(pid), ph)
+                if ok:
+                    logger.info("[Premium] Userbot connected at startup ✅")
+                else:
+                    logger.warning("[Premium] Userbot connect failed at startup")
+            except Exception as e:
+                logger.error(f"[Premium] Startup connect error: {e}")
 
     app = Application.builder().token(BOT_TOKEN).post_init(_post_init).build()
 

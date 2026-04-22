@@ -193,27 +193,56 @@ async def process_gemini_message(
         return ("<i>okay! silent mode on ◌  jab bhi bulao, aa jaungi ✦</i>",
                 None, False, True)
 
+    # ── Natural fallback messages — randomly selected if all AI fails ────────
+    import random as _rand
+    _FALLBACK_REPLIES = [
+        "haan bata!",
+        "sun rahi hoon, bolo",
+        "haan, bol na",
+        "hmm, bolo?",
+        "haan yaar",
+        "suno, thodi der ruko",
+    ]
+
     try:
+        raw = None
         if _groq_client:
-            raw = await _call_groq(user_id, user_name, message_text)
+            try:
+                raw = await _call_groq(user_id, user_name, message_text)
+            except Exception as eg:
+                logger.warning(f"[AI] Groq failed, trying Gemini: {eg}")
+                # Trim history to avoid repeated token limit errors
+                if user_id in active_sessions and isinstance(active_sessions[user_id], list):
+                    active_sessions[user_id] = active_sessions[user_id][-4:]  # keep last 2 turns
+                if _gemini_model:
+                    try:
+                        raw = await _call_gemini(user_id, user_name, message_text)
+                    except Exception as egemini:
+                        logger.error(f"[AI] Gemini also failed: {egemini}")
+
         elif _gemini_model:
             raw = await _call_gemini(user_id, user_name, message_text)
-        else:
-            return ("<i>◌ AI abhi unavailable hai. Thodi der baad try karo.</i>",
-                    None, False, False)
 
-        return parse_ai_reply(raw)
+        if raw:
+            return parse_ai_reply(raw)
+
+        # All AI providers unavailable — return natural no-error fallback
+        return (_rand.choice(_FALLBACK_REPLIES), None, False, False)
 
     except Exception as e:
-        logger.error(f"AI error user={user_id}: {e}")
-        return ("<i>◌ ek second, kuch glitch ho gaya — dobara bhejo ✦</i>",
-                None, False, False)
+        logger.error(f"[AI] Unexpected error user={user_id}: {e}")
+        return (_rand.choice(_FALLBACK_REPLIES), None, False, False)
 
 
 async def _call_groq(user_id: int, user_name: str, text: str) -> str:
     history = active_sessions.setdefault(user_id, [])
+    # Proactively trim history to avoid token limit errors (keep last 8 turns = 16 entries)
+    if len(history) > 16:
+        history = history[-16:]
+        active_sessions[user_id] = history
+
     messages = [{"role": "system", "content": _SYSTEM_PROMPT}]
-    messages.extend(history[-MAX_HISTORY:])
+    messages.extend(history)
     messages.append({"role": "user", "content": f"{user_name}: {text}"})
 
     def _sync():
@@ -221,15 +250,15 @@ async def _call_groq(user_id: int, user_name: str, text: str) -> str:
             model=_GROQ_MODEL,
             messages=messages,
             temperature=0.75,
-            max_tokens=600,   # Increased for complete guide responses
+            max_tokens=600,
         )
         return resp.choices[0].message.content.strip()
 
     reply = await asyncio.to_thread(_sync)
     history.append({"role": "user",      "content": f"{user_name}: {text}"})
     history.append({"role": "assistant", "content": reply})
-    if len(history) > MAX_HISTORY:
-        active_sessions[user_id] = history[-MAX_HISTORY:]
+    if len(history) > 20:
+        active_sessions[user_id] = history[-16:]
     return reply
 
 
