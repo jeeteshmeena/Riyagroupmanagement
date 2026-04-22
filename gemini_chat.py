@@ -1,54 +1,69 @@
 """
 AI Chat Module — Riya Bot
-Primary provider : Groq  (llama-3.3-70b-versatile) — free, fast, great Hindi
-Fallback provider: Gemini (gemini-2.0-flash)
+Primary  : Groq (llama-3.3-70b-versatile) — free, fast, great Hindi
+Fallback : Gemini (gemini-2.0-flash)
+
+Improvements:
+  - Natural Hinglish persona with Unicode variety (not emoji spam)
+  - Story search integration: if user asks for a story, delegates to search
+  - Per-user conversation history for context
 """
 import os
+import re
 import asyncio
 import logging
 
 logger = logging.getLogger(__name__)
 
-# ── Keys (env bootstrap; bot-UI can override via reinit_ai) ─────────────────
+# ── Keys ─────────────────────────────────────────────────────────────────────
 GROQ_API_KEY   = os.getenv("GROQ_API_KEY",   "")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
-# ── Runtime state ────────────────────────────────────────────────────────────
-_groq_client  = None
-_gemini_model = None
+# ── Runtime ───────────────────────────────────────────────────────────────────
+_groq_client     = None
+_gemini_model    = None
 _active_provider = None   # "groq" | "gemini" | None
 
-# Store per-user message history (Groq/OpenAI format)
-# { user_id: [ {"role": "user"/"assistant", "content": "..."}, ... ] }
+# Per-user history: user_id → [{"role": ..., "content": ...}, ...]
 active_sessions: dict = {}
 
-# ── Riya persona ─────────────────────────────────────────────────────────────
-_SYSTEM_PROMPT = """\
-Tumhara naam Riya hai. Tum ek Telegram bot ho jo Indian users ko unki favourite \
-stories aur audiobooks dhundhne mein help karti ho.
+MAX_HISTORY = 16   # keep last N messages (budget-safe for free tiers)
 
-Tumhari personality:
-- Bahut friendly, sweet, caring aur thoda sassy/nakhrewali
-- Emojis ka bharpur use karo (💅 ✨ 🎀 💖 💭 🌸 🦋)
-- Hinglish (Hindi + English mix) mein reply do — jaise real Indian teen karti hai
-- Devnagari script poori tarah samajhti ho, aur usme bhi reply kar sakti ho
-- Jab koi story ya link maange, politely help karo
-- Jab user chup hone ko kahe ya "band karo / stop / mat bolo" kahe, "Okay fine, silent mode on! 🤫" keh kar conversation band kar do
-
-Reply style:
-- Chhoti, punchy lines prefer karo — paragraph mat likho
-- Thoda drama, thoda humour, bahut pyaar 💖
-- **bold** aur <i>italic</i> HTML tags use karo formatting ke liye
-- Kisi bhi baat ka galat ya misleading jawab mat do — agar pata nahi toh honestly bol do
-"""
-
+# ── Models ────────────────────────────────────────────────────────────────────
 _GROQ_MODEL   = "llama-3.3-70b-versatile"
 _GEMINI_MODEL = "gemini-2.0-flash"
 
-MAX_HISTORY = 20   # keep last N messages per user to stay within token limits
+# ── Persona System Prompt ─────────────────────────────────────────────────────
+# Uses Unicode variety (★ ꕥ ◈ ✦ etc.) instead of emoji clusters.
+# Tells the model to be concise, natural, NOT robotic.
+_SYSTEM_PROMPT = """
+तुम्हारा नाम Riya है। तुम एक Telegram bot हो जो Indian users को उनकी favourite stories और audiobooks ढूंढने में help करती हो।
 
+━━ तुम्हारी personality ━━
+• बहुत friendly और warm, थोड़ी sassy — जैसे कोई real dost हो
+• Hinglish में बात करो (Hindi + English mix naturally)
+• Devnagari script भी समझती हो और उसमें reply कर सकती हो
+• Emojis बहुत कम use करो — इनकी जगह Unicode symbols use करो जैसे: ★ ✦ ◈ ꕥ ≫ ◆ • ◎ ✿ ❝ ❞ ♡ ◌ ✧ ≺ ≻ ❋ ◉ ▸ ▹ ✺ ❁
 
-# ── Initialization helpers ───────────────────────────────────────────────────
+━━ Reply style ━━
+• Chhoti, punchy replies — 1-3 lines max for casual chat
+• Koi unnecessary intro mat do ("Haan bilkul!", "Of course!" etc. avoid karo)
+• Straight to the point, natural, warm
+• HTML formatting use karo: <b>bold</b>, <i>italic</i>
+• Kabhi bhi misleading ya galat information mat do — agar pata nahi toh honestly bol do
+
+━━ Story search ━━
+• Agar user kisi story ka naam le ya link maange, to clearly bol do tu search kar rahi hai
+• STORY_SEARCH_NEEDED flag lagao response ke bilkul shuru mein agar user kisi specific story ka naam le raha ho
+  Format: ##SEARCH:story name here##
+  Example: ##SEARCH:TDMB##
+
+━━ Conversation end ━━
+• Agar user "chup", "band karo", "stop", "silent mode", "mat bolo" kahe → "okay! silent mode on ◌" keh kar ruk jao
+• Tab session khatam ho jayega — jab tak user tumhara naam na le, reply mat karna
+"""
+
+# ── Initialization ────────────────────────────────────────────────────────────
 def _init_groq(key: str):
     global _groq_client, _active_provider
     if not key:
@@ -57,13 +72,11 @@ def _init_groq(key: str):
         from groq import Groq
         _groq_client = Groq(api_key=key)
         _active_provider = "groq"
-        logger.info("✅ Groq AI initialized (llama-3.3-70b-versatile)")
+        logger.info(f"✅ Groq AI ready ({_GROQ_MODEL})")
     except ImportError:
-        logger.error("groq package not installed. Run: pip install groq")
-        _groq_client = None
+        logger.error("groq package missing — run: pip install groq")
     except Exception as e:
         logger.error(f"Groq init error: {e}")
-        _groq_client = None
 
 
 def _init_gemini(key: str):
@@ -73,43 +86,29 @@ def _init_gemini(key: str):
     try:
         import google.generativeai as genai
         genai.configure(api_key=key)
-        generation_config = {
-            "temperature": 0.8,
-            "top_p": 0.95,
-            "top_k": 40,
-            "max_output_tokens": 1024,
-            "response_mime_type": "text/plain",
+        cfg = {
+            "temperature": 0.75, "top_p": 0.9, "top_k": 40,
+            "max_output_tokens": 512, "response_mime_type": "text/plain",
         }
         _gemini_model = genai.GenerativeModel(
             model_name=_GEMINI_MODEL,
-            generation_config=generation_config,
+            generation_config=cfg,
             system_instruction=_SYSTEM_PROMPT,
         )
         if _active_provider is None:
             _active_provider = "gemini"
-        logger.info(f"✅ Gemini AI initialized ({_GEMINI_MODEL})")
+        logger.info(f"✅ Gemini AI ready ({_GEMINI_MODEL})")
     except Exception as e:
         logger.error(f"Gemini init error: {e}")
-        _gemini_model = None
 
 
-# Bootstrap from env on import
+# Bootstrap from env
 _init_groq(GROQ_API_KEY)
 _init_gemini(GEMINI_API_KEY)
 
 
-# ── Public re-init (called from bot UI when admin sets keys) ─────────────────
-def reinit_gemini(gemini_key: str):
-    """Backward-compat wrapper — re-init Gemini with new key."""
-    global GEMINI_API_KEY, _gemini_model
-    GEMINI_API_KEY = gemini_key or ""
-    _gemini_model = None
-    active_sessions.clear()
-    _init_gemini(GEMINI_API_KEY)
-
-
+# ── Public re-init ────────────────────────────────────────────────────────────
 def reinit_groq(groq_key: str):
-    """Re-init Groq with new key."""
     global GROQ_API_KEY, _groq_client, _active_provider
     GROQ_API_KEY = groq_key or ""
     _groq_client = None
@@ -117,108 +116,119 @@ def reinit_groq(groq_key: str):
         _active_provider = None
     active_sessions.clear()
     _init_groq(GROQ_API_KEY)
-    # If groq failed, fall back to gemini
     if not _groq_client and _gemini_model and _active_provider is None:
         _active_provider = "gemini"
 
 
-def reinit_ai(groq_key: str = None, gemini_key: str = None):
-    """Re-init both providers at once."""
-    global _active_provider
-    _active_provider = None
-    if groq_key is not None:
-        reinit_groq(groq_key)
-    if gemini_key is not None:
-        reinit_gemini(gemini_key)
+def reinit_gemini(gemini_key: str):
+    global GEMINI_API_KEY, _gemini_model
+    GEMINI_API_KEY = gemini_key or ""
+    _gemini_model = None
+    active_sessions.clear()
+    _init_gemini(GEMINI_API_KEY)
 
 
 def get_active_provider() -> str:
-    """Return human-readable active provider name."""
     if _active_provider == "groq":
-        return f"Groq ({_GROQ_MODEL})"
-    elif _active_provider == "gemini":
-        return f"Gemini ({_GEMINI_MODEL})"
-    return "None"
+        return f"Groq ✦ {_GROQ_MODEL}"
+    if _active_provider == "gemini":
+        return f"Gemini ✦ {_GEMINI_MODEL}"
+    return "None — set Groq or Gemini key in /config"
 
 
-# ── Core message processing ──────────────────────────────────────────────────
-async def process_gemini_message(user_id: int, user_name: str, message_text: str) -> str:
-    """Process a message and return Riya's reply. Tries Groq first, then Gemini."""
+# ── Story search flag parser ──────────────────────────────────────────────────
+_SEARCH_RE = re.compile(r"##SEARCH:(.+?)##", re.DOTALL)
 
-    if _active_provider is None and _groq_client is None and _gemini_model is None:
-        return "<i>Koi AI key set nahi hai! Admin se bolo key set kare. 💅</i>"
+def extract_search_query(reply: str):
+    """Return (cleaned_reply, search_query_or_None)."""
+    m = _SEARCH_RE.search(reply)
+    if m:
+        query = m.group(1).strip()
+        clean = _SEARCH_RE.sub("", reply).strip()
+        return clean, query
+    return reply, None
+
+
+# ── Core processing ───────────────────────────────────────────────────────────
+async def process_gemini_message(
+    user_id: int,
+    user_name: str,
+    message_text: str,
+) -> tuple[str, str | None]:
+    """
+    Returns (reply_text, search_query_or_None).
+    Caller should do story search if search_query is not None.
+    """
+    if _active_provider is None:
+        return (
+            "<i>◌ Koi AI key set nahi hai! Admin se bolo Groq key daalen via /config. ✦</i>",
+            None
+        )
 
     # Stop keywords — end session
-    stop_keywords = ["chup", "shutup", "shut up", "stop replying", "band karo",
-                     "mat bolo", "silent", "stop", "bas karo"]
-    if any(kw in message_text.lower() for kw in stop_keywords):
+    stop_kw = ["chup", "shutup", "shut up", "stop replying", "band karo",
+               "mat bolo", "silent", "stop", "bas karo", "chup karo"]
+    if any(kw in message_text.lower() for kw in stop_kw):
         active_sessions.pop(user_id, None)
-        return "<i>Okay fine, silent mode on! You won't hear from me until you say my name again. 🤫💅</i>"
+        return ("<i>okay! silent mode on ◌\njab bhi bulao, aa jaungi. ✦</i>", None)
 
     try:
         if _groq_client:
-            return await _process_groq(user_id, user_name, message_text)
+            raw = await _call_groq(user_id, user_name, message_text)
         elif _gemini_model:
-            return await _process_gemini(user_id, user_name, message_text)
+            raw = await _call_gemini(user_id, user_name, message_text)
         else:
-            return "<i>AI abhi available nahi hai. Thodi der baad try karo! 😵‍💫</i>"
+            return ("<i>◌ AI abhi available nahi hai. Thodi der baad try karo.</i>", None)
+
+        reply, search_query = extract_search_query(raw)
+        return (reply, search_query)
+
     except Exception as e:
-        logger.error(f"AI processing error for user {user_id}: {e}")
-        return "<i>Oops, mera dimaag thoda slow chal raha hai. Ek second try karo! 😵‍💫</i>"
+        logger.error(f"AI error user={user_id}: {e}")
+        return ("<i>◌ mera dimaag thoda slow chal raha hai, ek baar aur try karo ✦</i>", None)
 
 
-async def _process_groq(user_id: int, user_name: str, message_text: str) -> str:
-    """Handle conversation via Groq (sync SDK → run in thread)."""
+async def _call_groq(user_id: int, user_name: str, text: str) -> str:
     history = active_sessions.setdefault(user_id, [])
-
-    # Build messages array
     messages = [{"role": "system", "content": _SYSTEM_PROMPT}]
     messages.extend(history[-MAX_HISTORY:])
-    messages.append({"role": "user", "content": f"{user_name}: {message_text}"})
+    messages.append({"role": "user", "content": f"{user_name}: {text}"})
 
-    def _call():
-        response = _groq_client.chat.completions.create(
+    def _sync():
+        resp = _groq_client.chat.completions.create(
             model=_GROQ_MODEL,
             messages=messages,
-            temperature=0.8,
-            max_tokens=512,
+            temperature=0.75,
+            max_tokens=400,
         )
-        return response.choices[0].message.content.strip()
+        return resp.choices[0].message.content.strip()
 
-    reply = await asyncio.to_thread(_call)
+    reply = await asyncio.to_thread(_sync)
 
-    # Save to history
-    history.append({"role": "user",      "content": f"{user_name}: {message_text}"})
+    history.append({"role": "user",      "content": f"{user_name}: {text}"})
     history.append({"role": "assistant", "content": reply})
-    # Trim history
     if len(history) > MAX_HISTORY:
         active_sessions[user_id] = history[-MAX_HISTORY:]
-
     return reply
 
 
-async def _process_gemini(user_id: int, user_name: str, message_text: str) -> str:
-    """Handle conversation via Gemini (async SDK)."""
-    # Gemini uses its own ChatSession
-    if user_id not in active_sessions or not isinstance(active_sessions[user_id], dict):
-        session = _gemini_model.start_chat(history=[])
-        active_sessions[user_id] = {"session": session}
-
-    chat = active_sessions[user_id]["session"]
-    prompt = f"{user_name}: {message_text}"
-    response = await chat.send_message_async(prompt)
-    return response.text
+async def _call_gemini(user_id: int, user_name: str, text: str) -> str:
+    sess = active_sessions.setdefault(user_id, {})
+    if "session" not in sess or not isinstance(sess, dict):
+        sess["session"] = _gemini_model.start_chat(history=[])
+        active_sessions[user_id] = sess
+    chat = sess["session"]
+    resp = await chat.send_message_async(f"{user_name}: {text}")
+    return resp.text
 
 
-# ── Session helpers ──────────────────────────────────────────────────────────
+# ── Session helpers (backward-compat) ─────────────────────────────────────────
 def is_gemini_active(user_id: int) -> bool:
     return user_id in active_sessions
-
 
 def activate_gemini(user_id: int):
     if user_id not in active_sessions:
         active_sessions[user_id] = []
-
 
 def deactivate_gemini(user_id: int):
     active_sessions.pop(user_id, None)

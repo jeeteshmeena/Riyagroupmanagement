@@ -5403,7 +5403,7 @@ async def handle_config_input(update: Update, context: ContextTypes.DEFAULT_TYPE
             parse_mode="HTML"
         )
         return
-        
+
     if state == "waiting_sp_republish_dest":
         dest_val = text.strip()
         context.chat_data.pop("config_state", None)
@@ -5411,17 +5411,17 @@ async def handle_config_input(update: Update, context: ContextTypes.DEFAULT_TYPE
         if not post_data:
             await update.message.reply_text("Error: Post data lost.", parse_mode="HTML")
             return
-            
+
         post_data["destinations"] = [{"chat": dest_val, "thread": None}]
         context.user_data["pb_data"] = post_data
         context.user_data["pb_data"]["post_mode"] = "new"
-        
-        # Invoke _do_post
+
         from post_builder import _do_post
         await update.message.reply_text(f"🚀 Re-publishing to {dest_val}... Please wait.", parse_mode="HTML")
         await _do_post(update, context)
         return
-    
+
+
     if state == "waiting_source_id":
         try:
             channel_id = int(text)
@@ -5727,21 +5727,60 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.chat_data and context.chat_data.get("config_state"):
         return await handle_config_input(update, context)
 
-    # Gemini AI Conversation Hook
+    # ── Riya AI Conversation Hook ─────────────────────────────────────────────
     if update.message and update.message.text:
         text_content = update.message.text
-        user_id = update.effective_user.id
-        
+        user_id      = update.effective_user.id
+
         is_riya_mentioned = "riya" in text_content.lower()
         if is_riya_mentioned or gemini_chat.is_gemini_active(user_id):
-            await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-            # Always ensure it is activated if mentioned
+            await context.bot.send_chat_action(
+                chat_id=update.effective_chat.id, action="typing"
+            )
             if is_riya_mentioned:
                 gemini_chat.activate_gemini(user_id)
-            
+
             user_name = update.effective_user.first_name or "User"
-            reply_text = await gemini_chat.process_gemini_message(user_id, user_name, text_content)
-            await update.message.reply_text(reply_text, parse_mode="HTML")
+            reply_text, search_query = await gemini_chat.process_gemini_message(
+                user_id, user_name, text_content
+            )
+
+            # If AI flagged a story search, perform it and append result
+            if search_query:
+                story_result = get_story(search_query)
+                if story_result:
+                    link  = story_result.get("link", "")
+                    name  = story_result.get("name") or search_query
+                    extra = (
+                        f"\n\n<b>✦ {html.escape(name)}</b>\n"
+                        f"▸ <a href='{link}'>Listen / Read here</a>"
+                    )
+                    reply_text = (reply_text or "") + extra
+                else:
+                    # Try fuzzy search
+                    suggestions = get_suggestions(search_query, limit=1)
+                    if suggestions:
+                        sname = suggestions[0]
+                        sres  = get_story(sname)
+                        if sres:
+                            link  = sres.get("link", "")
+                            extra = (
+                                f"\n\n<b>✦ {html.escape(sname)}</b>\n"
+                                f"▸ <a href='{link}'>Listen / Read here</a>"
+                            )
+                            reply_text = (reply_text or "") + extra
+                        else:
+                            reply_text = (reply_text or "") + f"\n\n<i>◌ '{html.escape(search_query)}' — abhi available nahi hai. /request kar do!</i>"
+                    else:
+                        reply_text = (reply_text or "") + f"\n\n<i>◌ '{html.escape(search_query)}' — database mein nahi mili. Spelling check karo ya /request karo.</i>"
+
+            # Stop keyword from AI itself ends the session
+            if "silent mode on" in (reply_text or "").lower():
+                gemini_chat.deactivate_gemini(user_id)
+
+            if reply_text:
+                await update.message.reply_text(reply_text, parse_mode="HTML",
+                                                disable_web_page_preview=True)
             return
 
     # Handle No/Nahi + Thanks BEFORE is_valid_query filters them out
@@ -5749,6 +5788,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     return await search(update, context)
+
 
 
 async def saved_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -6595,6 +6635,7 @@ def start_bot():
     app.add_handler(CommandHandler("stats", stats_cmd))
     app.add_handler(CommandHandler("status", status_cmd))
     app.add_handler(CommandHandler("config", config_cmd))
+    app.add_handler(CommandHandler("guide", guide_cmd))
 
     # Premium feature commands
     app.add_handler(CommandHandler("saved", saved_cmd))
@@ -6637,6 +6678,10 @@ def start_bot():
 
     app.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler)
+    )
+    # Voice / audio messages — handled by Riya TTS
+    app.add_handler(
+        MessageHandler(filters.VOICE | filters.AUDIO, voice_message_handler)
     )
 
     # ── Group Cleanup: auto-delete commands & @botusername messages ──────────
