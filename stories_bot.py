@@ -6047,6 +6047,40 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not reply_text:
                 return  # nothing to send
 
+            # ── Premium Emoji & Reaction Injection ─────────────────────────────
+            _EMOJI_TO_MOOD = {
+                "😊": "smile",
+                "📖": "book",
+                "😔": "sad",
+                "😂": "laugh",
+                "🥰": "heart",
+                "🌸": "sparkle"
+            }
+            detected_mood = None
+            try:
+                import premium_userbot
+                for emoji_char, mood in _EMOJI_TO_MOOD.items():
+                    if emoji_char in reply_text:
+                        detected_mood = mood
+                        emoji_id = premium_userbot.get_emoji_id(mood)
+                        if emoji_id:
+                            # Replace standard emoji with premium custom emoji tag
+                            reply_text = reply_text.replace(
+                                emoji_char,
+                                f'<tg-emoji emoji-id="{emoji_id}">{emoji_char}</tg-emoji>'
+                            )
+                        break  # Only need one mood to react
+                
+                # Send premium reaction to the user's message
+                if detected_mood and premium_userbot.is_connected():
+                    asyncio.create_task(premium_userbot.react_with_mood(
+                        update.effective_chat.id,
+                        update.message.message_id,
+                        detected_mood
+                    ))
+            except Exception as e:
+                logger.error(f"[Premium] Emoji injection error: {e}")
+
             # ── Voice reply (text-triggered or AI-flagged) ─────────────────────
             if wants_voice or wants_voice_text:
                 await _send_tts_or_text(update, context, reply_text)
