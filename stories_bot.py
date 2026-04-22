@@ -4357,6 +4357,7 @@ def _cfg_main_panel(caller_id: int, lang: str = "en") -> tuple:
         ],
         [
             InlineKeyboardButton("📅 Scheduler",     callback_data=f"cfg|scheduler||{caller_id}"),
+            InlineKeyboardButton("🚫 Global Ban",    callback_data=f"cfg|gban||{caller_id}"),
         ]
     ])
     return header, markup
@@ -4634,6 +4635,28 @@ def _cfg_sysinfo_panel(caller_id: int) -> tuple:
         f"▪ <b>Sources</b>  ➔  <code>{sources}</code>\n"
         f"▫ <b>Requests</b>  ➔  <code>{req_count}</code>\n"
         f"▫ <b>Maintenance</b>  ➔  <code>{maint_status}</code>"
+    )
+    markup = InlineKeyboardMarkup([_cfg_nav(caller_id, back="main")])
+    return text, markup
+
+
+def _cfg_gban_panel(caller_id: int) -> tuple:
+    chats_to_check = set(chat_languages.keys())
+    if GROUP_ID: chats_to_check.add(str(GROUP_ID))
+    if REQUEST_GROUP: chats_to_check.add(str(REQUEST_GROUP))
+    for c in bot_config.get("sources", []):
+        chats_to_check.add(str(c))
+    
+    count = len(chats_to_check)
+    
+    text = (
+        "<b>🚫 Global Ban (Cross-Channel)</b>\n"
+        "<i>Ban a user from all authorized groups/channels.</i>\n"
+        f"{_CFG_DIV}\n\n"
+        f"▪ <b>Monitored Chats</b>  ➔  <code>{count}</code>\n\n"
+        "To scan and ban a user across all these chats, simply send this command to the bot:\n\n"
+        "<code>/gban &lt;user_id or @username&gt;</code>\n\n"
+        "<i>The bot will search for the user in all its known chats and strictly ban only the specified user, providing a final report.</i>"
     )
     markup = InlineKeyboardMarkup([_cfg_nav(caller_id, back="main")])
     return text, markup
@@ -4978,6 +5001,13 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
     if section == "sysinfo":
         text, markup = _cfg_sysinfo_panel(caller_id)
         await _edit_cfg(query, text, markup, loading=True)
+        await query.answer()
+        return
+
+    # ── Global Ban menu ──────────────────────────────────────────────────────
+    if section == "gban":
+        text, markup = _cfg_gban_panel(caller_id)
+        await _edit_cfg(query, text, markup)
         await query.answer()
         return
 
@@ -6106,6 +6136,92 @@ async def check_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"External check error: {e}")
         await wait_msg.edit_text(text="<b>☆ Verification Failed</b>\n\n✧ Check command encountered an error.\n➤ Try again later", parse_mode="HTML")
 
+async def gban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin-only: globally ban a user from all authorized channels."""
+    if not is_admin(update.effective_user.id):
+        lang = get_chat_lang(update.effective_chat.id)
+        await update.message.reply_text("⛔ Admin only." if lang != "hi" else "⛔ केवल एडमिन।")
+        return
+
+    if not context.args:
+        lang = get_chat_lang(update.effective_chat.id)
+        await update.message.reply_text(
+            "<b>Usage:</b> /gban &lt;user_id or @username&gt;\n\n"
+            "Bans the user from all groups/channels where the bot is admin and tracks them.",
+            parse_mode="HTML"
+        )
+        return
+
+    user_str = context.args[0]
+    target_user_id = None
+    target_user_name = None
+
+    if user_str.startswith("@") or not user_str.lstrip("-").isdigit():
+        try:
+            chat_info = await context.bot.get_chat(user_str)
+            target_user_id = chat_info.id
+            target_user_name = chat_info.username or chat_info.first_name
+        except Exception as e:
+            await update.message.reply_text(f"❌ Could not resolve username <b>{user_str}</b>.\nPlease use their numeric User ID.", parse_mode="HTML")
+            return
+    else:
+        target_user_id = int(user_str)
+
+    wait_msg = await update.message.reply_text(f"⏳ Searching and executing Global Ban for <code>{target_user_id}</code>...\nPlease wait.", parse_mode="HTML")
+
+    chats_to_check = set(chat_languages.keys())
+    if GROUP_ID: chats_to_check.add(str(GROUP_ID))
+    if REQUEST_GROUP: chats_to_check.add(str(REQUEST_GROUP))
+    for c in bot_config.get("sources", []):
+        chats_to_check.add(str(c))
+
+    success = []
+    already_banned_or_not_present = []
+    failed = []
+
+    for cid_str in chats_to_check:
+        try:
+            cid = int(cid_str)
+            try:
+                member_status = await context.bot.get_chat_member(chat_id=cid, user_id=target_user_id)
+                # If they are a member, creator, or restricted, we ban them
+                if member_status.status in ["member", "restricted", "creator", "administrator"]:
+                    await context.bot.ban_chat_member(chat_id=cid, user_id=target_user_id)
+                    success.append(cid_str)
+                else:
+                    # They are already kicked/banned/left
+                    already_banned_or_not_present.append(cid_str)
+            except Exception as e:
+                 # Error getting member or banning (maybe bot not admin or user not found)
+                 failed.append(cid_str)
+                 
+                 # Optional: try blind ban just in case
+                 if "User not found" not in str(e):
+                     try:
+                         await context.bot.ban_chat_member(chat_id=cid, user_id=target_user_id)
+                         success.append(cid_str)
+                         failed.remove(cid_str)
+                     except Exception:
+                         pass
+
+        except Exception:
+             continue
+        await asyncio.sleep(0.1) # Prevent FloodWait
+
+    report = (
+        f"<b>🚫 Global Ban Report</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"<b>Target:</b> <code>{target_user_id}</code> {('@' + target_user_name) if target_user_name else ''}\n\n"
+        f"<b>✅ Successfully Banned in:</b> {len(success)} chats\n"
+        f"<b>⚪ Not Present / Already Banned:</b> {len(already_banned_or_not_present)} chats\n"
+        f"<b>❌ Failed (No Admin Rights):</b> {len(failed)} chats\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"<i>Action performed by Admin {update.effective_user.id}</i>"
+    )
+    
+    await wait_msg.edit_text(report, parse_mode="HTML")
+    await log(context, f"GLOBAL BAN | Admin={update.effective_user.id} Target={target_user_id}")
+
 def start_bot():
 
     global app
@@ -6168,6 +6284,7 @@ def start_bot():
     app.add_handler(CommandHandler("addsource", addsource_cmd))
     app.add_handler(CommandHandler("removesource", removesource_cmd))
     app.add_handler(CommandHandler("addalias", addalias_cmd))
+    app.add_handler(CommandHandler("gban", gban_cmd))
     app.add_handler(CommandHandler("removealias", removealias_cmd))
     app.add_handler(CommandHandler("listalias", listalias_cmd))
     app.add_handler(CommandHandler("whisper", whisper_cmd))
