@@ -88,3 +88,23 @@ def activate_gemini(user_id: int):
 def deactivate_gemini(user_id: int):
     if user_id in active_sessions:
         del active_sessions[user_id]
+
+def reinit_gemini(api_key: str):
+    global API_KEY, model, active_sessions
+    API_KEY = api_key
+    if API_KEY:
+        try:
+            genai.configure(api_key=API_KEY)
+            model = genai.GenerativeModel(
+                model_name="gemini-1.5-flash",
+                generation_config=generation_config,
+                system_instruction=persona,
+            )
+            logger.info("Gemini AI API Key re-configured.")
+        except Exception as e:
+            logger.error(f"Error re-initializing Gemini: {e}")
+            model = None
+    else:
+        model = None
+    # Reset sessions on re-init
+    active_sessions.clear()

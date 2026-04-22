@@ -317,6 +317,12 @@ else:
     MAINTENANCE_MODE = False
     MAINTENANCE_UNTIL = 0.0
 
+# Initialize AI keys from config if available
+_ai_cfg = bot_config.get("ai", {})
+if _ai_cfg.get("gemini_key"):
+    import gemini_chat
+    gemini_chat.reinit_gemini(_ai_cfg.get("gemini_key"))
+
 # Global Scan Progress State
 SCAN_PROGRESS = {
     "stories_found": 0,
@@ -4359,6 +4365,9 @@ def _cfg_main_panel(caller_id: int, lang: str = "en") -> tuple:
         [
             InlineKeyboardButton("📅 Scheduler",     callback_data=f"cfg|scheduler||{caller_id}"),
             InlineKeyboardButton("🚫 Global Ban",    callback_data=f"cfg|gban||{caller_id}"),
+        ],
+        [
+            InlineKeyboardButton("🤖 AI Chat & Voice Options", callback_data=f"cfg|aiconfig||{caller_id}"),
         ]
     ])
     return header, markup
@@ -4660,6 +4669,38 @@ def _cfg_gban_panel(caller_id: int) -> tuple:
         "<i>The bot will search for the user in all its known chats and strictly ban only the specified user, providing a final report.</i>"
     )
     markup = InlineKeyboardMarkup([_cfg_nav(caller_id, back="main")])
+    return text, markup
+
+
+def _cfg_aiconfig_panel(caller_id: int) -> tuple:
+    ai_cfg = bot_config.get("ai", {})
+    gem_key = "✅ Set" if ai_cfg.get("gemini_key") else "❌ Not Set"
+    sarv_key = "✅ Set" if ai_cfg.get("sarvam_key") else "❌ Not Set"
+    male = ai_cfg.get("voice_male", "sarvam:default-male")
+    female = ai_cfg.get("voice_female", "sarvam:default-female")
+    
+    text = (
+        "<b>🤖 AI & Voice Configuration</b>\n"
+        "<i>Setup Gemini AI and Sarvam AI models.</i>\n"
+        f"{_CFG_DIV}\n\n"
+        f"▪ <b>Gemini API Key:</b> <code>{gem_key}</code>\n"
+        f"▪ <b>Sarvam API Key:</b> <code>{sarv_key}</code>\n"
+        f"▪ <b>Sarvam Male Voice:</b> <code>{male}</code>\n"
+        f"▪ <b>Sarvam Female Voice:</b> <code>{female}</code>\n\n"
+        "<i>Click below to update Keys or Voice Models. Say 'clear' when prompted to remove a key.</i>\n"
+        "<i>Note: Setting these will immediately update the bot's capabilities.</i>"
+    )
+    markup = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("Set Gemini Key", callback_data=f"cfg|ai_geminikey||{caller_id}"),
+            InlineKeyboardButton("Set Sarvam Key", callback_data=f"cfg|ai_sarvamkey||{caller_id}")
+        ],
+        [
+            InlineKeyboardButton("Set Male Voice", callback_data=f"cfg|ai_malevoice||{caller_id}"),
+            InlineKeyboardButton("Set Female Voice", callback_data=f"cfg|ai_femalevoice||{caller_id}")
+        ],
+        _cfg_nav(caller_id, back="main")
+    ])
     return text, markup
 
 
@@ -5012,6 +5053,31 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
         await query.answer()
         return
 
+    # ── AI Configuration ──────────────────────────────────────────────────────
+    if section == "aiconfig":
+        text, markup = _cfg_aiconfig_panel(caller_id)
+        await _edit_cfg(query, text, markup)
+        await query.answer()
+        return
+        
+    if section.startswith("ai_"):
+        if section == "ai_geminikey":
+            context.chat_data["config_state"] = "waiting_ai_geminikey"
+            text = "<b>🤖 Set Gemini API Key</b>\n\nPlease send your Google Gemini API Key. To remove it, send strictly <code>clear</code>."
+        elif section == "ai_sarvamkey":
+            context.chat_data["config_state"] = "waiting_ai_sarvamkey"
+            text = "<b>🤖 Set Sarvam API Key</b>\n\nPlease send your Sarvam AI API Key. To remove it, send strictly <code>clear</code>."
+        elif section == "ai_malevoice":
+            context.chat_data["config_state"] = "waiting_ai_malevoice"
+            text = "<b>🤖 Set Sarvam Male Voice ID</b>\n\nPlease send the exact Voice ID (e.g. <code>sarvam:default-male</code>)."
+        elif section == "ai_femalevoice":
+            context.chat_data["config_state"] = "waiting_ai_femalevoice"
+            text = "<b>🤖 Set Sarvam Female Voice ID</b>\n\nPlease send the exact Voice ID (e.g. <code>sarvam:default-female</code>)."
+        
+        await query.answer()
+        await query.message.reply_text(text, parse_mode="HTML")
+        return
+
     # ── Maintenance mode ─────────────────────────────────────────────────────
     if section == "maintenance":
         text, markup = _cfg_maintenance_panel(caller_id)
@@ -5103,6 +5169,34 @@ async def handle_config_input(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     # Check if we're waiting for config input
     state = context.chat_data.get("config_state")
+    
+    if state in ("waiting_ai_geminikey", "waiting_ai_sarvamkey", "waiting_ai_malevoice", "waiting_ai_femalevoice"):
+        ai_cfg = bot_config.get("ai", {})
+        if state == "waiting_ai_geminikey":
+            if text.strip().lower() == "clear": ai_cfg["gemini_key"] = ""
+            else: ai_cfg["gemini_key"] = text.strip()
+            bot_config["ai"] = ai_cfg
+            save_config(bot_config)
+            # Re-init module dynamically
+            import gemini_chat
+            gemini_chat.reinit_gemini(ai_cfg["gemini_key"])
+        elif state == "waiting_ai_sarvamkey":
+            if text.strip().lower() == "clear": ai_cfg["sarvam_key"] = ""
+            else: ai_cfg["sarvam_key"] = text.strip()
+            bot_config["ai"] = ai_cfg
+            save_config(bot_config)
+        elif state == "waiting_ai_malevoice":
+            ai_cfg["voice_male"] = text.strip()
+            bot_config["ai"] = ai_cfg
+            save_config(bot_config)
+        elif state == "waiting_ai_femalevoice":
+            ai_cfg["voice_female"] = text.strip()
+            bot_config["ai"] = ai_cfg
+            save_config(bot_config)
+            
+        context.chat_data.pop("config_state", None)
+        await update.message.reply_text("<b>🤖 AI Configuration Updated Successfully.</b>\nRefresh the configuration panel to see changes.", parse_mode="HTML")
+        return
     
     if state == "waiting_source_id":
         try:
