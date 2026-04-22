@@ -17,66 +17,53 @@ logger = logging.getLogger(__name__)
 
 SARVAM_TTS_URL = "https://api.sarvam.ai/text-to-speech"
 
-# ── Gender-classified speakers (verified from live API) ───────────────────────
-_FEMALE_SPEAKERS = [
-    "anushka", "manisha", "vidya", "ritu", "priya", "neha",
-    "pooja", "simran", "kavya", "ishita", "shreya", "roopa"
-]
-_MALE_SPEAKERS = [
-    "abhilash", "karun", "hitesh", "aditya", "rahul", "rohan",
-    "amit", "dev", "ratan", "varun", "manan", "sumit",
-    "kabir", "aayan", "ashutosh", "advait"
-]
+# ── ONLY valid speakers for bulbul:v2 (from live API) ───────────────────────
+_FEMALE_SPEAKERS = ["anushka", "manisha", "vidya", "arya"]
+_MALE_SPEAKERS   = ["abhilash", "karun", "hitesh"]
 
-# Config voice_id → real Sarvam speaker name
+# Config voice_id → real Sarvam speaker (bulbul:v2 only has 7 speakers)
 _SPEAKER_MAP = {
-    # Female (what config panel saves)
+    # Female
     "sarvam:default-anushka":  "anushka",
     "sarvam:default-manisha":  "manisha",
     "sarvam:default-vidya":    "vidya",
-    "sarvam:default-ritu":     "ritu",
-    "sarvam:default-priya":    "priya",
-    "sarvam:default-neha":     "neha",
-    "sarvam:default-pooja":    "pooja",
-    "sarvam:default-simran":   "simran",
-    "sarvam:default-kavya":    "kavya",
-    "sarvam:default-ishita":   "ishita",
-    "sarvam:default-shreya":   "shreya",
-    "sarvam:default-roopa":    "roopa",
+    "sarvam:default-arya":     "arya",
     # Male
     "sarvam:default-abhilash": "abhilash",
     "sarvam:default-karun":    "karun",
     "sarvam:default-hitesh":   "hitesh",
-    "sarvam:default-aditya":   "aditya",
-    "sarvam:default-rahul":    "rahul",
-    "sarvam:default-rohan":    "rohan",
-    "sarvam:default-amit":     "amit",
-    "sarvam:default-dev":      "dev",
-    "sarvam:default-ratan":    "ratan",
-    "sarvam:default-varun":    "varun",
-    "sarvam:default-manan":    "manan",
-    "sarvam:default-sumit":    "sumit",
-    "sarvam:default-kabir":    "kabir",
-    "sarvam:default-aayan":    "aayan",
-    "sarvam:default-ashutosh": "ashutosh",
-    "sarvam:default-advait":   "advait",
-    # Legacy / wrong names that may be stored — remap to valid ones
+    # All legacy / wrong names → remap to nearest valid
     "sarvam:default-meera":    "anushka",
-    "sarvam:default-pavithra": "priya",
-    "sarvam:default-maitreyi": "manisha",
-    "sarvam:default-diya":     "neha",
-    "sarvam:default-misha":    "simran",
-    "sarvam:default-maya":     "kavya",
+    "sarvam:default-priya":    "manisha",
+    "sarvam:default-neha":     "vidya",
+    "sarvam:default-pooja":    "arya",
+    "sarvam:default-simran":   "anushka",
+    "sarvam:default-kavya":    "manisha",
+    "sarvam:default-ishita":   "vidya",
+    "sarvam:default-shreya":   "arya",
+    "sarvam:default-roopa":    "anushka",
+    "sarvam:default-pavithra": "manisha",
+    "sarvam:default-maitreyi": "vidya",
+    "sarvam:default-diya":     "arya",
+    "sarvam:default-misha":    "anushka",
+    "sarvam:default-maya":     "manisha",
+    "sarvam:default-ritu":     "vidya",
     "sarvam:default-arvind":   "abhilash",
-    "sarvam:default-amol":     "hitesh",
-    "sarvam:default-amartya":  "aditya",
-    "sarvam:default-neel":     "rahul",
-    "sarvam:default-vian":     "varun",
-    "sarvam:default-arjun":    "kabir",
-    "sarvam:default-pallavi":  "priya",
-    "sarvam:default-smriti":   "ishita",
-    "sarvam:default-shilpa":   "shreya",
-    "sarvam:default-puneet":   "sumit",
+    "sarvam:default-amol":     "karun",
+    "sarvam:default-amartya":  "hitesh",
+    "sarvam:default-neel":     "abhilash",
+    "sarvam:default-vian":     "karun",
+    "sarvam:default-arjun":    "hitesh",
+    "sarvam:default-rahul":    "abhilash",
+    "sarvam:default-rohan":    "karun",
+    "sarvam:default-amit":     "hitesh",
+    "sarvam:default-dev":      "abhilash",
+    "sarvam:default-varun":    "karun",
+    "sarvam:default-kabir":    "hitesh",
+    "sarvam:default-advait":   "abhilash",
+    "sarvam:default-sumit":    "karun",
+    "sarvam:default-puneet":   "hitesh",
+    "sarvam:default-aditya":   "abhilash",
 }
 
 

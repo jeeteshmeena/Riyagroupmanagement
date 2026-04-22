@@ -4718,13 +4718,13 @@ def _cfg_aiconfig_panel(caller_id: int) -> tuple:
 
 
 def _cfg_voice_select_panel(caller_id: int, gender: str) -> tuple:
-    # Verified speaker list from Sarvam bulbul:v1 live API
+    # bulbul:v2 has exactly 7 speakers: anushka, manisha, vidya, arya (female) + abhilash, karun, hitesh (male)
     if gender == "male":
-        voices = ["abhilash", "hitesh", "aditya", "rahul", "amit", "varun", "kabir", "advait"]
-        text = "<b>✦ Select Male Voice (Sarvam)</b>\n\nChoose the default male voice:"
+        voices = ["abhilash", "karun", "hitesh"]
+        text = "<b>✦ Select Male Voice</b>\n<i>Sarvam bulbul:v2 — 3 male voices</i>"
     else:
-        voices = ["anushka", "manisha", "vidya", "priya", "neha", "pooja", "simran", "kavya", "ishita", "shreya"]
-        text = "<b>✦ Select Female Voice (Sarvam)</b>\n\nChoose the default female voice:"
+        voices = ["anushka", "manisha", "vidya", "arya"]
+        text = "<b>✦ Select Female Voice</b>\n<i>Sarvam bulbul:v2 — 4 female voices</i>"
 
     buttons = []
     for v in voices:
@@ -4732,7 +4732,6 @@ def _cfg_voice_select_panel(caller_id: int, gender: str) -> tuple:
             f"◈ {v.capitalize()}",
             callback_data=f"cfg|aivoiceselect|{gender}|{v}||{caller_id}"
         )])
-
     buttons.append(_cfg_nav(caller_id, back="aiconfig"))
     return text, InlineKeyboardMarkup(buttons)
 
