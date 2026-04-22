@@ -209,6 +209,7 @@ from config import (
     API_HASH,
     GROUP_ID,
 )
+import gemini_chat
 from scanner_client import scan_channel
 from search_engine import search_story_exact_or_alias, get_suggestions
 from filters_text import is_valid_query
@@ -5407,6 +5408,23 @@ async def _handle_no_or_thanks(update: Update, context: ContextTypes.DEFAULT_TYP
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.chat_data and context.chat_data.get("config_state"):
         return await handle_config_input(update, context)
+
+    # Gemini AI Conversation Hook
+    if update.message and update.message.text:
+        text_content = update.message.text
+        user_id = update.effective_user.id
+        
+        is_riya_mentioned = "riya" in text_content.lower()
+        if is_riya_mentioned or gemini_chat.is_gemini_active(user_id):
+            await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+            # Always ensure it is activated if mentioned
+            if is_riya_mentioned:
+                gemini_chat.activate_gemini(user_id)
+            
+            user_name = update.effective_user.first_name or "User"
+            reply_text = await gemini_chat.process_gemini_message(user_id, user_name, text_content)
+            await update.message.reply_text(reply_text, parse_mode="HTML")
+            return
 
     # Handle No/Nahi + Thanks BEFORE is_valid_query filters them out
     if await _handle_no_or_thanks(update, context):
