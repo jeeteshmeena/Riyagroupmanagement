@@ -385,3 +385,11 @@ def load_voting_db() -> dict:
 def save_voting_db(data: dict):
     _save_json(VOTING_FILE, data)
 
+# --- Saved Posts DB for Re-Publishing ---
+SAVED_POSTS_FILE = "saved_posts_db.json"
+
+def load_saved_posts():
+    return _load_json(SAVED_POSTS_FILE, {})
+
+def save_saved_posts(data):
+    _save_json(SAVED_POSTS_FILE, data)

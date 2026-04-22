@@ -4368,6 +4368,7 @@ def _cfg_main_panel(caller_id: int, lang: str = "en") -> tuple:
         ],
         [
             InlineKeyboardButton("🤖 AI Chat & Voice Options", callback_data=f"cfg|aiconfig||{caller_id}"),
+            InlineKeyboardButton("📑 Saved Posts",   callback_data=f"cfg|savedposts||{caller_id}"),
         ]
     ])
     return header, markup
@@ -4717,6 +4718,86 @@ def _cfg_voice_select_panel(caller_id: int, gender: str) -> tuple:
         buttons.append([InlineKeyboardButton(f"🗣 {v.capitalize()}", callback_data=f"cfg|aivoiceselect|{gender}|{v}||{caller_id}")])
     
     buttons.append([_cfg_nav(caller_id, back="aiconfig")])
+    return text, InlineKeyboardMarkup(buttons)
+
+
+def _cfg_saved_posts_panel(caller_id: int) -> tuple:
+    from database import load_saved_posts
+    saved_db = load_saved_posts()
+    
+    text = (
+        "<b>📑 Saved Posts Library</b>\n"
+        "<i>All newly created posts are saved here safely for re-publishing.</i>\n"
+        f"{_CFG_DIV}\n\n"
+    )
+    if not saved_db or all(not posts for posts in saved_db.values()):
+        text += "<i>No posts have been saved yet. Generate one normally via /pb!</i>"
+    else:
+        text += "Select a format category to view saved posts:"
+        
+    buttons = []
+    for fmt, posts in saved_db.items():
+        if posts:
+            buttons.append([InlineKeyboardButton(f"📁 {str(fmt).capitalize()} ({len(posts)} posts)", callback_data=f"cfg|sp_fmt|{fmt}|0|{caller_id}")])
+            
+    buttons.append([_cfg_nav(caller_id, back="main")])
+    return text, InlineKeyboardMarkup(buttons)
+
+def _cfg_saved_posts_list_panel(caller_id: int, fmt: str, page: int = 0) -> tuple:
+    from database import load_saved_posts
+    saved_db = load_saved_posts()
+    posts = saved_db.get(fmt, [])
+    
+    text = (
+        f"<b>📑 Saved Posts - {str(fmt).capitalize()}</b>\n"
+        f"<i>Select a post to re-publish.</i>\n"
+        f"{_CFG_DIV}\n\n"
+    )
+    
+    ITEMS_PER_PAGE = 5
+    start = page * ITEMS_PER_PAGE
+    end = start + ITEMS_PER_PAGE
+    page_posts = posts[start:end]
+    
+    buttons = []
+    for p in page_posts:
+        p_name = p.get('name', 'Unnamed')[:25]
+        buttons.append([InlineKeyboardButton(f"📄 {p_name}", callback_data=f"cfg|sp_post|{fmt}|{p['id']}||{caller_id}")])
+    
+    # pagination
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"cfg|sp_fmt|{fmt}|{page-1}|{caller_id}"))
+    if end < len(posts):
+        nav_row.append(InlineKeyboardButton("Next ➡️", callback_data=f"cfg|sp_fmt|{fmt}|{page+1}|{caller_id}"))
+    if nav_row:
+        buttons.append(nav_row)
+        
+    buttons.append([_cfg_nav(caller_id, back="savedposts")])
+    return text, InlineKeyboardMarkup(buttons)
+
+def _cfg_saved_post_action_panel(caller_id: int, fmt: str, post_id: str) -> tuple:
+    from database import load_saved_posts
+    saved_db = load_saved_posts()
+    posts = saved_db.get(fmt, [])
+    post = next((p for p in posts if p["id"] == post_id), None)
+    
+    if not post:
+        return "<i>Post not found.</i>", InlineKeyboardMarkup([[_cfg_nav(caller_id, back=f"sp_fmt|{fmt}")]])
+        
+    text = (
+        f"<b>📑 Repost / Publish</b>\n"
+        f"<b>Name:</b> {post.get('name')}\n\n"
+        f"<b>Preview Clip:</b>\n<i>{post.get('preview')}</i>\n"
+        f"{_CFG_DIV}\n\n"
+        "Do you want to re-publish this post?"
+    )
+    
+    buttons = [
+        [InlineKeyboardButton("📤 Publish 1-by-1 (Destinations Select)", callback_data=f"cfg|sp_republish_one|{fmt}|{post_id}||{caller_id}")],
+        [InlineKeyboardButton("🚀 Publish to ALL Config Sources", callback_data=f"cfg|sp_republish_all|{fmt}|{post_id}||{caller_id}")],
+        [_cfg_nav(caller_id, back=f"sp_fmt|{fmt}|0|{caller_id}")]
+    ]
     return text, InlineKeyboardMarkup(buttons)
 
 
@@ -5115,6 +5196,64 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
         await _edit_cfg(query, text, markup)
         await query.answer(f"Voice updated to {voice.capitalize()}!", show_alert=True)
         return
+    # ── Saved Posts ──────────────────────────────────────────────────────────
+    if section == "savedposts":
+        text, markup = _cfg_saved_posts_panel(caller_id)
+        await _edit_cfg(query, text, markup)
+        await query.answer()
+        return
+        
+    if section == "sp_fmt":
+        fmt = args[2]
+        page = int(args[3]) if len(args) > 3 and args[3] else 0
+        text, markup = _cfg_saved_posts_list_panel(caller_id, fmt, page)
+        await _edit_cfg(query, text, markup)
+        await query.answer()
+        return
+        
+    if section == "sp_post":
+        fmt = args[2]
+        post_id = args[3]
+        text, markup = _cfg_saved_post_action_panel(caller_id, fmt, post_id)
+        await _edit_cfg(query, text, markup)
+        await query.answer()
+        return
+
+    if section.startswith("sp_republish_"):
+        fmt = args[2]
+        post_id = args[3]
+        from database import load_saved_posts
+        saved_db = load_saved_posts()
+        posts = saved_db.get(fmt, [])
+        post = next((p for p in posts if p["id"] == post_id), None)
+        
+        if not post:
+            await query.answer("Post not found in history.", show_alert=True)
+            return
+            
+        import copy
+        context.user_data["pb_data"] = copy.deepcopy(post["data"])
+        context.user_data["pb_data"]["post_mode"] = "new"
+        context.user_data["pb_data"].pop("_wm_applied", None)
+        
+        if section == "sp_republish_one":
+            context.chat_data["config_state"] = "waiting_sp_republish_dest"
+            context.chat_data["sp_republish_data"] = post["data"]
+            await query.answer()
+            await query.message.reply_text("📤 <b>1-by-1 Publish Mode</b>\n\nPlease send the Channel Username (e.g. <code>@MyChannel</code>) or Channel ID where you want to republish this post.", parse_mode="HTML")
+            return
+            
+        if section == "sp_republish_all":
+            sources = bot_config.get("sources", [])
+            if not sources:
+                await query.answer("No Config Sources defined!", show_alert=True)
+                return
+                
+            context.user_data["pb_data"]["destinations"] = [{"chat": cid, "thread": None} for cid in sources]
+            from post_builder import _do_post
+            await query.answer("Initiating Mass Broadcast...")
+            await query.message.delete()
+            return await _do_post(update, context)
 
     # ── Maintenance mode ─────────────────────────────────────────────────────
     if section == "maintenance":
@@ -5226,6 +5365,24 @@ async def handle_config_input(update: Update, context: ContextTypes.DEFAULT_TYPE
             
         context.chat_data.pop("config_state", None)
         await update.message.reply_text("<b>🤖 AI Configuration Updated Successfully.</b>\nRefresh the configuration panel to see changes.", parse_mode="HTML")
+        return
+        
+    if state == "waiting_sp_republish_dest":
+        dest_val = text.strip()
+        context.chat_data.pop("config_state", None)
+        post_data = context.chat_data.pop("sp_republish_data", {})
+        if not post_data:
+            await update.message.reply_text("Error: Post data lost.", parse_mode="HTML")
+            return
+            
+        post_data["destinations"] = [{"chat": dest_val, "thread": None}]
+        context.user_data["pb_data"] = post_data
+        context.user_data["pb_data"]["post_mode"] = "new"
+        
+        # Invoke _do_post
+        from post_builder import _do_post
+        await update.message.reply_text(f"🚀 Re-publishing to {dest_val}... Please wait.", parse_mode="HTML")
+        await _do_post(update, context)
         return
     
     if state == "waiting_source_id":
