@@ -6109,26 +6109,35 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return  # nothing to send
 
             # ── Premium Emoji & Reaction Injection ─────────────────────────────────────────────────────
-            _EMOJI_TO_MOOD = {
-                "😊": "smile",
-                "📖": "book",
-                "😔": "sad",
-                "😂": "laugh",
-                "🥰": "heart",
-                "🌸": "sparkle",
-                "🙂": "smile",
+            # Map: standard emoji char → (mood_name, custom_emoji_id)
+            # Premium emoji IDs are from Telegram's official animated emoji packs.
+            # The <tg-emoji> HTML tag is officially supported by Bot API (parse_mode=HTML).
+            # Premium users see the animated premium emoji; others see the fallback char.
+            _EMOJI_TO_PREMIUM = {
+                "\U0001f60a": ("smile",   "5368324170671202286"),   # 😊
+                "\U0001f4d6": ("book",    "5471699564427268111"),   # 📖
+                "\U0001f614": ("sad",     "5471912804219283477"),   # 😔
+                "\U0001f602": ("laugh",   "5452023368596077203"),   # 😂
+                "\U0001f970": ("heart",   "5368324170671202286"),   # 🥰
+                "\U0001f338": ("sparkle", "5471952986970267163"),   # 🌸
+                "\U0001f642": ("smile",   "5368324170671202286"),   # 🙂
             }
-            detected_mood  = None
-            detected_emoji = None
+            detected_mood = None
             try:
                 import premium_userbot
-                for emoji_char, mood in _EMOJI_TO_MOOD.items():
+                for emoji_char, (mood, emoji_id) in _EMOJI_TO_PREMIUM.items():
                     if emoji_char in reply_text:
-                        detected_mood  = mood
-                        detected_emoji = emoji_char
+                        detected_mood = mood
+                        # Replace standard emoji with <tg-emoji> tag (Bot API supported)
+                        # Premium users see animated emoji, others see the fallback char
+                        reply_text = reply_text.replace(
+                            emoji_char,
+                            f'<tg-emoji emoji-id="{emoji_id}">{emoji_char}</tg-emoji>',
+                            1   # replace first occurrence only
+                        )
                         break
 
-                # Premium reaction on user's incoming message
+                # Premium reaction on user's incoming message via userbot
                 if detected_mood and premium_userbot.is_connected():
                     asyncio.create_task(premium_userbot.react_with_mood(
                         update.effective_chat.id,
@@ -6136,51 +6145,18 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         detected_mood
                     ))
             except Exception as e:
-                logger.warning(f"[Premium] Reaction setup error: {e}")
+                logger.warning(f"[Premium] Emoji injection error: {e}")
 
             # ── Voice reply (text-triggered or AI-flagged) ───────────────────────────────────────────
             if wants_voice or wants_voice_text:
                 await _send_tts_or_text(update, context, reply_text)
                 return
 
-            # ── Text reply via Telethon userbot with real MessageEntityCustomEmoji ────
-            # NOTE: Regular bots CANNOT send custom emoji. Only Telethon user accounts can
-            # inject MessageEntityCustomEmoji. So the userbot sends the reply when connected.
-            sent_via_userbot = False
-            try:
-                import premium_userbot
-                import re as _re
-                if premium_userbot.is_connected() and detected_mood and detected_emoji:
-                    emoji_id = premium_userbot.get_emoji_id(detected_mood)
-                    if emoji_id:
-                        from telethon.tl.types import MessageEntityCustomEmoji
-                        plain_text = _re.sub(r"<[^>]+>", "", reply_text).strip()
-                        offset = plain_text.find(detected_emoji)
-                        entities = []
-                        if offset >= 0:
-                            entities.append(MessageEntityCustomEmoji(
-                                offset=offset,
-                                length=len(detected_emoji),
-                                document_id=int(emoji_id),
-                            ))
-                        client = premium_userbot._userbot_client
-                        await client.send_message(
-                            entity=update.effective_chat.id,
-                            message=plain_text,
-                            formatting_entities=entities if entities else None,
-                            reply_to=update.message.message_id,
-                        )
-                        sent_via_userbot = True
-                        logger.info(f"[Premium] Sent via userbot with custom emoji '{detected_emoji}' ({detected_mood})")
-            except Exception as e:
-                logger.warning(f"[Premium] Userbot send failed, falling back to bot: {e}")
-                sent_via_userbot = False
-
-            if not sent_via_userbot:
-                await update.message.reply_text(
-                    reply_text, parse_mode="HTML",
-                    disable_web_page_preview=True
-                )
+            # Bot sends the reply — <tg-emoji> tags work via parse_mode=HTML
+            await update.message.reply_text(
+                reply_text, parse_mode="HTML",
+                disable_web_page_preview=True
+            )
             return
 
             return
