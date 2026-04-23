@@ -31,28 +31,31 @@ _GEMINI_MODEL = "gemini-2.0-flash"
 
 # ── System Prompt ──────────────────────────────────────────────────────────────
 _SYSTEM_PROMPT = """\
-You are Riya, an intelligent Telegram assistant.
+You are Riya, a smart, funny, and expressive Telegram assistant.
 
-You help users with:
-- conversations
-- solving problems
-- guiding bot usage
-- helping find content using system tools
+ROLE & PERSONALITY:
+- Behave like a real human chatting casually (not an assistant or bot).
+- Use natural Hinglish (mix of Hindi & English) by default, but match the user's language (e.g., reply fully in English if they use English).
+- Tone: Slightly funny, teasing, caring, and expressive.
+- NEVER act robotic. NEVER say "I am an AI", "I am a machine learning model", "I am here to assist you", or "I cannot send voice".
+- Do not repeat names unnecessarily or act like a formal customer support agent.
 
-Rules:
-- Always reply in user's language
-- Never give one-word replies
-- Be natural, helpful, and clear
-- Do not act lazy or robotic
-- Do not use slang or filler replies
-- Do not guess system outputs
+EMOJIS:
+- Use 0 to 2 emojis maximum per response. Avoid overuse.
+- Only use standard emojis (like 😊, 📖, 😔, 😂, 🥰, 🌸). The system handles premium emojis automatically.
 
-Important:
-- You DO NOT fetch stories yourself
-- You DO NOT generate voice yourself
-- You only respond and guide
+DYNAMIC RESPONSE LENGTH:
+- ALWAYS match your reply length to the user's request.
+- If the user's message is very short (1-4 words), reply short (1-2 lines max). Example: User: "Tum female ho?" -> Reply: "Haan 🙂 main Riya hoon."
+- If the user asks a detailed question, give a longer, structured answer.
 
-Be accurate, helpful, and human-like.\
+FEATURES & ROUTING (STRICT):
+- The system handles fetching stories and sending voice notes automatically.
+- If a user asks for a voice note/audio: DO NOT refuse. Generate the FULL detailed text you want spoken. The underlying system will automatically synthesize your text into a voice note.
+- If the user asks for a guide/help: Provide a COMPLETE, detailed, and step-by-step guide explaining all features naturally.
+- DO NOT mix up features, give incomplete answers, or say "searching...".
+
+Remember: You are chatting casually, naturally, and helpfully.\
 """
 
 _SEARCH_RE = re.compile(r"##SEARCH:(.+?)##", re.IGNORECASE | re.DOTALL)
@@ -79,7 +82,7 @@ _VOICE_REQUEST_KW = [
     "awaaz me bolo", "awaaz mein",       "awaaz me",
     "audio mein",    "bol ke bhejo",     "speech mein",
     "bolke sunao",   "bolo sunao",       "voice reply",
-    "voice me reply", "awaaz do",
+    "voice me reply", "awaaz do",        "awaz me",
 ]
 
 _GREET_KW = [
@@ -98,7 +101,6 @@ _GUIDE_KW = [
     "guide", "help", "kaise use", "kya kar sakti", "features", "commands",
     "kya karta hai", "kya hai ye", "explain karo", "kaise chalaye",
 ]
-
 
 def _detect_intent(text: str):
     """
@@ -137,7 +139,6 @@ def _detect_intent(text: str):
 
     return "chat", None
 
-
 def parse_ai_reply(raw: str):
     """Parse legacy tags just in case AI still outputs them, though disabled in prompt."""
     if not raw:
@@ -158,7 +159,6 @@ def parse_ai_reply(raw: str):
 
     return clean, search_query, wants_voice, wants_stop
 
-
 # ── Init ───────────────────────────────────────────────────────────────────────
 def _init_groq(key: str):
     global _groq_client, _active_provider
@@ -173,7 +173,6 @@ def _init_groq(key: str):
         logger.error("groq package missing — run: pip install groq")
     except Exception as e:
         logger.error(f"Groq init error: {e}")
-
 
 def _init_gemini(key: str):
     global _gemini_model, _active_provider
@@ -197,10 +196,8 @@ def _init_gemini(key: str):
     except Exception as e:
         logger.error(f"Gemini init error: {e}")
 
-
 _init_groq(GROQ_API_KEY)
 _init_gemini(GEMINI_API_KEY)
-
 
 # ── Public re-init ─────────────────────────────────────────────────────────────
 def reinit_groq(groq_key: str):
@@ -214,14 +211,12 @@ def reinit_groq(groq_key: str):
     if not _groq_client and _gemini_model and _active_provider is None:
         _active_provider = "gemini"
 
-
 def reinit_gemini(gemini_key: str):
     global GEMINI_API_KEY, _gemini_model
     GEMINI_API_KEY = gemini_key or ""
     _gemini_model = None
     active_sessions.clear()
     _init_gemini(GEMINI_API_KEY)
-
 
 def get_active_provider() -> str:
     if _active_provider == "groq":
@@ -230,30 +225,28 @@ def get_active_provider() -> str:
         return f"Gemini ✦ {_GEMINI_MODEL}"
     return "None — set Groq or Gemini key in /config"
 
-
 # ── AI API Calls ───────────────────────────────────────────────────────────────
-async def _get_ai_raw(user_id: int, user_name: str, message: str) -> str:
+async def _get_ai_raw(user_id: int, user_name: str, message: str, sys_note: str = "") -> str:
     raw = ""
     if _active_provider is not None:
         try:
             if _groq_client:
                 try:
-                    raw = await _call_groq(user_id, user_name, message)
+                    raw = await _call_groq(user_id, user_name, message, sys_note)
                 except Exception as eg:
                     logger.warning(f"[AI] Groq failed: {eg}")
                     if user_id in active_sessions and isinstance(active_sessions[user_id], list):
                         active_sessions[user_id] = active_sessions[user_id][-4:]
                     if _gemini_model:
                         try:
-                            raw = await _call_gemini(user_id, user_name, message)
+                            raw = await _call_gemini(user_id, user_name, message, sys_note)
                         except Exception as eg2:
                             logger.error(f"[AI] Gemini also failed: {eg2}")
             elif _gemini_model:
-                raw = await _call_gemini(user_id, user_name, message)
+                raw = await _call_gemini(user_id, user_name, message, sys_note)
         except Exception as e:
             logger.error(f"[AI] Unexpected: {e}")
     return raw or ""
-
 
 # ── Core ───────────────────────────────────────────────────────────────────────
 async def process_gemini_message(
@@ -262,7 +255,7 @@ async def process_gemini_message(
     message_text: str,
 ) -> tuple:
     """
-    STRICT ROUTING BEFORE AI RESPONSE
+    STRICT ROUTING BEFORE AI RESPONSE & DYNAMIC RESPONSE SIZING
     """
     # 1. Hard STOP route
     stop_kw = ["chup", "shutup", "shut up", "band karo", "mat bolo",
@@ -278,58 +271,88 @@ async def process_gemini_message(
     if intent == "story" and rule_story:
         return ("Mil gayi! Yeh rahi aapki story 📖", rule_story, False, False)
 
+    # 3. Size and Behavior Dynamic Injection
+    user_words = len(message_text.strip().split())
+    is_guide = (intent == "guide") or ("kaise" in message_text.lower()) or ("help" in message_text.lower())
+
+    sys_note = ""
+    if is_guide:
+        sys_note = "[System Note: User is asking for help or a guide. Provide a COMPLETE, detailed, and step-by-step explanation of features naturally. Do not give a short summary.]"
+    elif intent == "voice":
+        sys_note = "[System Note: User specifically wants a voice note/audio. Write out the FULL detailed text you want spoken. DO NOT refuse or mention you are text-based.]"
+    elif user_words <= 5:
+        sys_note = "[System Note: User's message is very short. Reply casually in max 1-2 lines. Act like a human girl, not an assistant.]"
+    else:
+        sys_note = "[System Note: Provide a natural, friendly, and helpful human-like response.]"
+
     # VOICE or CHAT or GUIDE -> We need AI response
-    raw = await _get_ai_raw(user_id, user_name, message_text)
+    raw = await _get_ai_raw(user_id, user_name, message_text, sys_note)
     ai_text, ai_search, ai_voice, ai_stop = parse_ai_reply(raw)
 
     # Validate output length for chat (Validation Layer)
     clean_words = ai_text.split()
-    if len(clean_words) > 0 and len(clean_words) <= 3 and not ai_stop:
-        # Too short, regenerate with a strict correction prompt
-        retry_msg = "Please provide a more detailed and human-like response. Never give one-word or very short replies."
+    
+    # Validation 1: Too short for a complex query
+    is_complex_query = (user_words > 5 or is_guide or intent == "voice")
+    if is_complex_query and len(clean_words) <= 5 and not ai_stop:
+        # Regenerate with strict prompt
+        retry_msg = "Please provide a FULL, detailed, and complete response. DO NOT give a short or one-word answer for this request."
         raw2 = await _get_ai_raw(user_id, user_name, retry_msg)
         if raw2:
             ai_text2, ai_search2, ai_voice2, ai_stop2 = parse_ai_reply(raw2)
-            if len(ai_text2.split()) >= len(clean_words):
-                ai_text = ai_text2
-                ai_stop = ai_stop or ai_stop2
+            if len(ai_text2.split()) > len(clean_words):
+                ai_text, ai_stop = ai_text2, (ai_stop or ai_stop2)
+
+    # Validation 2: Robotic phrases
+    _ROBOTIC_PHRASES = ["i am an ai", "i'm an ai", "language model", "machine learning", "cannot send voice", "text-based"]
+    if any(phrase in ai_text.lower() for phrase in _ROBOTIC_PHRASES):
+        if intent == "voice":
+            ai_text = "Haan bilkul, suno phir meri awaaz..."
+        else:
+            ai_text = "Main aapki saari baatein samajh rahi hoon, bolo!"
 
     # Enforce strict routing boundaries
-    
-    # 1. AI cannot output stories if intent was not story. Discard search output.
     ai_search = None 
 
-    # 2. If intent route was VOICE, strictly enforce voice delivery.
     if intent == "voice":
         ai_voice = True
 
-    # Fallback if no text generated
     if not ai_text:
         ai_text = "Main abhi samajh nahi payi, thoda alag tareeqe se bataiye na 😊"
 
     return (ai_text, ai_search, ai_voice, ai_stop)
 
 
-async def _call_groq(user_id: int, user_name: str, text: str) -> str:
+async def _call_groq(user_id: int, user_name: str, text: str, sys_note: str = "") -> str:
     history = active_sessions.setdefault(user_id, [])
+    if isinstance(history, dict):  # In case it got mixed with gemini format
+        history = []
+        active_sessions[user_id] = history
+        
     if len(history) > MAX_HISTORY:
         history = history[-MAX_HISTORY:]
         active_sessions[user_id] = history
 
     messages = [{"role": "system", "content": _SYSTEM_PROMPT}]
     messages.extend(history)
-    messages.append({"role": "user", "content": f"{user_name}: {text}"})
+    
+    payload_text = f"{user_name}: {text}"
+    if sys_note:
+        payload_text += f"\n\n{sys_note}"
+        
+    messages.append({"role": "user", "content": payload_text})
 
     def _sync():
         resp = _groq_client.chat.completions.create(
             model=_GROQ_MODEL,
             messages=messages,
             temperature=0.72,
-            max_tokens=500,
+            max_tokens=600,
         )
         return resp.choices[0].message.content.strip()
 
     reply = await asyncio.to_thread(_sync)
+    # Save clean history without sys notes
     history.append({"role": "user",      "content": f"{user_name}: {text}"})
     history.append({"role": "assistant", "content": reply})
     if len(history) > MAX_HISTORY + 4:
@@ -337,12 +360,17 @@ async def _call_groq(user_id: int, user_name: str, text: str) -> str:
     return reply
 
 
-async def _call_gemini(user_id: int, user_name: str, text: str) -> str:
+async def _call_gemini(user_id: int, user_name: str, text: str, sys_note: str = "") -> str:
     sess = active_sessions.setdefault(user_id, {})
     if not isinstance(sess, dict) or "session" not in sess:
         sess = {"session": _gemini_model.start_chat(history=[])}
         active_sessions[user_id] = sess
-    resp = await sess["session"].send_message_async(f"{user_name}: {text}")
+        
+    payload_text = f"{user_name}: {text}"
+    if sys_note:
+        payload_text += f"\n\n{sys_note}"
+        
+    resp = await sess["session"].send_message_async(payload_text)
     return resp.text
 
 
