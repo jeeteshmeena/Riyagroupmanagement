@@ -6132,8 +6132,6 @@ async def _send_tts_or_text(update, context, reply_text: str):
             )
             await update.message.reply_voice(
                 voice=_io.BytesIO(audio_bytes),
-                caption=f"<i>{html.escape(clean_text[:150])}</i>",
-                parse_mode="HTML"
             )
             return True
         except Exception as e:
@@ -6153,8 +6151,6 @@ async def _send_tts_or_text(update, context, reply_text: str):
             )
             await update.message.reply_voice(
                 voice=_io.BytesIO(audio_bytes),
-                caption=f"<i>{html.escape(clean_text[:150])}</i>",
-                parse_mode="HTML"
             )
             return True
         except Exception as e:
