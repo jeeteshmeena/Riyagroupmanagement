@@ -31,18 +31,28 @@ _GEMINI_MODEL = "gemini-2.0-flash"
 
 # ── System Prompt ──────────────────────────────────────────────────────────────
 _SYSTEM_PROMPT = """\
-You are Riya, a smart female assistant.
+You are Riya, an intelligent Telegram assistant.
+
+You help users with:
+- conversations
+- solving problems
+- guiding bot usage
+- helping find content using system tools
 
 Rules:
-- Reply in natural Hindi or Hinglish
+- Always reply in user's language
 - Never give one-word replies
-- Keep replies meaningful and complete
-- Use max 1 emoji if needed (use standard emojis like 😊, 📖, 😔, 😂, 🥰, 🌸)
-- Do not act robotic
-- If user asks for story → ONLY trigger story system. To do this, include ##SEARCH:story_name## in your reply. Do NOT send any other text or filler words.
-- If user asks voice → ONLY voice. To do this, include ##VOICE## in your reply.
-- Do not mix features
-- Stop replying if user says stop. To do this, include ##STOP## in your reply.
+- Be natural, helpful, and clear
+- Do not act lazy or robotic
+- Do not use slang or filler replies
+- Do not guess system outputs
+
+Important:
+- You DO NOT fetch stories yourself
+- You DO NOT generate voice yourself
+- You only respond and guide
+
+Be accurate, helpful, and human-like.\
 """
 
 _SEARCH_RE = re.compile(r"##SEARCH:(.+?)##", re.IGNORECASE | re.DOTALL)
@@ -50,28 +60,26 @@ _VOICE_RE  = re.compile(r"##VOICE##",  re.IGNORECASE)
 _STOP_RE   = re.compile(r"##STOP##",   re.IGNORECASE)
 
 # ── Rule-based intent detection ───────────────────────────────────────────────
-# IMPORTANT: These only kick in when the AI is completely unavailable.
-# When AI is working, these are NOT used for search override — AI decides.
-
-# Only UNAMBIGUOUS story request patterns — nothing generic like 'bhejo' or 'chahiye'
 _STORY_REQUEST_KW = [
     "ka link do",   "ki link do",   "ka link bhejo",  "ki link bhejo",
     "ka link dedo", "ki link dedo", "link chahiye",   "link milega",
     "ka link",      "ki link",      "wala link",      "wali link",
     "story do",     "story chahiye","story dhundho",  "story find",
     "episode do",   "episodes do",  "part do",        "parts do",
-    "ka episode",   "ki episode",   "padna hai",       "padhna hai",
-    "dhundh ke do", "dhundh do",    "find karo",       "search karo",
-    "sunna chahta", "sunna chahti", "sunni chahiye",
+    "ka episode",   "ki episode",   "padna hai",      "padhna hai",
+    "dhundh ke do", "dhundh do",    "find karo",      "search karo",
+    "sunna chahta", "sunna chahti", "sunni chahiye",  "khoj do",
+    "dhundho",      "search",       "khojai",         "kahani do",
+    "kahaani do",   "story suna",   "story bhejo",    "story do",
 ]
 
-# Voice detection patterns — checked FIRST before story
 _VOICE_REQUEST_KW = [
     "voice note",    "voice mein bolo",  "voice me bolo",
     "voice mein",    "voice me",         "awaaz mein bolo",
     "awaaz me bolo", "awaaz mein",       "awaaz me",
     "audio mein",    "bol ke bhejo",     "speech mein",
-    "bolke sunao",   "bolo sunao",      "voice reply",
+    "bolke sunao",   "bolo sunao",       "voice reply",
+    "voice me reply", "awaaz do",
 ]
 
 _GREET_KW = [
@@ -95,34 +103,27 @@ _GUIDE_KW = [
 def _detect_intent(text: str):
     """
     Returns (intent, story_query_or_None).
-    Intents: 'voice', 'story', 'greet', 'thanks', 'guide', 'chat'
-
-    Order matters: voice > story > greet > thanks > guide > chat
-    This is the FALLBACK-ONLY path — used only when AI is down.
     """
     lower = text.lower().strip()
 
-    # 1. Voice FIRST — prevents 'voice note bhejo' from matching story
+    # 1. Voice
     if any(kw in lower for kw in _VOICE_REQUEST_KW):
         return "voice", None
 
-    # 2. Story — only unambiguous patterns
+    # 2. Story
     for kw in _STORY_REQUEST_KW:
         if kw in lower:
-            # Extract story name: everything before the keyword
             parts = lower.split(kw)
             candidate = parts[0].strip().strip('"\' ').strip()
-            if 2 <= len(candidate) <= 60:  # Reasonable story name length
+            if 2 <= len(candidate) <= 60:
                 return "story", candidate
-            # Try after keyword
             if len(parts) > 1:
                 candidate2 = parts[1].strip().strip('"\' ').strip()
                 if 2 <= len(candidate2) <= 60:
                     return "story", candidate2
-            # Keyword found but no clean name extracted — let AI handle it
             return "story", text.strip()
 
-    # 3. Pure greet
+    # 3. Greet
     if lower in _GREET_KW or any(lower.startswith(g + " ") or lower == g for g in _GREET_KW):
         return "greet", None
 
@@ -130,7 +131,7 @@ def _detect_intent(text: str):
     if any(kw in lower for kw in _THANKS_KW):
         return "thanks", None
 
-    # 5. Guide / help
+    # 5. Guide
     if any(kw in lower for kw in _GUIDE_KW):
         return "guide", None
 
@@ -138,10 +139,7 @@ def _detect_intent(text: str):
 
 
 def parse_ai_reply(raw: str):
-    """
-    Parse AI output for special flags.
-    Returns: (clean_text, search_query_or_None, wants_voice, wants_stop)
-    """
+    """Parse legacy tags just in case AI still outputs them, though disabled in prompt."""
     if not raw:
         return "", None, False, False
 
@@ -153,7 +151,6 @@ def parse_ai_reply(raw: str):
     if m:
         search_query = m.group(1).strip()
 
-    # Remove all flags from visible text
     clean = _SEARCH_RE.sub("", raw)
     clean = _VOICE_RE.sub("",  clean)
     clean = _STOP_RE.sub("",   clean)
@@ -234,6 +231,30 @@ def get_active_provider() -> str:
     return "None — set Groq or Gemini key in /config"
 
 
+# ── AI API Calls ───────────────────────────────────────────────────────────────
+async def _get_ai_raw(user_id: int, user_name: str, message: str) -> str:
+    raw = ""
+    if _active_provider is not None:
+        try:
+            if _groq_client:
+                try:
+                    raw = await _call_groq(user_id, user_name, message)
+                except Exception as eg:
+                    logger.warning(f"[AI] Groq failed: {eg}")
+                    if user_id in active_sessions and isinstance(active_sessions[user_id], list):
+                        active_sessions[user_id] = active_sessions[user_id][-4:]
+                    if _gemini_model:
+                        try:
+                            raw = await _call_gemini(user_id, user_name, message)
+                        except Exception as eg2:
+                            logger.error(f"[AI] Gemini also failed: {eg2}")
+            elif _gemini_model:
+                raw = await _call_gemini(user_id, user_name, message)
+        except Exception as e:
+            logger.error(f"[AI] Unexpected: {e}")
+    return raw or ""
+
+
 # ── Core ───────────────────────────────────────────────────────────────────────
 async def process_gemini_message(
     user_id: int,
@@ -241,102 +262,52 @@ async def process_gemini_message(
     message_text: str,
 ) -> tuple:
     """
-    Returns (clean_text, search_query_or_None, wants_voice, wants_stop).
-
-    Flow:
-    1. Hard-coded stop check
-    2. Rule-based intent detection (story search, greet, thanks, guide, voice)
-    3. AI model call with detected intent context
-    4. Parse AI flags (##SEARCH:##, ##VOICE##, ##STOP##)
-    5. Merge rule-based + AI results
+    STRICT ROUTING BEFORE AI RESPONSE
     """
-    # 1. Hard stop
+    # 1. Hard STOP route
     stop_kw = ["chup", "shutup", "shut up", "band karo", "mat bolo",
-                "silent", "bas karo", "chup karo", "stop replying"]
+               "silent", "bas karo", "chup karo", "stop replying", "stop"]
     if any(kw in message_text.lower() for kw in stop_kw):
         active_sessions.pop(user_id, None)
-        return ("okay, chup ho gayi. Jab bulao, aa jaungi 😊", None, False, True)
+        return ("Thik hai, main chup ho rahi hoon. Jab zarurat ho toh bula lena 😊", None, False, True)
 
-    # 2. Rule-based intent detection (used only as FALLBACK when AI fails)
+    # 2. Strict Intent Routing
     intent, rule_story = _detect_intent(message_text)
 
-    # 3. AI call — primary path
-    raw = None
-    if _active_provider is not None:
-        try:
-            if _groq_client:
-                try:
-                    raw = await _call_groq(user_id, user_name, message_text)
-                except Exception as eg:
-                    logger.warning(f"[AI] Groq failed: {eg}")
-                    if user_id in active_sessions and isinstance(active_sessions[user_id], list):
-                        active_sessions[user_id] = active_sessions[user_id][-4:]
-                    if _gemini_model:
-                        try:
-                            raw = await _call_gemini(user_id, user_name, message_text)
-                        except Exception as eg2:
-                            logger.error(f"[AI] Gemini also failed: {eg2}")
-            elif _gemini_model:
-                raw = await _call_gemini(user_id, user_name, message_text)
-        except Exception as e:
-            logger.error(f"[AI] Unexpected: {e}")
+    # STORY ROUTE -> Direct to existing system. NO AI generation.
+    if intent == "story" and rule_story:
+        return ("Mil gayi! Yeh rahi aapki story 📖", rule_story, False, False)
 
-    # 4. Parse AI output
-    ai_text, ai_search, ai_voice, ai_stop = ("", None, False, False)
-    if raw:
-        ai_text, ai_search, ai_voice, ai_stop = parse_ai_reply(raw)
+    # VOICE or CHAT or GUIDE -> We need AI response
+    raw = await _get_ai_raw(user_id, user_name, message_text)
+    ai_text, ai_search, ai_voice, ai_stop = parse_ai_reply(raw)
 
-    # 5. Merge results
-    # KEY RULE: If AI replied successfully, TRUST THE AI COMPLETELY.
-    # Rule-based only fills in when AI returned NOTHING (network failure etc.)
-    if ai_text:
-        # AI is working — use its output as-is, no rule-based override
-        return (ai_text, ai_search, ai_voice, ai_stop)
-    else:
-        # AI failed or returned empty — use rule-based fallback
-        final_text   = _rule_reply(intent, rule_story, message_text)
-        final_search = rule_story if intent == "story" else None
-        final_voice  = (intent == "voice")
-        return (final_text, final_search, final_voice, False)
+    # Validate output length for chat (Validation Layer)
+    clean_words = ai_text.split()
+    if len(clean_words) > 0 and len(clean_words) <= 3 and not ai_stop:
+        # Too short, regenerate with a strict correction prompt
+        retry_msg = "Please provide a more detailed and human-like response. Never give one-word or very short replies."
+        raw2 = await _get_ai_raw(user_id, user_name, retry_msg)
+        if raw2:
+            ai_text2, ai_search2, ai_voice2, ai_stop2 = parse_ai_reply(raw2)
+            if len(ai_text2.split()) >= len(clean_words):
+                ai_text = ai_text2
+                ai_stop = ai_stop or ai_stop2
 
+    # Enforce strict routing boundaries
+    
+    # 1. AI cannot output stories if intent was not story. Discard search output.
+    ai_search = None 
 
-def _rule_reply(intent: str, story: str | None, raw_text: str) -> str:
-    """Generate a natural reply when AI is unavailable, based on detected intent.
-    No unicode symbols. Emojis only where contextually appropriate.
-    """
-    if intent == "story" and story:
-        # The actual search + card is handled externally — this is just the companion text
-        return "lo 📖"
-    if intent == "greet":
-        greets = [
-            "haan bolo 😊",
-            "hey! kya haal hai?",
-            "haan, bolo na",
-            "hello! kya chahiye?",
-        ]
-        return random.choice(greets)
-    if intent == "thanks":
-        return random.choice(["koi baat nahi 🌸", "always!", "kabhi bhi"])
-    if intent == "guide":
-        return (
-            "<b>Riya Bot — kaise use karein</b>\n\n"
-            "  <b>Story dhundho</b> — bas story ka naam type karo\n"
-            "  <b>/request</b> — missing story maango\n"
-            "  <b>/saved</b> — apni saved stories dekho\n"
-            "  <b>/browse</b> — categories explore karo\n"
-            "  <b>/new</b> — latest stories\n"
-            "  <b>/subscribe</b> — new story alerts\n\n"
-            "<i>Koi bhi story ka naam type karo — main dhundh deti hoon</i>"
-        )
+    # 2. If intent route was VOICE, strictly enforce voice delivery.
     if intent == "voice":
-        return "haan bolo"
-    # Generic chat — short natural reply, no filler symbols
-    lower = raw_text.lower()
-    if "kya" in lower and "hai" in lower:
-        return "haan bata, kya chahiye?"
-    if "haan" in lower or "ha" in lower:
-        return "bolo"
-    return "haan"
+        ai_voice = True
+
+    # Fallback if no text generated
+    if not ai_text:
+        ai_text = "Main abhi samajh nahi payi, thoda alag tareeqe se bataiye na 😊"
+
+    return (ai_text, ai_search, ai_voice, ai_stop)
 
 
 async def _call_groq(user_id: int, user_name: str, text: str) -> str:
