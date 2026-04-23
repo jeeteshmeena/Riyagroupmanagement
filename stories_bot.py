@@ -3493,14 +3493,16 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lnw_data = f"lnw|{story_key}"
         if len(lnw_data) > 64: lnw_data = "lnw|toolong"
 
+        open_btn_text = "💎 Buy Now" if result.get("is_paid") else "➔ Open Story"
         keyboard = [
-            [InlineKeyboardButton("\u2794 Open Story", url=result["link"])],
+            [InlineKeyboardButton(open_btn_text, url=result["link"])],
             [
                 InlineKeyboardButton("Favourites", callback_data=fav_data),
                 InlineKeyboardButton("Link Broken?", callback_data=lnw_data),
             ],
-            [InlineKeyboardButton("\U0001f5d1\ufe0f Delete", callback_data="delete")],
+            [InlineKeyboardButton("🗑️ Delete", callback_data="delete")],
         ]
+
 
         photo = result.get("photo") or result.get("image")
         import os as _os
