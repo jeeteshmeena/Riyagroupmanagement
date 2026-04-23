@@ -1310,7 +1310,7 @@ Riya v10
 """
 
     keyboard = [
-        [InlineKeyboardButton("📖 How to use the bot", url="https://t.me/StoriesLinkopningguide")],
+        [InlineKeyboardButton("How to use the bot", url="https://t.me/StoriesLinkopningguide")],
         [InlineKeyboardButton("➦ Back to Menu", callback_data="cmd|start")],
     ]
     reply = await update.message.reply_text(text=text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
@@ -1349,7 +1349,7 @@ When the story gets uploaded, you will be notified automatically.
 """
 
     keyboard = [
-        [InlineKeyboardButton("📖 How to use the bot", url="https://t.me/StoriesLinkopningguide")],
+        [InlineKeyboardButton("How to use the bot", url="https://t.me/StoriesLinkopningguide")],
         [InlineKeyboardButton("➦ Back to Menu", callback_data="cmd|start")],
     ]
     msg = await update.message.reply_text(text=text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
@@ -2166,7 +2166,7 @@ async def request_story(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         chat = update.effective_chat
         lang = get_chat_lang(chat.id)
-        tutorial_kb = InlineKeyboardMarkup([[InlineKeyboardButton("📖 How to use the bot", url="https://t.me/StoriesLinkopningguide")]])
+        tutorial_kb = InlineKeyboardMarkup([[InlineKeyboardButton("How to use the bot", url="https://t.me/StoriesLinkopningguide")]])
 
         if lang == "hi":
             warn_text = (
@@ -2224,7 +2224,7 @@ async def request_story(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not story_raw or len(story_raw) < 2:
         lang = get_chat_lang(update.effective_chat.id)
-        tutorial_kb = InlineKeyboardMarkup([[InlineKeyboardButton("📖 How to use the bot", url="https://t.me/StoriesLinkopningguide")]])
+        tutorial_kb = InlineKeyboardMarkup([[InlineKeyboardButton("How to use the bot", url="https://t.me/StoriesLinkopningguide")]])
         if lang == "hi":
             warn_text = "<b>✮ कृपया स्टोरी का सही नाम लिखें</b>\n\n<i>➔ उदाहरण:</i>\n▪ /request Vashikaran\n▪ /request Saaya Mastar"
         else:
@@ -2921,7 +2921,7 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if len(f"srch|{key}") <= 64:
                     keyboard.append([InlineKeyboardButton(s, callback_data=f"srch|{key}")])
             lang = get_chat_lang(update.effective_chat.id)
-            keyboard.append([InlineKeyboardButton("📖 How to use the bot", url="https://t.me/StoriesLinkopningguide")])
+            keyboard.append([InlineKeyboardButton("How to use the bot", url="https://t.me/StoriesLinkopningguide")])
             no_msg = await msg.reply_text(
                 "✧ Did you mean one of these?" if lang != "hi" else "✧ क्या आप इनमें से कोई स्टोरी कहना चाहते थे?",
                 reply_markup=InlineKeyboardMarkup(keyboard)
@@ -2936,7 +2936,7 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
             lang = get_chat_lang(update.effective_chat.id)
             tutorial_kb = InlineKeyboardMarkup([
                 [[InlineKeyboardButton("📬 Request Story", switch_inline_query_current_chat=f"/request {query_text}")]],
-                [InlineKeyboardButton("📖 How to use the bot", url="https://t.me/StoriesLinkopningguide")]
+                [InlineKeyboardButton("How to use the bot", url="https://t.me/StoriesLinkopningguide")]
             ])
             if lang == "hi":
                 not_found_text = (
@@ -2955,7 +2955,7 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
             no_msg = await msg.reply_text(
                 not_found_text, parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("📖 How to use the bot", url="https://t.me/StoriesLinkopningguide")]
+                    [InlineKeyboardButton("How to use the bot", url="https://t.me/StoriesLinkopningguide")]
                 ])
             )
             # React on the not-found message with a shrug/sad emoji
@@ -3439,7 +3439,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if query.data.startswith("srch|"):
-        # "Did you mean?" button clicked - send story reply
+        # "Did you mean?" button clicked - render in Light Pro format
         try:
             key = query.data.split("|", 1)[1].strip()
         except IndexError:
@@ -3449,48 +3449,104 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not result:
             await query.answer("Story not found.", show_alert=True)
             return
-        user = query.from_user
-        mention = user.mention_html()
+
+        user       = query.from_user
+        mention    = user.mention_html()
         story_name = clean_story(result.get("text", result.get("name", "")))
-        story_key = result.get("name") or story_name.lower()
+        story_key  = result.get("name") or story_name.lower()
         story_type = result.get("story_type") or extract_story_type(result.get("caption", "")) or "Not specified"
-        story_type_line = f"\n<b>Story Type:-</b> <i>{story_type}</i>" if story_type != "Not specified" else ""
-        caption = f"""Hey {mention} 👋
-<b>I found this story</b> 👇
 
-<i>Name:-</i> <b>{story_name}</b>{story_type_line}
+        # Light Pro / Light format caption
+        if result.get("format") in ("LIGHT", "LIGHT_PRO"):
+            light_name     = result.get("text", story_name)
+            light_status   = result.get("status", "Unknown")
+            light_platform = result.get("platform", "Unknown")
+            light_genre    = result.get("genre", "Unknown")
+            caption = (
+                f"Hey {mention} \U0001f44b\n"
+                f"<b>\u272b I found this story</b> \u27b4\n\n"
+                f"\u2668\ufe0f<b>Story</b> : <b>{html.escape(str(light_name))}</b>\n"
+                f"\U0001f530<b>Status</b> : <b>{html.escape(str(light_status))}</b>\n"
+                f"\U0001f5a5<b>Platform</b> : <b>{html.escape(str(light_platform))}</b>\n"
+                f"\U0001f9e9<b>Genre</b> : <b>{html.escape(str(light_genre))}</b>\n"
+            )
+            if result.get("format") == "LIGHT_PRO" and result.get("episodes"):
+                caption += f"\U0001f3ac<b>Episodes</b> : <b>{html.escape(str(result['episodes']))}</b>\n"
+            if result.get("is_paid"):
+                caption += "\n\U0001f48e <b>Paid Story</b> \u2014 <i>Purchase required for access.</i>\n"
+        else:
+            story_type_line = (
+                f"\n<b>\u273d Story Type:-</b> <i>{html.escape(str(story_type))}</i>"
+                if story_type != "Not specified" else ""
+            )
+            caption = (
+                f"Hey {mention} \U0001f44b\n"
+                f"<b>\u272b I found this story</b> \u27b4\n\n"
+                f"<i>\u2741 Name:-</i> <b>{html.escape(str(story_name))}</b>{story_type_line}\n\n"
+            )
 
-<tg-spoiler>This reply will be deleted automatically in 5 minutes.</tg-spoiler>
-"""
+        caption += "\n<tg-spoiler>\u25d2 This reply will be deleted automatically in 5 minutes.</tg-spoiler>"
+
+        # Keyboard matching normal search
+        fav_data = f"fav|{story_key}"
+        if len(fav_data) > 64: fav_data = "fav|toolong"
+        lnw_data = f"lnw|{story_key}"
+        if len(lnw_data) > 64: lnw_data = "lnw|toolong"
+
         keyboard = [
-            [InlineKeyboardButton("➔ Open Story", url=result["link"])],
-            [InlineKeyboardButton("◌ Link Not Working?", callback_data=f"lnw|{story_key}")],
-            [InlineKeyboardButton("🗑️ Delete", callback_data="delete")]
+            [InlineKeyboardButton("\u2794 Open Story", url=result["link"])],
+            [
+                InlineKeyboardButton("Favourites", callback_data=fav_data),
+                InlineKeyboardButton("Link Broken?", callback_data=lnw_data),
+            ],
+            [InlineKeyboardButton("\U0001f5d1\ufe0f Delete", callback_data="delete")],
         ]
+
         photo = result.get("photo") or result.get("image")
-        try:
-            if photo:
+        import os as _os
+        _reply_markup = InlineKeyboardMarkup(keyboard)
+        sent = None
+
+        # Tier 1: stored photo
+        if photo:
+            try:
                 sent = await context.bot.send_photo(
-                    chat_id=query.message.chat.id,
-                    photo=photo,
-                    caption=caption,
-                    parse_mode="HTML",
-                    reply_markup=InlineKeyboardMarkup(keyboard)
+                    chat_id=query.message.chat.id, photo=photo,
+                    caption=caption, parse_mode="HTML", reply_markup=_reply_markup
                 )
-            else:
-                sent = await context.bot.send_photo(
-                    chat_id=query.message.chat.id,
-                    photo="https://files.catbox.moe/i59f4o.jpg",
-                    caption=caption,
-                    parse_mode="HTML",
-                    reply_markup=InlineKeyboardMarkup(keyboard)
+            except Exception as _e:
+                logger.warning(f"[srch T1] {_e}")
+
+        # Tier 2: default cover
+        if not sent:
+            _cp = _os.path.join(_os.path.dirname(__file__), "default_cover.png")
+            if _os.path.exists(_cp):
+                try:
+                    with open(_cp, "rb") as _cf:
+                        sent = await context.bot.send_photo(
+                            chat_id=query.message.chat.id, photo=_cf,
+                            caption=caption, parse_mode="HTML", reply_markup=_reply_markup
+                        )
+                except Exception as _e2:
+                    logger.warning(f"[srch T2] {_e2}")
+
+        # Tier 3: text only
+        if not sent:
+            try:
+                sent = await context.bot.send_message(
+                    chat_id=query.message.chat.id, text=caption,
+                    parse_mode="HTML", reply_markup=_reply_markup,
+                    disable_web_page_preview=True
                 )
+            except Exception as _e3:
+                logger.warning(f"[srch T3] {_e3}")
+
+        if sent:
             message_owner[sent.message_id] = user.id
             try:
                 await query.message.delete()
             except Exception:
                 pass
-
             async def _del_later():
                 await asyncio.sleep(300)
                 try:
@@ -3498,8 +3554,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 except Exception:
                     pass
             asyncio.create_task(_del_later())
-        except Exception as e:
-            logger.warning("srch callback failed: %s", e)
+
         await query.answer()
         return
 
@@ -6984,7 +7039,7 @@ async def check_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
 
         lang = get_chat_lang(chat.id)
-        tutorial_kb = InlineKeyboardMarkup([[InlineKeyboardButton("📖 How to use the bot", url="https://t.me/StoriesLinkopningguide")]])
+        tutorial_kb = InlineKeyboardMarkup([[InlineKeyboardButton("How to use the bot", url="https://t.me/StoriesLinkopningguide")]])
         if lang == "hi":
             warn = await cmd_msg.reply_text(
                 "कृपया /check <स्टोरी का नाम> का उपयोग करें या किसी संदेश का उत्तर दें।",
@@ -7024,7 +7079,7 @@ async def check_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         elif result["status"] == "not_found":
             lang = get_chat_lang(chat.id)
-            tutorial_kb = InlineKeyboardMarkup([[InlineKeyboardButton("📖 How to use the bot", url="https://t.me/StoriesLinkopningguide")]])
+            tutorial_kb = InlineKeyboardMarkup([[InlineKeyboardButton("How to use the bot", url="https://t.me/StoriesLinkopningguide")]])
             if lang == "hi":
                 resp = (
                     "<b>☆ स्टोरी नहीं मिली</b>\n\n"
