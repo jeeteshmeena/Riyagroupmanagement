@@ -289,27 +289,10 @@ async def process_gemini_message(
     raw = await _get_ai_raw(user_id, user_name, message_text, sys_note)
     ai_text, ai_search, ai_voice, ai_stop = parse_ai_reply(raw)
 
-    # Validate output length for chat (Validation Layer)
-    clean_words = ai_text.split()
-    
-    # Validation 1: Too short for a complex query
-    is_complex_query = (user_words > 5 or is_guide or intent == "voice")
-    if is_complex_query and len(clean_words) <= 5 and not ai_stop:
-        # Regenerate with strict prompt
-        retry_msg = "Please provide a FULL, detailed, and complete response. DO NOT give a short or one-word answer for this request."
-        raw2 = await _get_ai_raw(user_id, user_name, retry_msg)
-        if raw2:
-            ai_text2, ai_search2, ai_voice2, ai_stop2 = parse_ai_reply(raw2)
-            if len(ai_text2.split()) > len(clean_words):
-                ai_text, ai_stop = ai_text2, (ai_stop or ai_stop2)
-
-    # Validation 2: Robotic phrases
-    _ROBOTIC_PHRASES = ["i am an ai", "i'm an ai", "language model", "machine learning", "cannot send voice", "text-based"]
-    if any(phrase in ai_text.lower() for phrase in _ROBOTIC_PHRASES):
-        if intent == "voice":
-            ai_text = "Haan bilkul, suno phir meri awaaz..."
-        else:
-            ai_text = "Main aapki saari baatein samajh rahi hoon, bolo!"
+    # 4. Debug Logging (Temporary)
+    logger.info(f"[DEBUG-AI] User: {user_name} | Input: '{message_text}'")
+    logger.info(f"[DEBUG-AI] Route (Intent): {intent} | Is_Guide: {is_guide}")
+    logger.info(f"[DEBUG-AI] AI Output: '{ai_text}'")
 
     # Enforce strict routing boundaries
     ai_search = None 
@@ -317,8 +300,11 @@ async def process_gemini_message(
     if intent == "voice":
         ai_voice = True
 
+    # 5. Smart Safe Fallback
+    # ONLY trigger this if the AI completely failed (e.g. rate limit, crash)
     if not ai_text:
-        ai_text = "Main abhi samajh nahi payi, thoda alag tareeqe se bataiye na 😊"
+        logger.error("[DEBUG-AI] AI text generation failed entirely. Using safe fallback.")
+        ai_text = "Samajh gayi 🙂 thoda aur clear batao kya chahiye?"
 
     return (ai_text, ai_search, ai_voice, ai_stop)
 
