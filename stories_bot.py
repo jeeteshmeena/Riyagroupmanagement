@@ -3493,7 +3493,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lnw_data = f"lnw|{story_key}"
         if len(lnw_data) > 64: lnw_data = "lnw|toolong"
 
-        open_btn_text = "💎 Buy Now" if result.get("is_paid") else "➔ Open Story"
+        open_btn_text = "Buy Now" if result.get("is_paid") else "Open Story"
         keyboard = [
             [InlineKeyboardButton(open_btn_text, url=result["link"])],
             [
