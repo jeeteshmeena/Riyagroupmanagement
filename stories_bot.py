@@ -1106,34 +1106,6 @@ def _menu_saved(caller_id: int) -> tuple:
     return text, markup
 
 
-def _menu_browse(caller_id: int) -> tuple:
-    db = load_db()
-    types = sorted({s.get("story_type") for s in db.values() if s.get("story_type")})[:12]
-    if types:
-        # build 2-per-row grid
-        rows = []
-        for i in range(0, len(types), 2):
-            row = []
-            for t in types[i:i+2]:
-                label = t.capitalize()[:14]
-                row.append(InlineKeyboardButton(
-                    label,
-                    switch_inline_query_current_chat=t
-                ))
-            rows.append(row)
-        rows.append(_nav_row(caller_id, back="home"))
-        body = "<i>Tap a category to search inline.</i>"
-    else:
-        rows = [_nav_row(caller_id, back="home")]
-        body = "<i>No categories available yet. Run /scan first.</i>"
-    text = (
-        "<b>📑 Browse by Category</b>\n"
-        "<i>Explore stories by type.</i>\n"
-        f"{_DIVIDER}\n\n"
-        f"{body}"
-    )
-    markup = InlineKeyboardMarkup(rows)
-    return text, markup
 
 
 def _menu_how(caller_id: int, lang: str = "en") -> tuple:
@@ -1388,7 +1360,6 @@ _USER_COMMANDS = [
                            "        <i>Usage: /request Story Name  Platform</i>"),
     ("/check",       "✸",  "Verify / look up a story link externally"),
     ("/saved",       "♥",  "View your saved / favourite stories"),
-    ("/browse",      "♥",  "Browse stories by category or filter"),
     ("/new",         "♥",  "See recently added stories"),
     ("/subscribe",   "♥",  "Subscribe to new-story notifications"),
     ("/myrequests",  "♥",  "View your pending story requests"),
@@ -2949,7 +2920,7 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 not_found_text = (
                     f"<b>☆ Story Not Found</b>\n\n"
                     f"<i>{html.escape(query_text)}</i> is not in our database yet.\n\n"
-                    "✧ Check spelling or use /stories to browse available titles.\n"
+                    "✧ Check spelling or try /request to add it.\n"
                     "✧ You can also use <b>/request</b> to request this story for upload."
                 )
             no_msg = await msg.reply_text(
@@ -3323,8 +3294,6 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text, markup = _menu_new(caller_id)
         elif section == "saved":
             text, markup = _menu_saved(caller_id)
-        elif section == "browse":
-            text, markup = _menu_browse(caller_id)
         elif section == "how":
             text, markup = _menu_how(caller_id, lang)
         elif section == "about":
@@ -3353,7 +3322,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         section_map = {
             "start": "home", "help": "help", "about": "about",
             "how": "how", "saved": "saved",
-            "browse": "browse", "new": "new", "lang_menu": "lang",
+            "new": "new", "lang_menu": "lang",
         }
         section = section_map.get(cmd)
         if section:
@@ -3363,8 +3332,6 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text, markup = _menu_new(caller_id)
             elif section == "saved":
                 text, markup = _menu_saved(caller_id)
-            elif section == "browse":
-                text, markup = _menu_browse(caller_id)
             elif section == "how":
                 text, markup = _menu_how(caller_id, lang)
             elif section == "about":
@@ -6433,7 +6400,6 @@ async def guide_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "<b>◈ Commands</b>\n"
         "▸ /saved — Saved stories\n"
         "▸ /request [naam] — Story request karo\n"
-        "▸ /browse — Categories\n"
         "▸ /new — Nayi stories\n"
         "▸ /subscribe — New story alerts\n"
         "▸ /guide — Yahi guide\n\n"
@@ -6490,25 +6456,6 @@ async def saved_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, parse_mode="HTML", disable_web_page_preview=True)
 
 
-async def browse_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    db = load_db()
-    types = set()
-    for s in db.values():
-        val = s.get("story_type")
-        if val:
-            types.add(val)
-    if not types:
-        await update.message.reply_text("No categories available yet.")
-        return
-    types = list(types)[:10]
-    keyboard = []
-    for t in types:
-        keyboard.append([InlineKeyboardButton(t.capitalize(), switch_inline_query_current_chat=t)])
-    await update.message.reply_text(
-        "<b>📑 Browse by Category</b>\n\nSelect a category to search:",
-        parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
 
 
 async def new_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -7335,7 +7282,6 @@ def start_bot():
 
     # Premium feature commands
     app.add_handler(CommandHandler("saved", saved_cmd))
-    app.add_handler(CommandHandler("browse", browse_cmd))
     app.add_handler(CommandHandler("new", new_cmd))
     app.add_handler(CommandHandler("subscribe", subscribe_cmd))
     

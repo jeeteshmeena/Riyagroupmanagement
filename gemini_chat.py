@@ -70,7 +70,6 @@ Riya Bot kaise use karein:
 1. Story dhundhna: Bas story ka naam type karo — main turant link de deti hoon.
 2. Story request: /request likho agar koi story available nahi hai.
 3. Saved stories: /saved se apni saved list dekh sakte ho.
-4. Categories: /browse se genres explore karo.
 5. Nayi stories: /new se latest releases dekho.
 6. Alerts: /subscribe se naye updates milenge.
 7. Voice notes: Anytime voice mein sunna ho toh bolo — main voice note bhej deti hoon.
@@ -401,7 +400,7 @@ async def process_gemini_message(
     elif is_guide:
         sys_note = (
             "[INSTRUCTION: User wants a complete guide. Write a FULL, step-by-step structured guide "
-            "covering all bot features: story search, /request, /saved, /browse, /new, /subscribe, voice notes. "
+            "covering all bot features: story search, /request, /saved, /new, /subscribe, voice notes. "
             "Use clear formatting. Do NOT give a short summary.]"
         )
     elif is_voice:
