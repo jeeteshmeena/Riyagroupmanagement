@@ -4900,9 +4900,14 @@ def _cfg_saved_posts_list_panel(caller_id: int, fmt: str, page: int = 0) -> tupl
     page_posts = posts[start:end]
     
     buttons = []
-    for p in page_posts:
+    for idx, p in enumerate(page_posts):
         p_name = p.get('name', 'Unnamed')[:25]
-        buttons.append([InlineKeyboardButton(f"📄 {p_name}", callback_data=f"cfg|sp_post|{fmt}|{p['id']}||{caller_id}")])
+        # Use global index (start + idx) to avoid long IDs overflowing 64-byte CB limit
+        global_idx = start + idx
+        cb = f"cfg|sp_post|{fmt}|{global_idx}|{caller_id}"
+        if len(cb) > 64:
+            cb = f"cfg|sp_post|{fmt[:8]}|{global_idx}|{caller_id}"
+        buttons.append([InlineKeyboardButton(f"📄 {p_name}", callback_data=cb)])
     
     # pagination
     nav_row = []
@@ -4934,9 +4939,9 @@ def _cfg_saved_post_action_panel(caller_id: int, fmt: str, post_id: str) -> tupl
     )
     
     buttons = [
-        [InlineKeyboardButton("📤 Publish 1-by-1 (Destinations Select)", callback_data=f"cfg|sp_republish_one|{fmt}|{post_id}||{caller_id}")],
-        [InlineKeyboardButton("🚀 Publish to ALL Config Sources", callback_data=f"cfg|sp_republish_all|{fmt}|{post_id}||{caller_id}")],
-        _cfg_nav(caller_id, back=f"sp_fmt|{fmt}|0|{caller_id}")
+        [InlineKeyboardButton("📤 Publish 1-by-1 (Select Destination)", callback_data=f"cfg|spr_one|{fmt}|{post_id[:16]}|{caller_id}")],
+        [InlineKeyboardButton("🚀 Publish to All Config Sources", callback_data=f"cfg|spr_all|{fmt}|{post_id[:16]}|{caller_id}")],
+        _cfg_nav(caller_id, back=f"sp_fmt|{fmt}|0")
     ]
     return text, InlineKeyboardMarkup(buttons)
 
@@ -5171,6 +5176,54 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
         await _edit_cfg(query, text, markup)
         await query.answer()
         return
+
+    if section in ("spr_one", "spr_all", "sp_republish_one", "sp_republish_all"):
+        fmt     = parts[2]
+        id_prefix = parts[3]   # first 16 chars of post_id (or full id)
+        from database import load_saved_posts
+        saved_db = load_saved_posts()
+        posts = saved_db.get(fmt, [])
+        # Also try fmt prefix match
+        if not posts:
+            for k in saved_db:
+                if k.startswith(fmt):
+                    posts = saved_db[k]
+                    fmt   = k
+                    break
+        # Find post by ID prefix
+        post = next((p for p in posts if p["id"].startswith(id_prefix)), None)
+
+        if not post:
+            await query.answer("Post not found in history.", show_alert=True)
+            return
+
+        import copy
+        context.user_data["pb_data"] = copy.deepcopy(post["data"])
+        context.user_data["pb_data"]["post_mode"] = "new"
+        context.user_data["pb_data"].pop("_wm_applied", None)
+
+        if section in ("spr_one", "sp_republish_one"):
+            context.chat_data["config_state"]    = "waiting_sp_republish_dest"
+            context.chat_data["sp_republish_data"] = post["data"]
+            await query.answer()
+            await query.message.reply_text(
+                "📤 <b>1-by-1 Publish Mode</b>\n\n"
+                "Please send the Channel Username (e.g. <code>@MyChannel</code>) "
+                "or Channel ID where you want to republish this post.",
+                parse_mode="HTML"
+            )
+            return
+
+        if section in ("spr_all", "sp_republish_all"):
+            sources = bot_config.get("sources", [])
+            if not sources:
+                await query.answer("No Config Sources defined!", show_alert=True)
+                return
+            context.user_data["pb_data"]["destinations"] = [{"chat": cid, "thread": None} for cid in sources]
+            from post_builder import _do_post
+            await query.answer("Initiating Mass Broadcast...")
+            await query.message.delete()
+            return
 
     if section == "fmt_view":
         text, markup = _cfg_fmt_view_panel(caller_id)
@@ -5502,7 +5555,26 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
         
     if section == "sp_post":
         fmt = parts[2]
-        post_id = parts[3]
+        # parts[3] is now the global index (int) instead of a UUID
+        try:
+            post_idx = int(parts[3])
+        except (ValueError, IndexError):
+            await query.answer("Invalid post reference.", show_alert=True)
+            return
+        from database import load_saved_posts
+        _sp_db = load_saved_posts()
+        _sp_posts = _sp_db.get(fmt, [])
+        # Also try fmt prefix match if exact key not found
+        if not _sp_posts:
+            for k in _sp_db:
+                if k.startswith(fmt):
+                    _sp_posts = _sp_db[k]
+                    fmt = k
+                    break
+        if post_idx >= len(_sp_posts):
+            await query.answer("Post not found (index out of range).", show_alert=True)
+            return
+        post_id = _sp_posts[post_idx]["id"]
         text, markup = _cfg_saved_post_action_panel(caller_id, fmt, post_id)
         await _edit_cfg(query, text, markup)
         await query.answer()
