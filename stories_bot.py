@@ -5536,14 +5536,15 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
         
     if section == "sp_post":
         fmt = parts[2]
-        # parts[3] is now the global index (int) instead of a UUID
         try:
             post_idx = int(parts[3])
         except (ValueError, IndexError):
+            logger.error(f"[SP_POST] Invalid index in parts: {parts}")
             await query.answer("Invalid post reference.", show_alert=True)
             return
         from database import load_saved_posts
         _sp_db = load_saved_posts()
+        logger.info(f"[SP_POST] DB keys={list(_sp_db.keys())} | fmt={fmt!r} | idx={post_idx}")
         _sp_posts = _sp_db.get(fmt, [])
         # Also try fmt prefix match if exact key not found
         if not _sp_posts:
@@ -5551,15 +5552,21 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
                 if k.startswith(fmt):
                     _sp_posts = _sp_db[k]
                     fmt = k
+                    logger.info(f"[SP_POST] fmt remapped to {fmt!r}")
                     break
+        if not _sp_posts:
+            logger.error(f"[SP_POST] No posts for fmt={fmt!r}. DB keys={list(_sp_db.keys())}")
+            await query.answer(f"No saved posts for: {fmt}", show_alert=True)
+            return
         if post_idx >= len(_sp_posts):
+            logger.error(f"[SP_POST] idx={post_idx} out of range (len={len(_sp_posts)})")
             await query.answer("Post not found (index out of range).", show_alert=True)
             return
         post_id = _sp_posts[post_idx]["id"]
+        logger.info(f"[SP_POST] Resolved post_id={post_id!r}")
         text, markup = _cfg_saved_post_action_panel(caller_id, fmt, post_id)
         await _edit_cfg(query, text, markup)
-        await query.answer()
-        return
+        return  # outer dispatcher already answered
 
     if section.startswith("sp_republish_"):
         fmt = parts[2]
