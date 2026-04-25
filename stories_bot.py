@@ -4382,55 +4382,69 @@ def _cfg_nav(caller_id: int, back: str = "main") -> list:
 
 
 def _cfg_main_panel(caller_id: int, lang: str = "en") -> tuple:
-    sources = bot_config.get("sources", [])
-    formats = bot_config.get("formats", {})
-    timers  = bot_config.get("auto_delete", {})
+    # Always read fresh from disk so stats reflect actual saved state
+    from database import load_config as _load_cfg
+    _cfg    = _load_cfg()
+    sources = _cfg.get("sources", [])
+    formats = _cfg.get("formats", {})
+    timers  = _cfg.get("auto_delete", {})
+
+    # Count formats properly
+    if isinstance(formats, dict):
+        fmt_count = sum(len(v) if isinstance(v, list) else 1 for v in formats.values())
+    else:
+        fmt_count = 0
+
     cur_lang = "हिन्दी" if lang == "hi" else "English"
+
     if lang == "hi":
         header = (
             "<b>✺ Configuration Panel</b>\n"
             "<i>▪ Bot settings aur system options manage karein.</i>\n"
             f"{_CFG_DIV}\n\n"
-            f"▪ Sources: <b>{len(sources)}</b>  "
-            f"▪ Formats: <b>{sum(len(v) for v in formats.values()) if isinstance(formats, dict) else 0}</b>  "
-            f"▪ Language: <b>{cur_lang}</b>"
+            f"▸ Sources: <b>{len(sources)}</b>  "
+            f"▸ Formats: <b>{fmt_count}</b>  "
+            f"▸ Timers: <b>{len(timers)}</b>  "
+            f"▸ Language: <b>{cur_lang}</b>"
         )
     else:
         header = (
             "<b>✺ Configuration Panel</b>\n"
             "<i>▪ Manage bot settings and system options.</i>\n"
             f"{_CFG_DIV}\n\n"
-            f"▪ Sources: <b>{len(sources)}</b>  "
-            f"▪ Formats: <b>{sum(len(v) for v in formats.values()) if isinstance(formats, dict) else 0}</b>  "
-            f"▫ Language: <b>{cur_lang}</b>"
+            f"▸ Sources: <b>{len(sources)}</b>  "
+            f"▸ Formats: <b>{fmt_count}</b>  "
+            f"▸ Timers: <b>{len(timers)}</b>  "
+            f"▸ Language: <b>{cur_lang}</b>"
         )
+
     markup = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("✦ Language",      callback_data=f"cfg|lang||{caller_id}"),
-            InlineKeyboardButton("✦ Timers",         callback_data=f"cfg|timers||{caller_id}"),
+            InlineKeyboardButton("◈ Language",    callback_data=f"cfg|lang||{caller_id}"),
+            InlineKeyboardButton("⌛ Timers",      callback_data=f"cfg|timers||{caller_id}"),
         ],
         [
-            InlineKeyboardButton("✦ Channels",      callback_data=f"cfg|sources||{caller_id}"),
-            InlineKeyboardButton("✦ Formats",        callback_data=f"cfg|formats||{caller_id}"),
+            InlineKeyboardButton("⊞ Channels",    callback_data=f"cfg|sources||{caller_id}"),
+            InlineKeyboardButton("◫ Formats",     callback_data=f"cfg|formats||{caller_id}"),
         ],
         [
-            InlineKeyboardButton("✦ System Info",   callback_data=f"cfg|sysinfo||{caller_id}"),
-            InlineKeyboardButton("🔧 Maintenance",   callback_data=f"cfg|maintenance||{caller_id}"),
+            InlineKeyboardButton("◉ System Info", callback_data=f"cfg|sysinfo||{caller_id}"),
+            InlineKeyboardButton("⚙ Maintenance", callback_data=f"cfg|maintenance||{caller_id}"),
         ],
         [
-            InlineKeyboardButton("📅 Scheduler",     callback_data=f"cfg|scheduler||{caller_id}"),
-            InlineKeyboardButton("🚫 Global Ban",    callback_data=f"cfg|gban||{caller_id}"),
+            InlineKeyboardButton("▷ Scheduler",   callback_data=f"cfg|scheduler||{caller_id}"),
+            InlineKeyboardButton("⊘ Global Ban",  callback_data=f"cfg|gban||{caller_id}"),
         ],
         [
-            InlineKeyboardButton("🤖 AI Chat & Voice", callback_data=f"cfg|aiconfig||{caller_id}"),
-            InlineKeyboardButton("⭐ Premium Account", callback_data=f"cfg|premium_account||{caller_id}"),
+            InlineKeyboardButton("◎ AI & Voice",  callback_data=f"cfg|aiconfig||{caller_id}"),
+            InlineKeyboardButton("✦ Premium",     callback_data=f"cfg|premium_account||{caller_id}"),
         ],
         [
-            InlineKeyboardButton("📑 Saved Posts",   callback_data=f"cfg|savedposts||{caller_id}"),
-            InlineKeyboardButton("✧ Refresh",        callback_data=f"cfg|main||{caller_id}"),
+            InlineKeyboardButton("▤ Saved Posts", callback_data=f"cfg|savedposts||{caller_id}"),
+            InlineKeyboardButton("↺ Refresh",     callback_data=f"cfg|main||{caller_id}"),
         ],
         [
-            InlineKeyboardButton("✖ Close",          callback_data=f"cfg|close||{caller_id}"),
+            InlineKeyboardButton("✖ Close",       callback_data=f"cfg|close||{caller_id}"),
         ],
     ])
     return header, markup
