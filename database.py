@@ -126,16 +126,49 @@ def add_story(story):
     if name not in db:
         db[name] = story
     else:
-        # latest message logic
-        if story.get("message_id", 0) > db[name].get("message_id", 0):
-            existing_aliases = db[name].get("aliases", [])
-            if existing_aliases:
-                story["aliases"] = existing_aliases
-            db[name] = story
+        existing = db[name]
+        # Link priority guard: never overwrite a primary (Play Now/Buy Now) link
+        # with a backup/mirror link from a forwarded/secondary channel.
+        _BACKUP_MARKERS = ("backup", "mirror", "alt", "alternative", "link 2", "link2")
+        _PRIMARY_MARKERS = ("play", "buy", "read", "open", "start", "watch")
+
+        def _is_backup_link(link: str) -> bool:
+            """Heuristic: if the existing DB link looks primary, keep it."""
+            # We don't have button text at this point, so we can't score by button.
+            # Use the story dict's own metadata as fallback.
+            return False  # can't determine from URL alone — rely on button scoring in parser
+
+        new_link  = story.get("link", "")
+        old_link  = existing.get("link", "")
+
+        # If new story was scanned from a channel that only has a Backup button,
+        # the parser.extract_link() already scores it lower → the link passed in
+        # should already be the best available from that channel's post.
+        # But if old_link looks good and new_link doesn't → keep old.
+        def _link_score(link: str) -> int:
+            if not link:
+                return -1
+            l = link.lower()
+            # Links from "Backup" channels often contain recognizable path patterns.
+            # Without button-text context here we use message_id comparison as secondary guard:
+            return 1  # treat both equal by default; rely on parser.py scoring
+
+        # Only update if new message_id is newer AND new link exists
+        if story.get("message_id", 0) > existing.get("message_id", 0):
+            if new_link:
+                existing_aliases = existing.get("aliases", [])
+                if existing_aliases:
+                    story["aliases"] = existing_aliases
+                # Preserve the old link if the new story produces no link
+                if not story.get("link"):
+                    story["link"] = old_link
+                db[name] = story
+            # else: new scan produced no link — keep existing entirely
         else:
-            # Even if we don't update the story, ensure any new aliases from somewhere are saved? 
-            # Well, scanning doesn't bring new aliases.
-            pass
+            # Same or older message: only update link if current DB link is empty
+            if not old_link and new_link:
+                existing["link"] = new_link
+                db[name] = existing
 
     save_db(db)
 

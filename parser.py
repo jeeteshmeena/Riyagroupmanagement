@@ -81,32 +81,69 @@ def extract_name(text):
     return None
 
 
+# Keywords that indicate a PRIMARY play/read link (highest priority)
+_PRIMARY_BTN_KEYWORDS = ("play", "ᴘʟᴀʏ", "\u1d18\u029f\u1d00\u028f", "buy", "\u0299\u1d1c\u028f", "\u1d18\u029f\u1d04\u028f",
+                          "read", "open", "start", "watch")
+# Keywords that indicate a BACKUP / secondary link (lowest priority)
+_BACKUP_BTN_KEYWORDS   = ("backup", "mirror", "alt", "alternative", "link 2", "link2")
+
+
+def _btn_priority(btn_text: str) -> int:
+    """Return priority score for a button: 2=primary, 1=neutral, 0=backup."""
+    t = (btn_text or "").lower()
+    if any(k in t for k in _BACKUP_BTN_KEYWORDS):
+        return 0
+    if any(k in (btn_text or "") or k in t for k in _PRIMARY_BTN_KEYWORDS):
+        return 2
+    return 1
+
+
 def extract_link(message):
     """
-    Get telegram link from message text OR inline keyboard
+    Get the best telegram link from a message's inline keyboard or text.
+
+    Priority:
+      2 — Play Now / Buy Now / Read / Open   (primary)
+      1 — Any other URL button               (neutral)
+      0 — Backup / Mirror / Alt link         (lowest)
+
+    Always returns the highest-priority link.
+    Falls back to text links only if keyboard has none.
     """
-    text = get_text(message)
-    links = []
-    if text:
-        links = re.findall(LINK_PATTERN, text)
-    
-    # Check inline keyboard (Telethon)
+    # Collect (priority, url) pairs from the inline keyboard
+    btn_links: list[tuple[int, str]] = []
+
     if hasattr(message, 'reply_markup') and message.reply_markup:
         try:
             from telethon.tl.types import ReplyInlineMarkup, KeyboardButtonUrl
-            if isinstance(message.reply_markup, ReplyInlineMarkup):
-                for row in message.reply_markup.rows:
-                    for button in row.buttons:
-                        if isinstance(button, KeyboardButtonUrl):
-                            links.append(button.url)
+            rm = message.reply_markup
+            if isinstance(rm, ReplyInlineMarkup):
+                for row in rm.rows:
+                    for btn in row.buttons:
+                        if isinstance(btn, KeyboardButtonUrl):
+                            btn_links.append((_btn_priority(getattr(btn, 'text', '')), btn.url))
+            elif hasattr(rm, 'inline_keyboard'):
+                for row in rm.inline_keyboard:
+                    for btn in row:
+                        url = getattr(btn, 'url', None)
+                        if url:
+                            btn_links.append((_btn_priority(getattr(btn, 'text', '')), url))
         except Exception:
             pass
 
-    if not links:
-        return None
+    if btn_links:
+        # Return the URL with the highest priority score (stable sort keeps first-seen if tied)
+        best = max(btn_links, key=lambda x: x[0])
+        return best[1]
 
-    # return latest link
-    return links[-1]
+    # Fallback: extract from message text
+    text = get_text(message)
+    if text:
+        links = re.findall(LINK_PATTERN, text)
+        if links:
+            return links[0]   # first link in text is usually the primary one
+
+    return None
 
 
 def extract_story_type(text):
