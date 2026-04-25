@@ -146,6 +146,54 @@ def extract_link(message):
     return None
 
 
+def _extract_best_link(message) -> tuple:
+    """
+    Extract the best URL from inline keyboard buttons.
+    Returns (url, btn_text, is_paid).
+
+    Scoring: Play/Buy > neutral > Backup.
+    btn_text is stored so add_story() can use it for quality scoring.
+    """
+    btn_links = []  # (priority, url, btn_text)
+
+    if hasattr(message, 'reply_markup') and message.reply_markup:
+        try:
+            from telethon.tl.types import ReplyInlineMarkup, KeyboardButtonUrl
+            rm = message.reply_markup
+            if isinstance(rm, ReplyInlineMarkup):
+                for row in rm.rows:
+                    for btn in row.buttons:
+                        if isinstance(btn, KeyboardButtonUrl):
+                            bt = getattr(btn, 'text', '') or ''
+                            btn_links.append((_btn_priority(bt), btn.url, bt))
+            elif hasattr(rm, 'inline_keyboard'):
+                for row in rm.inline_keyboard:
+                    for btn in row:
+                        url = getattr(btn, 'url', None)
+                        if url:
+                            bt = getattr(btn, 'text', '') or ''
+                            btn_links.append((_btn_priority(bt), url, bt))
+        except Exception:
+            pass
+
+    if btn_links:
+        best_priority, best_url, best_btn_text = max(btn_links, key=lambda x: x[0])
+        bt_lower = best_btn_text.lower()
+        is_paid = ("buy" in bt_lower or "x1d299x1d1cx028f" in best_btn_text or
+                   "paid" in bt_lower or "purchase" in bt_lower)
+        return best_url, best_btn_text, is_paid
+
+    # Fallback: text links
+    text = get_text(message)
+    if text:
+        import re as _re
+        links = _re.findall(LINK_PATTERN, text)
+        if links:
+            return links[0], "", False
+
+    return None, "", False
+
+
 def extract_story_type(text):
     """
     Detect story type / genre from full message text.
@@ -169,7 +217,13 @@ def extract_light_pro_format(message):
 
     has_photo = bool(getattr(message, "photo", None))
     # Light Pro has all Light markers PLUS 🎬
-    if not (all(x in text for x in ["♨️", "🔰", "🖥", "🎬"]) and ("🧩" in text or "🗓" in text) and has_photo):
+    # Need at minimum: name marker (♨️) + status (🔰) + episodes (🎬)
+    # Platform (🖥) and genre (🧩/🗓) are optional — be lenient for partial formats
+    required = ["♨️", "🔰", "🎬"]
+    if not all(x in text for x in required):
+        return None
+    # Must have a photo (Light Pro always has cover image)
+    if not has_photo:
         return None
 
     name_match    = re.search(r"^♨️(?!.*Description).*?:\s*(.+)", text, re.MULTILINE)
@@ -205,44 +259,10 @@ def extract_light_pro_format(message):
                 desc_lines.append(stripped)
     description = "\n".join(desc_lines).strip()
 
-    # Extract Play/Buy link only
-    link = None
-    is_paid = False
-    if getattr(message, "reply_markup", None):
-        try:
-            if hasattr(message.reply_markup, "inline_keyboard"):
-                for row in message.reply_markup.inline_keyboard:
-                    for btn in row:
-                        btn_txt = btn.text or ""
-                        lower_txt = btn_txt.lower()
-                        if "buy" in lower_txt or "ʙᴜʏ" in btn_txt:
-                            link = btn.url
-                            is_paid = True
-                            break
-                        elif "play" in lower_txt or "\u1d18\u029f\u1d00\u028f" in btn_txt:
-                            link = btn.url
-                            break
-                    if link:
-                        break
-            elif hasattr(message.reply_markup, "rows"):
-                for row in message.reply_markup.rows:
-                    for btn in row.buttons:
-                        btn_text = getattr(btn, "text", "") or ""
-                        lower_txt = btn_text.lower()
-                        if "buy" in lower_txt or "ʙᴜʏ" in btn_text:
-                            link = btn.url
-                            is_paid = True
-                            break
-                        elif "play" in lower_txt or "\u1d18\u029f\u1d00\u028f" in btn_text:
-                            link = btn.url
-                            break
-                    if link:
-                        break
-        except Exception:
-            link = None
+    # Extract best link using priority scoring (Play/Buy > neutral > Backup)
+    link, link_btn_text, is_paid = _extract_best_link(message)
 
-    # Also detect is_paid from the caption text itself
-    # (in case the post was scanned before Buy Now button was added)
+    # Also detect is_paid from caption text
     _PAID_MARKERS = ("paid story", "after purchase", "खरीदना होगा", "फ्री नहीं है")
     if not is_paid and any(m in text for m in _PAID_MARKERS):
         is_paid = True
@@ -255,6 +275,7 @@ def extract_light_pro_format(message):
         "description": description, "link": link, "image": None,
         "format": "LIGHT_PRO",
         "is_paid": is_paid,
+        "link_btn_text": link_btn_text,
         "message_id": getattr(message, "id", 0),
         "caption": text, "story_type": genre
     }
@@ -306,51 +327,15 @@ def extract_light_format(message):
 
     description = "\n".join(desc_lines).strip()
 
-    # Extract ONLY the "Play Now" or "Buy Now" button link
-    link = None
-    is_paid = False
-    if getattr(message, "reply_markup", None):
-        try:
-            if hasattr(message.reply_markup, "inline_keyboard"):
-                for row in message.reply_markup.inline_keyboard:
-                    for btn in row:
-                        btn_txt = btn.text or ""
-                        lower_txt = btn_txt.lower()
-                        if "buy" in lower_txt or "ʙᴜʏ" in btn_txt:
-                            link = btn.url
-                            is_paid = True
-                            break
-                        elif "play" in lower_txt or "ᴘʟᴀʏ" in btn_txt:
-                            link = btn.url
-                            break
-                    if link:
-                        break
-            elif hasattr(message.reply_markup, "rows"):
-                for row in message.reply_markup.rows:
-                    for btn in row.buttons:
-                        btn_text = getattr(btn, "text", "") or ""
-                        lower_txt = btn_text.lower()
-                        if "buy" in lower_txt or "ʙᴜʏ" in btn_text:
-                            link = btn.url
-                            is_paid = True
-                            break
-                        elif "play" in lower_txt or "ᴘʟᴀʏ" in btn_text:
-                            link = btn.url
-                            break
-                    if link:
-                        break
-        except Exception:
-            link = None
+    # Extract best link using priority scoring
+    link, link_btn_text, is_paid = _extract_best_link(message)
 
-    # Also detect is_paid from the caption text itself
+    # Also detect is_paid from caption text
     _PAID_MARKERS = ("paid story", "after purchase", "खरीदना होगा", "फ्री नहीं है")
     if not is_paid and any(m in text for m in _PAID_MARKERS):
         is_paid = True
 
     key = re.sub(r"\s+", " ", name).strip().lower()
-
-    image = None
-    
     return {
         "name": key,
         "text": name,
@@ -359,9 +344,10 @@ def extract_light_format(message):
         "genre": genre,
         "description": description,
         "link": link,
-        "image": image,
+        "image": None,
         "format": "LIGHT",
         "is_paid": is_paid,
+        "link_btn_text": link_btn_text,
         "message_id": getattr(message, "id", 0),
         "caption": text,
         "story_type": genre

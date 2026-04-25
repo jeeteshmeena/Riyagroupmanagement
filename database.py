@@ -116,56 +116,68 @@ def save_db(data):
         _DB_MTIME = None
 
 
+# Link quality scores — used in add_story to decide which entry wins
+_LINK_BTN_PRIMARY = ("play", "ᴘʟᴀʏ", "buy", "ʙᴜʏ", "read", "open", "start", "watch")
+_LINK_BTN_BACKUP  = ("backup", "mirror", "alt", "alternative", "link 2", "link2")
+
+
+def _story_link_quality(story: dict) -> int:
+    """
+    Score the link quality stored in a story dict.
+      3 = has explicit primary button (Play/Buy) → best
+      2 = link present, no button info            → good
+      1 = link present but btn_priority == backup → weak
+      0 = no link
+    """
+    link = story.get("link", "")
+    if not link:
+        return 0
+    btn = (story.get("link_btn_text") or "").lower()
+    if btn:
+        if any(k in btn for k in _LINK_BTN_BACKUP):
+            return 1
+        if any(k in btn for k in _LINK_BTN_PRIMARY):
+            return 3
+    return 2
+
+
 def add_story(story):
     db = load_db()
 
     name = story["name"]
-    # Ensure normalized_name is saved
     story["normalized_name"] = normalize_text(name)
 
     if name not in db:
         db[name] = story
     else:
         existing = db[name]
-        # Link priority guard: never overwrite a primary (Play Now/Buy Now) link
-        # with a backup/mirror link from a forwarded/secondary channel.
-        _BACKUP_MARKERS = ("backup", "mirror", "alt", "alternative", "link 2", "link2")
-        _PRIMARY_MARKERS = ("play", "buy", "read", "open", "start", "watch")
+        new_q = _story_link_quality(story)
+        old_q = _story_link_quality(existing)
 
-        def _is_backup_link(link: str) -> bool:
-            """Heuristic: if the existing DB link looks primary, keep it."""
-            # We don't have button text at this point, so we can't score by button.
-            # Use the story dict's own metadata as fallback.
-            return False  # can't determine from URL alone — rely on button scoring in parser
+        new_link = story.get("link", "")
+        old_link = existing.get("link", "")
 
-        new_link  = story.get("link", "")
-        old_link  = existing.get("link", "")
-
-        # If new story was scanned from a channel that only has a Backup button,
-        # the parser.extract_link() already scores it lower → the link passed in
-        # should already be the best available from that channel's post.
-        # But if old_link looks good and new_link doesn't → keep old.
-        def _link_score(link: str) -> int:
-            if not link:
-                return -1
-            l = link.lower()
-            # Links from "Backup" channels often contain recognizable path patterns.
-            # Without button-text context here we use message_id comparison as secondary guard:
-            return 1  # treat both equal by default; rely on parser.py scoring
-
-        # Only update if new message_id is newer AND new link exists
-        if story.get("message_id", 0) > existing.get("message_id", 0):
-            if new_link:
-                existing_aliases = existing.get("aliases", [])
-                if existing_aliases:
-                    story["aliases"] = existing_aliases
-                # Preserve the old link if the new story produces no link
-                if not story.get("link"):
-                    story["link"] = old_link
-                db[name] = story
-            # else: new scan produced no link — keep existing entirely
+        # Decision tree:
+        # • New link is BETTER quality → always replace (even if older msg)
+        # • Same quality → replace only if newer message_id (fresher post)
+        # • New link is WORSE quality → keep existing, only update non-link fields
+        if new_q > old_q:
+            # Better link wins regardless of message age
+            existing_aliases = existing.get("aliases", [])
+            if existing_aliases:
+                story["aliases"] = existing_aliases
+            db[name] = story
+        elif new_q == old_q and story.get("message_id", 0) > existing.get("message_id", 0):
+            # Same quality, newer message → update everything
+            existing_aliases = existing.get("aliases", [])
+            if existing_aliases:
+                story["aliases"] = existing_aliases
+            if not new_link:
+                story["link"] = old_link
+            db[name] = story
         else:
-            # Same or older message: only update link if current DB link is empty
+            # New entry is worse or same+older — keep existing link but maybe store
+            # other metadata if existing has no link at all
             if not old_link and new_link:
                 existing["link"] = new_link
                 db[name] = existing
