@@ -74,17 +74,34 @@ def _resolve_speaker(voice_id: str, gender: str = "female") -> str:
     return _FEMALE_SPEAKERS[0] if gender != "male" else _MALE_SPEAKERS[0]
 
 
+def _is_english_text(text: str) -> bool:
+    """Return True if text is primarily English (not Hindi/Devanagari)."""
+    devanagari = sum(1 for c in text if '\u0900' <= c <= '\u097f')
+    ratio = devanagari / max(len(text.strip()), 1)
+    hinglish_kw = [
+        "main ", "mujhe", "karo", "hain", "nahi", "kaise", "kya ", "tera",
+        "mera", "yaar", "bhai", "bolo", "batao", "chahiye", "acha",
+        "theek", "bahut", "zyada", "abhi", "kyun", "lekin", "phir",
+    ]
+    hinglish_hits = sum(1 for kw in hinglish_kw if kw in text.lower())
+    return ratio < 0.05 and hinglish_hits < 2
+
+
 def _do_tts(text: str, speaker: str, api_key: str) -> bytes:
     """Blocking HTTP call — run in asyncio thread."""
+    # Sarvam is a Hindi-only engine; refuse English text so caller can fallback to ElevenLabs
+    if _is_english_text(text):
+        raise ValueError("Sarvam does not support English — use ElevenLabs")
+
     text = text[:490]
     payload = {
         "inputs": [text],
         "target_language_code": "hi-IN",
         "speaker": speaker,
-        "pitch": 0,
-        "pace": 1.0,          # Natural pace — not too fast
-        "loudness": 1.5,
-        "speech_sample_rate": 22050,   # High quality — was 8000 (phone quality)
+        "pitch":   0,
+        "pace":    1.1,          # Slightly faster — more natural, energetic delivery
+        "loudness": 1.8,         # Louder presence
+        "speech_sample_rate": 22050,
         "enable_preprocessing": True,
         "model": "bulbul:v2"
     }
@@ -110,3 +127,4 @@ async def synthesize(text: str, voice_id: str, api_key: str, gender: str = "fema
     if not clean:
         raise ValueError("Empty text after HTML strip")
     return await asyncio.to_thread(_do_tts, clean, speaker, api_key)
+

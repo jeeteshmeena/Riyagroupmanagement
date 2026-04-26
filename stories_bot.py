@@ -6387,11 +6387,11 @@ async def _send_tts_or_text(update, context, reply_text: str):
         el_voice_id = ai_cfg.get("elevenlabs_voice_id", "")
         if not el_key: return False
         try:
-            from elevenlabs_tts import synthesize as el_synth, DEFAULT_VOICE_ID
-            vid = el_voice_id or DEFAULT_VOICE_ID
-            # ElevenLabs handles up to 2500 chars natively — single API call = single file
+            from elevenlabs_tts import synthesize as el_synth, DEFAULT_VOICE_ID, _detect_language
+            vid  = el_voice_id or DEFAULT_VOICE_ID
+            lang = _detect_language(clean_text)   # 'en' or 'hi' — auto detected
             text_to_send = clean_text[:2400]
-            audio_bytes  = await el_synth(text_to_send, vid, el_key)
+            audio_bytes  = await el_synth(text_to_send, vid, el_key, lang=lang)
             await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="upload_voice")
             await update.message.reply_voice(voice=_io.BytesIO(audio_bytes))
             return True
