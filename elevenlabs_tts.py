@@ -30,8 +30,15 @@ ELEVENLABS_MODEL = "eleven_multilingual_v2"
 # Turbo fallback — slightly faster
 ELEVENLABS_TURBO = "eleven_turbo_v2_5"
 
-# Default female voice — Aria (warm, expressive, works great for Hinglish)
-DEFAULT_VOICE_ID = "9BWtsMINqrJLrRacOk9x"  # Aria
+# Default female voice — Rachel (warm, natural — works on FREE ElevenLabs plan)
+DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"  # Rachel — free pre-made voice
+
+# Other free pre-made female voices (all work on free plan):
+#   Rachel   : 21m00Tcm4TlvDq8ikWAM  ← DEFAULT (warm, expressive)
+#   Elli     : MF3mGyEYCl7XYWbV9V6O  (young, bright)
+#   Bella    : EXAVITQu4vr4xnSDxMaL  (gentle, soft)
+#   Dorothy  : ThT5KcBeYPX3keUQqHPh  (warm, nurturing)
+# NOTE: Library/community voices (like Aria) require PAID plan — use pre-made voices only
 
 # ── Highly expressive settings — maximum human-like emotion ────────────────────
 # stability=0.18: very low → maximum natural pitch variation (laughter, sadness,

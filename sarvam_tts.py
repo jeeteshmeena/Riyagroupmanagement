@@ -89,18 +89,14 @@ def _is_english_text(text: str) -> bool:
 
 def _do_tts(text: str, speaker: str, api_key: str) -> bytes:
     """Blocking HTTP call — run in asyncio thread."""
-    # Sarvam is a Hindi-only engine; refuse English text so caller can fallback to ElevenLabs
-    if _is_english_text(text):
-        raise ValueError("Sarvam does not support English — use ElevenLabs")
-
     text = text[:490]
     payload = {
         "inputs": [text],
         "target_language_code": "hi-IN",
         "speaker": speaker,
         "pitch":   0,
-        "pace":    1.1,          # Slightly faster — more natural, energetic delivery
-        "loudness": 1.8,         # Louder presence
+        "pace":    1.1,
+        "loudness": 1.8,
         "speech_sample_rate": 22050,
         "enable_preprocessing": True,
         "model": "bulbul:v2"
