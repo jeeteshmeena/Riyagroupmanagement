@@ -68,6 +68,7 @@ WHAT YOU MUST NOT DO:
 _SEARCH_RE = re.compile(r"##SEARCH:(.+?)##", re.IGNORECASE | re.DOTALL)
 _VOICE_RE  = re.compile(r"##VOICE##",  re.IGNORECASE)
 _STOP_RE   = re.compile(r"##STOP##",   re.IGNORECASE)
+_IMAGE_RE  = re.compile(r"##IMAGE:\s*(.+?)##", re.IGNORECASE | re.DOTALL)
 
 # ── Intent Keywords ────────────────────────────────────────────────────────────
 _STORY_REQUEST_KW = [
@@ -162,23 +163,30 @@ def _maybe_trim_history(user_id: int, text: str):
 
 
 def parse_ai_reply(raw: str):
-    """Strip any legacy internal tags from AI output."""
+    """Strip any legacy internal tags from AI output. Returns 5-tuple."""
     if not raw:
-        return "", None, False, False
+        return "", None, False, False, None
 
-    wants_voice = bool(_VOICE_RE.search(raw))
-    wants_stop  = bool(_STOP_RE.search(raw))
+    wants_voice  = bool(_VOICE_RE.search(raw))
+    wants_stop   = bool(_STOP_RE.search(raw))
     search_query = None
+    img_prompt   = None
+
     m = _SEARCH_RE.search(raw)
     if m:
         search_query = m.group(1).strip()
 
+    m_img = _IMAGE_RE.search(raw)
+    if m_img:
+        img_prompt = m_img.group(1).strip()
+
     clean = _SEARCH_RE.sub("", raw)
     clean = _VOICE_RE.sub("", clean)
     clean = _STOP_RE.sub("", clean)
+    clean = _IMAGE_RE.sub("", clean)
     clean = clean.strip()
 
-    return clean, search_query, wants_voice, wants_stop
+    return clean, search_query, wants_voice, wants_stop, img_prompt
 
 
 # ── Init ───────────────────────────────────────────────────────────────────────
