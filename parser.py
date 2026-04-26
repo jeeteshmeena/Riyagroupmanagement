@@ -81,21 +81,73 @@ def extract_name(text):
     return None
 
 
-# Keywords that indicate a PRIMARY play/read link (highest priority)
-_PRIMARY_BTN_KEYWORDS = ("play", "ᴘʟᴀʏ", "\u1d18\u029f\u1d00\u028f", "buy", "\u0299\u1d1c\u028f", "\u1d18\u029f\u1d04\u028f",
-                          "read", "open", "start", "watch")
-# Keywords that indicate a BACKUP / secondary link (lowest priority)
-_BACKUP_BTN_KEYWORDS   = ("backup", "mirror", "alt", "alternative", "link 2", "link2")
+# Small-caps unicode map (covers ALL chars bot generates in button texts)
+# Source: ᴘʟᴀʏ ɴᴏᴡ / ʙᴜʏ ɴᴏᴡ / ʙᴀᴄᴋᴜᴘ
+_SMALL_CAPS_MAP = {
+    # Primary chars (play now / buy now)
+    '\u1d18': 'p',   # ᴘ
+    '\u029f': 'l',   # ʟ
+    '\u1d00': 'a',   # ᴀ
+    '\u028f': 'y',   # ʏ
+    '\u0274': 'n',   # ɴ
+    '\u1d0f': 'o',   # ᴏ
+    '\u1d21': 'w',   # ᴡ
+    '\u0299': 'b',   # ʙ
+    '\u1d1c': 'u',   # ᴜ
+    # Backup chars
+    '\u1d04': 'c',   # ᴄ
+    '\u1d0b': 'k',   # ᴋ
+    # Other common small-caps
+    '\u1d07': 'e',   # ᴇ
+    '\u0262': 'g',   # ɢ
+    '\u029c': 'h',   # ʜ
+    '\u026a': 'i',   # ɪ
+    '\u1d0a': 'j',   # ᴊ
+    '\u1d0d': 'm',   # ᴍ
+    '\u0280': 'r',   # ʀ
+    '\ua731': 's',   # ꜱ
+    '\u1d1b': 't',   # ᴛ
+    '\u1d20': 'v',   # ᴠ
+    '\u1d22': 'z',   # ᴢ
+    '\ua730': 'f',   # ꜰ
+    '\u1d05': 'd',   # ᴅ
+}
+
+
+def _normalize_btn_text(text: str) -> str:
+    """Convert small-caps / fancy unicode button text to plain ASCII lowercase."""
+    if not text:
+        return ""
+    return "".join(_SMALL_CAPS_MAP.get(ch, ch) for ch in text).lower()
 
 
 def _btn_priority(btn_text: str) -> int:
-    """Return priority score for a button: 2=primary, 1=neutral, 0=backup."""
-    t = (btn_text or "").lower()
-    if any(k in t for k in _BACKUP_BTN_KEYWORDS):
+    """
+    Priority score for a button URL:
+      2 = Primary action (Play Now / Buy Now / Read / Open / Listen)
+      1 = Neutral (any other URL button)
+      0 = Backup / Mirror / Alt (lowest, never wins over primary)
+
+    Handles both ASCII and small-caps unicode since the bot generates:
+      ᴘʟᴀʏ ɴᴏᴡ  →  normalized: "play now"  →  priority 2
+      ʙᴜʏ ɴᴏᴡ   →  normalized: "buy now"   →  priority 2
+      ʙᴀᴄᴋᴜᴘ    →  normalized: "backup"    →  priority 0
+    """
+    normalized = _normalize_btn_text(btn_text)
+    raw_lower  = (btn_text or "").lower()
+
+    _BACKUP  = ("backup", "mirror", "alt link", "alternative", "link 2", "link2", "backup link")
+    _PRIMARY = ("play", "buy", "read", "open", "start", "watch", "listen")
+
+    # Check BACKUP first (lowest priority)
+    if any(k in normalized or k in raw_lower for k in _BACKUP):
         return 0
-    if any(k in (btn_text or "") or k in t for k in _PRIMARY_BTN_KEYWORDS):
+    # Check PRIMARY
+    if any(k in normalized or k in raw_lower for k in _PRIMARY):
         return 2
     return 1
+
+
 
 
 def extract_link(message):
@@ -179,7 +231,9 @@ def _extract_best_link(message) -> tuple:
     if btn_links:
         best_priority, best_url, best_btn_text = max(btn_links, key=lambda x: x[0])
         bt_lower = best_btn_text.lower()
-        is_paid = ("buy" in bt_lower or "x1d299x1d1cx028f" in best_btn_text or
+        # Normalize btn text to catch small-caps variants
+        bt_normalized = _normalize_btn_text(best_btn_text)
+        is_paid = ("buy" in bt_normalized or "buy" in bt_lower or
                    "paid" in bt_lower or "purchase" in bt_lower)
         return best_url, best_btn_text, is_paid
 
@@ -215,9 +269,13 @@ def extract_light_pro_format(message):
     if not text:
         return None
 
-    has_photo = bool(getattr(message, "photo", None))
-    # Light Pro has all Light markers PLUS 🎬
-    # Need at minimum: name marker (♨️) + status (🔰) + episodes (🎬)
+    # Bot-sent photos may arrive as document in Telethon — check both
+    has_photo = bool(
+        getattr(message, "photo", None) or
+        (getattr(message, "document", None) and
+         getattr(getattr(message, "document", None), "thumbs", None))
+    )
+    # Light Pro: need at minimum name (♨️) + status (🔰) + episodes (🎬)
     # Platform (🖥) and genre (🧩/🗓) are optional — be lenient for partial formats
     required = ["♨️", "🔰", "🎬"]
     if not all(x in text for x in required):
@@ -226,7 +284,12 @@ def extract_light_pro_format(message):
     if not has_photo:
         return None
 
-    name_match    = re.search(r"^♨️(?!.*Description).*?:\s*(.+)", text, re.MULTILINE)
+    # Match first ♨️ line that is NOT the Description line
+    # Bot format: "♨️Story : <b>Name</b>" → strip HTML → "♨️Story : Name"
+    name_match    = re.search(r"^♨️[^\n]*?:\s*(.+)", text, re.MULTILINE)
+    # If the matched line is the Description header, try the next ♨️ line
+    if name_match and "description" in name_match.group(1).lower():
+        name_match = None
     status_match  = re.search(r"🔰.*?:\s*(.+)", text)
     platform_match= re.search(r"🖥.*?:\s*(.+)", text)
     genre_match   = re.search(r"(?:🧩|🗓).*?:\s*(.+)", text)
@@ -286,8 +349,12 @@ def extract_light_format(message):
     if not text:
         return None
 
-    # photo: works for Telethon (photo object) and any truthy value
-    has_photo = bool(getattr(message, "photo", None))
+    # Bot-sent photos may arrive as document in Telethon — check both
+    has_photo = bool(
+        getattr(message, "photo", None) or
+        (getattr(message, "document", None) and
+         getattr(getattr(message, "document", None), "thumbs", None))
+    )
     if not (all(x in text for x in ["♨️", "🔰", "🖥"]) and ("🧩" in text or "🗓" in text) and has_photo):
         return None
 
