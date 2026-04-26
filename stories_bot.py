@@ -6279,14 +6279,32 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # ── Real-Time Image Generation ──────────────────────────────────────────────
             if img_prompt:
                 try:
-                    import urllib.parse
-                    # Send typing/uploading photo action
+                    import urllib.parse, requests as _req_img
                     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="upload_photo")
-                    pollinations_url = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(img_prompt)}?width=1024&height=1024&nologo=true"
-                    await update.message.reply_photo(photo=pollinations_url, caption=f"🎨 {reply_text}" if reply_text else "")
-                    reply_text = ""  # Already sent caption, no need to send text again
+                    # Build a high-quality prompt with style enhancers
+                    quality_prompt = (
+                        f"{img_prompt}, ultra realistic, highly detailed, cinematic lighting, "
+                        "8k resolution, professional photography, sharp focus"
+                    )
+                    flux_url = (
+                        f"https://image.pollinations.ai/prompt/"
+                        f"{urllib.parse.quote(quality_prompt)}"
+                        f"?model=flux&width=1024&height=1024&nologo=true&enhance=true&seed={hash(img_prompt) % 99999}"
+                    )
+                    # Download image bytes and send — avoids Telegram URL timeout issues
+                    _img_resp = _req_img.get(flux_url, timeout=30)
+                    if _img_resp.status_code == 200 and _img_resp.content:
+                        import io as _io_img
+                        await update.message.reply_photo(
+                            photo=_io_img.BytesIO(_img_resp.content),
+                            caption=reply_text if reply_text else None,
+                            parse_mode="HTML"
+                        )
+                        reply_text = ""  # Caption sent with photo — no duplicate text
+                    else:
+                        logger.error(f"[IMAGE] Pollinations HTTP {_img_resp.status_code}")
                 except Exception as e:
-                    logger.error(f"[IMAGE] Pollinations failed: {e}")
+                    logger.error(f"[IMAGE] Failed: {e}")
 
             if not reply_text:
                 return
@@ -6314,15 +6332,13 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def _send_tts_or_text(update, context, reply_text: str):
     """
-    Smart TTS dispatch — time-based IST switching:
-      06:00–12:00 IST → Sarvam AI
-      12:00–20:00 IST → ElevenLabs
-      20:00–06:00 IST → Sarvam AI
-    Falls back gracefully if a provider fails.
-    If no TTS keys configured → plain text.
+    Smart TTS dispatch — respects tts_mode setting (sarvam/elevenlabs/auto).
+    Always sends ONE single voice note, never multiple parts.
+    Falls back to plain text if no TTS keys configured.
     """
     import re as _re
     import io as _io
+    import struct
     ai_cfg = bot_config.get("ai", {})
 
     clean_text = _re.sub(r"<[^>]+>", "", reply_text).strip()
@@ -6331,25 +6347,32 @@ async def _send_tts_or_text(update, context, reply_text: str):
 
     provider = _get_voice_provider_now(ai_cfg)
 
-    async def _try_elevenlabs() -> bool:
-        el_key      = ai_cfg.get("elevenlabs_key", "")
-        el_voice_id = ai_cfg.get("elevenlabs_voice_id", "")
-
-    # Fetch cover image for audio
-    import requests
-    _THUMB = None
-    try:
-        r = requests.get("https://files.catbox.moe/ys61fn.jpg", timeout=5)
-        if r.status_code == 200:
-            _THUMB = r.content
-    except Exception:
-        pass
+    # ── WAV merger helper for Sarvam (merges multiple 490-char chunks into one WAV) ──
+    def _merge_wav_chunks(chunks_bytes: list) -> bytes:
+        """Concatenate multiple WAV byte blobs into a single valid WAV file."""
+        if len(chunks_bytes) == 1:
+            return chunks_bytes[0]
+        # WAV header is 44 bytes; RIFF chunk size at offset 4, data chunk size at offset 40
+        merged_data = b""
+        first_header = chunks_bytes[0][:44]
+        for wav in chunks_bytes:
+            # Skip header (44 bytes) from each chunk, take only PCM data
+            merged_data += wav[44:]
+        # Patch the RIFF and data sizes in the first header
+        data_size   = len(merged_data)
+        riff_size   = data_size + 36          # 36 = header size minus the 8 byte RIFF descriptor
+        patched_hdr = (
+            first_header[:4]
+            + struct.pack('<I', riff_size)
+            + first_header[8:40]
+            + struct.pack('<I', data_size)
+        )
+        return patched_hdr + merged_data
 
     def _chunk_text(txt: str, limit: int):
-        import re
-        sentences = re.split(r'(?<=[.!?|।])\s+', txt)
-        chunks = []
-        cur = ""
+        """Split text into chunks ≤ limit chars, breaking at sentence boundaries."""
+        sentences = _re.split(r'(?<=[.!?|।,])\s+', txt)
+        chunks, cur = [], ""
         for s in sentences:
             if len(cur) + len(s) > limit:
                 if cur: chunks.append(cur.strip())
@@ -6366,19 +6389,11 @@ async def _send_tts_or_text(update, context, reply_text: str):
         try:
             from elevenlabs_tts import synthesize as el_synth, DEFAULT_VOICE_ID
             vid = el_voice_id or DEFAULT_VOICE_ID
-            
-            # EL limit is safely 2500
-            for chunk in _chunk_text(clean_text, 2000):
-                if not chunk: continue
-                audio_bytes = await el_synth(chunk, vid, el_key)
-                await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="upload_voice")
-                await update.message.reply_audio(
-                    audio=_io.BytesIO(audio_bytes),
-                    title="Voice Note",
-                    performer="Riya AI",
-                    thumbnail=_io.BytesIO(_THUMB) if _THUMB else None,
-                    filename="riya_voice.mp3"
-                )
+            # ElevenLabs handles up to 2500 chars natively — single API call = single file
+            text_to_send = clean_text[:2400]
+            audio_bytes  = await el_synth(text_to_send, vid, el_key)
+            await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="upload_voice")
+            await update.message.reply_voice(voice=_io.BytesIO(audio_bytes))
             return True
         except Exception as e:
             logger.error(f"[EL-TTS] Failed: {e}")
@@ -6390,24 +6405,23 @@ async def _send_tts_or_text(update, context, reply_text: str):
         try:
             from sarvam_tts import synthesize as sarv_synth
             voice_id = ai_cfg.get("voice_female", "sarvam:default-anushka")
-            
-            # Sarvam limit is 490
-            for chunk in _chunk_text(clean_text, 480):
+            texts    = _chunk_text(clean_text, 480)
+            wav_chunks = []
+            for chunk in texts:
                 if not chunk: continue
-                audio_bytes = await sarv_synth(chunk, voice_id, sarvam_key, gender="female")
-                await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="upload_voice")
-                await update.message.reply_audio(
-                    audio=_io.BytesIO(audio_bytes),
-                    title="Voice Note",
-                    performer="Riya AI",
-                    thumbnail=_io.BytesIO(_THUMB) if _THUMB else None,
-                    filename="riya_voice.wav"
-                )
+                wav_bytes = await sarv_synth(chunk, voice_id, sarvam_key, gender="female")
+                wav_chunks.append(wav_bytes)
+            if not wav_chunks: return False
+            # Merge all WAV chunks → single file
+            merged = _merge_wav_chunks(wav_chunks)
+            await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="upload_voice")
+            await update.message.reply_voice(voice=_io.BytesIO(merged))
             return True
         except Exception as e:
             logger.error(f"[TTS] Sarvam failed: {e}")
             return False
 
+    # Try primary provider first, then failover
     if provider == "elevenlabs":
         success = await _try_elevenlabs()
         if not success:
