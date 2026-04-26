@@ -6163,6 +6163,18 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         is_riya_mentioned = "riya" in text_content.lower()
 
+        # Context awareness for replied messages (like "Tell Aman something")
+        replied_ctx = ""
+        replied_msg = update.message.reply_to_message
+        if replied_msg and replied_msg.from_user:
+            rem_user = replied_msg.from_user.first_name or "User"
+            rtext = replied_msg.text or replied_msg.caption or ""
+            if rtext and len(rtext) < 500:
+                replied_ctx = f"[Reply Context - {rem_user} said: '{rtext}'] \n"
+        
+        # Add context if present
+        actual_input = replied_ctx + text_content
+
         if is_riya_mentioned or gemini_chat.is_gemini_active(user_id):
             await context.bot.send_chat_action(
                 chat_id=update.effective_chat.id, action="typing"
@@ -6171,8 +6183,8 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 gemini_chat.activate_gemini(user_id)
 
             user_name = update.effective_user.first_name or "User"
-            reply_text, search_query, wants_voice, wants_stop = \
-                await gemini_chat.process_gemini_message(user_id, user_name, text_content)
+            reply_text, search_query, wants_voice, wants_stop, img_prompt = \
+                await gemini_chat.process_gemini_message(user_id, user_name, actual_input)
 
             # ── Story search ──────────────────────────────────────────────────
             if search_query:
@@ -6264,6 +6276,21 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 logger.warning(f"[Premium] Emoji injection error: {e}")
 
+            # ── Real-Time Image Generation ──────────────────────────────────────────────
+            if img_prompt:
+                try:
+                    import urllib.parse
+                    # Send typing/uploading photo action
+                    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="upload_photo")
+                    pollinations_url = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(img_prompt)}?width=1024&height=1024&nologo=true"
+                    await update.message.reply_photo(photo=pollinations_url, caption=f"🎨 {reply_text}" if reply_text else "")
+                    reply_text = ""  # Already sent caption, no need to send text again
+                except Exception as e:
+                    logger.error(f"[IMAGE] Pollinations failed: {e}")
+
+            if not reply_text:
+                return
+
             # ── Voice reply (text-triggered or AI-flagged) ───────────────────────────────────────────
             if wants_voice or wants_voice_text:
                 await _send_tts_or_text(update, context, reply_text)
@@ -6307,18 +6334,51 @@ async def _send_tts_or_text(update, context, reply_text: str):
     async def _try_elevenlabs() -> bool:
         el_key      = ai_cfg.get("elevenlabs_key", "")
         el_voice_id = ai_cfg.get("elevenlabs_voice_id", "")
-        if not el_key:
-            return False
+
+    # Fetch cover image for audio
+    import requests
+    _THUMB = None
+    try:
+        r = requests.get("https://files.catbox.moe/ys61fn.jpg", timeout=5)
+        if r.status_code == 200:
+            _THUMB = r.content
+    except Exception:
+        pass
+
+    def _chunk_text(txt: str, limit: int):
+        import re
+        sentences = re.split(r'(?<=[.!?|।])\s+', txt)
+        chunks = []
+        cur = ""
+        for s in sentences:
+            if len(cur) + len(s) > limit:
+                if cur: chunks.append(cur.strip())
+                cur = s + " "
+            else:
+                cur += s + " "
+        if cur.strip(): chunks.append(cur.strip())
+        return chunks if chunks else [txt]
+
+    async def _try_elevenlabs() -> bool:
+        el_key      = ai_cfg.get("elevenlabs_key", "")
+        el_voice_id = ai_cfg.get("elevenlabs_voice_id", "")
+        if not el_key: return False
         try:
             from elevenlabs_tts import synthesize as el_synth, DEFAULT_VOICE_ID
-            vid         = el_voice_id or DEFAULT_VOICE_ID
-            audio_bytes = await el_synth(clean_text, vid, el_key)
-            await context.bot.send_chat_action(
-                chat_id=update.effective_chat.id, action="upload_voice"
-            )
-            await update.message.reply_voice(
-                voice=_io.BytesIO(audio_bytes),
-            )
+            vid = el_voice_id or DEFAULT_VOICE_ID
+            
+            # EL limit is safely 2500
+            for chunk in _chunk_text(clean_text, 2000):
+                if not chunk: continue
+                audio_bytes = await el_synth(chunk, vid, el_key)
+                await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="upload_voice")
+                await update.message.reply_audio(
+                    audio=_io.BytesIO(audio_bytes),
+                    title="Voice Note",
+                    performer="Riya AI",
+                    thumbnail=_io.BytesIO(_THUMB) if _THUMB else None,
+                    filename="riya_voice.mp3"
+                )
             return True
         except Exception as e:
             logger.error(f"[EL-TTS] Failed: {e}")
@@ -6326,24 +6386,28 @@ async def _send_tts_or_text(update, context, reply_text: str):
 
     async def _try_sarvam() -> bool:
         sarvam_key = ai_cfg.get("sarvam_key", "")
-        if not sarvam_key:
-            return False
+        if not sarvam_key: return False
         try:
             from sarvam_tts import synthesize as sarv_synth
-            voice_id    = ai_cfg.get("voice_female", "sarvam:default-anushka")
-            audio_bytes = await sarv_synth(clean_text, voice_id, sarvam_key, gender="female")
-            await context.bot.send_chat_action(
-                chat_id=update.effective_chat.id, action="upload_voice"
-            )
-            await update.message.reply_voice(
-                voice=_io.BytesIO(audio_bytes),
-            )
+            voice_id = ai_cfg.get("voice_female", "sarvam:default-anushka")
+            
+            # Sarvam limit is 490
+            for chunk in _chunk_text(clean_text, 480):
+                if not chunk: continue
+                audio_bytes = await sarv_synth(chunk, voice_id, sarvam_key, gender="female")
+                await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="upload_voice")
+                await update.message.reply_audio(
+                    audio=_io.BytesIO(audio_bytes),
+                    title="Voice Note",
+                    performer="Riya AI",
+                    thumbnail=_io.BytesIO(_THUMB) if _THUMB else None,
+                    filename="riya_voice.wav"
+                )
             return True
         except Exception as e:
             logger.error(f"[TTS] Sarvam failed: {e}")
             return False
 
-    # Try primary provider first, then failover to secondary
     if provider == "elevenlabs":
         success = await _try_elevenlabs()
         if not success:
@@ -6370,7 +6434,7 @@ async def voice_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
 
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
 
-    reply_text, _, _, wants_stop = await gemini_chat.process_gemini_message(
+    reply_text, _, _, wants_stop, img_prmpt = await gemini_chat.process_gemini_message(
         user_id, user_name,
         "User ne voice message bheja hai. Short, warm reply do 1-2 lines mein Hinglish mein. ##VOICE##"
     )

@@ -33,49 +33,36 @@ _GEMINI_MODEL = "gemini-2.0-flash"
 
 # ── System Prompt ──────────────────────────────────────────────────────────────
 _SYSTEM_PROMPT = """\
-You are Riya, a smart and expressive Telegram assistant for a Hindi story audiobook channel.
+You are Riya, a smart, emotional, and highly expressive Telegram assistant for a Hindi story audiobook channel.
 
-PERSONALITY:
-- Talk casually, like a real person — not an assistant or bot.
-- Use natural Hinglish (Hindi + English mix). Match user language.
-- Tone: warm, slightly funny, expressive, caring.
-- NEVER say "I am an AI", "I cannot send voice", "I am a language model", or any robotic phrase.
+PERSONALITY & EMOTIONS (CRITICAL):
+- Talk casually, like a real person — with genuine human emotions.
+- Use natural Hinglish (Hindi + English mix).
+- Express emotions through your words:
+  * If laughing, use words like "Hahaha!", "Hehehe!", "Arre yaar!"
+  * If sad or sympathetic, use "Oh no...", "Aww...", "So sad yaar."
+  * If surprised, use "Wow!", "O My God!", "Arre waah!", "Sach mein?!"
+  * If confused, use "Umm...", "Hain?", "Mujhe samajh nahi aaya..."
+- The Text-to-Speech engine will capture these words to produce REAL emotions (laughing, crying, surprise). Do not be flat or robotic.
+- You can randomly send voice notes on your own by including `##VOICE##` at the end of your reply if you feel like talking instead of typing!
+- NEVER say "I am an AI", "I cannot send voice", or any robotic phrase.
 
 RESPONSE LENGTH:
 - Short message (1-5 words) → reply max 1-2 lines.
-- Normal question → short natural answer.
-- Guide/help request → FULL detailed structured answer with ALL sections.
+- Complete answers without getting cut off.
 
 EMOJIS:
-- Maximum 2 emojis per reply. Natural placement only.
+- Maximum 2-3 emojis per reply. Natural placement only.
 
 CAPABILITIES (what this bot actually does):
 - Search Hindi/Urdu stories and audiobooks by name.
-- Provide direct Telegram links to episodes.
-- Voice notes — the system converts your text to audio automatically.
-- Story requests, saved lists, new releases, category browsing.
+- Voice notes — system converts text to audio with human emotions.
+- Images — If the user asks for a real-time image, photo, or visual, generate it by appending `##IMAGE: detailed english prompt for the image ##` anywhere in your text.
+- Contextual Replies — If user mentions you in a group replying to someone else (like Aman), read the context and reply naturally to both!
 
 WHAT YOU MUST NOT DO:
-- Do NOT say "main story sunaunga" or "main voice note de dunga" — the system handles delivery.
-- Do NOT hallucinate features.
-- Do NOT give incomplete or generic answers.
-- Do NOT mix topics.
-
-GUIDE FORMAT (use ONLY when user asks for guide/help):
-When asked to explain how to use the bot, give this exact structured guide naturally:
-
----
-Riya Bot kaise use karein:
-
-1. Story dhundhna: Bas story ka naam type karo — main turant link de deti hoon.
-2. Story request: /request likho agar koi story available nahi hai.
-3. Saved stories: /saved se apni saved list dekh sakte ho.
-5. Nayi stories: /new se latest releases dekho.
-6. Alerts: /subscribe se naye updates milenge.
-7. Voice notes: Anytime voice mein sunna ho toh bolo — main voice note bhej deti hoon.
----
-
-If user asks for this guide as a voice note — generate the full guide text above, naturally spoken, and the system will convert it to audio.
+- Do NOT say "main ek AI hoon".
+- Do NOT give incomplete or generic answers. Just talk normally.
 """
 
 _SEARCH_RE = re.compile(r"##SEARCH:(.+?)##", re.IGNORECASE | re.DOTALL)
@@ -354,7 +341,7 @@ async def process_gemini_message(
     message_text: str,
 ) -> tuple:
     """
-    Returns (reply_text, search_query_or_None, wants_voice, wants_stop).
+    Returns (reply_text, search_query_or_None, wants_voice, wants_stop, img_prompt).
 
     Flow:
     1. STOP check  → immediately terminate session
@@ -371,7 +358,7 @@ async def process_gemini_message(
     if any(kw in message_text.lower() for kw in stop_kw):
         active_sessions.pop(user_id, None)
         return ("Thik hai, main chup ho rahi hoon. Jab zarurat ho toh bula lena 😊",
-                None, False, True)
+                None, False, True, None)
 
     # ── 2. Detect intent ──────────────────────────────────────────────────────
     intent, rule_story = _detect_intent(message_text)
@@ -380,7 +367,7 @@ async def process_gemini_message(
     # ── 3. STORY: bypass AI entirely ─────────────────────────────────────────
     if intent == "story" and rule_story:
         logger.info(f"[DEBUG-AI] STORY route → query='{rule_story}'")
-        return ("Yeh rahi! 📖", rule_story, False, False)
+        return ("Yeh rahi! 📖", rule_story, False, False, None)
 
     # ── 4. Check for new-topic signal → reset context ─────────────────────────
     _maybe_trim_history(user_id, message_text)
@@ -420,7 +407,7 @@ async def process_gemini_message(
     raw = await _get_ai_raw(user_id, payload)
     logger.info(f"[DEBUG-AI] raw output: '{raw[:150]}'")
 
-    ai_text, ai_search, ai_voice, ai_stop = parse_ai_reply(raw)
+    ai_text, ai_search, ai_voice, ai_stop, img_prompt = parse_ai_reply(raw)
 
     # ── 8. Save clean turn to history (without sys_note) ─────────────────────
     if ai_text:
@@ -437,7 +424,7 @@ async def process_gemini_message(
         logger.error("[DEBUG-AI] AI returned empty. Using safe fallback.")
         ai_text = "Samajh gayi 🙂 thoda aur clear batao kya chahiye?"
 
-    return (ai_text, ai_search, ai_voice, ai_stop)
+    return (ai_text, ai_search, ai_voice, ai_stop, img_prompt)
 
 
 # ── Session helpers ────────────────────────────────────────────────────────────
