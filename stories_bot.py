@@ -7254,13 +7254,14 @@ async def gban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         lang = get_chat_lang(update.effective_chat.id)
         await update.message.reply_text(
-            "<b>Usage:</b> /gban &lt;user_id or @username&gt;\n\n"
+            "<b>Usage:</b> /gban &lt;user_id or @username&gt; [reason]\n\n"
             "Bans the user from all groups/channels where the bot is admin and tracks them.",
             parse_mode="HTML"
         )
         return
 
     user_str = context.args[0]
+    reason_str = " ".join(context.args[1:]).strip()
     target_user_id = None
     target_user_name = None
 
@@ -7316,10 +7317,11 @@ async def gban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if success_bullet:
         success_bullet = "\n  • " + success_bullet
 
+    reason_text = f"\n<b>Reason:</b> {reason_str}" if reason_str else ""
     report = (
         f"<b>🚫 Global Ban Report</b>\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"<b>Target:</b> <code>{target_user_id}</code> {('@' + target_user_name) if target_user_name else ''}\n\n"
+        f"<b>Target:</b> <code>{target_user_id}</code> {('@' + target_user_name) if target_user_name else ''}{reason_text}\n\n"
         f"<b>✅ Successfully Banned in ({len(success)}):</b>{success_bullet}\n\n"
         f"<b>⚪ Not Present / Already Banned:</b> {len(already_banned_or_not_present)} chats\n"
         f"<b>❌ Failed (No Admin Rights):</b> {len(failed)} chats\n"
@@ -7328,7 +7330,7 @@ async def gban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     
     await wait_msg.edit_text(report, parse_mode="HTML")
-    await log(context, f"GLOBAL BAN | Admin={update.effective_user.id} Target={target_user_id}")
+    await log(context, f"GLOBAL BAN | Admin={update.effective_user.id} Target={target_user_id} Reason={reason_str}")
 
 async def gunban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin-only: globally unban a user across all authorized channels."""
