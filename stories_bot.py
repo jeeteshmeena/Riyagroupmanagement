@@ -7227,6 +7227,23 @@ async def check_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"External check error: {e}")
         await wait_msg.edit_text(text="<b>☆ Verification Failed</b>\n\n✧ Check command encountered an error.\n➤ Try again later", parse_mode="HTML")
 
+async def auto_channel_react(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Automatically reacts to new posts in channels."""
+    if not update.channel_post:
+        return
+        
+    import random
+    emojis = ["👍", "❤️", "🔥", "🎉", "🤩", "🙏", "👏", "⚡", "✨", "💯", "💖", "🥰", "🫡"]
+    try:
+        from telegram import ReactionTypeEmoji
+        await context.bot.set_message_reaction(
+            chat_id=update.effective_chat.id,
+            message_id=update.channel_post.message_id,
+            reaction=[ReactionTypeEmoji(emoji=random.choice(emojis))]
+        )
+    except Exception as e:
+        logger.warning(f"[AutoReact] Failed on chat {update.effective_chat.id}: {e}")
+
 async def gban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin-only: globally ban a user from all authorized channels."""
     if not is_admin(update.effective_user.id):
@@ -7274,27 +7291,15 @@ async def gban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             cid = int(cid_str)
             try:
-                member_status = await context.bot.get_chat_member(chat_id=cid, user_id=target_user_id)
-                # If they are a member, creator, or restricted, we ban them
-                if member_status.status in ["member", "restricted", "creator", "administrator"]:
-                    await context.bot.ban_chat_member(chat_id=cid, user_id=target_user_id)
-                    success.append(cid_str)
-                else:
-                    # They are already kicked/banned/left
-                    already_banned_or_not_present.append(cid_str)
+                # Blindly ban without getting chat member to avoid "not found" skip bug
+                await context.bot.ban_chat_member(chat_id=cid, user_id=target_user_id)
+                success.append(cid_str)
             except Exception as e:
-                 # Error getting member or banning (maybe bot not admin or user not found)
-                 failed.append(cid_str)
-                 
-                 # Optional: try blind ban just in case
-                 if "User not found" not in str(e):
-                     try:
-                         await context.bot.ban_chat_member(chat_id=cid, user_id=target_user_id)
-                         success.append(cid_str)
-                         failed.remove(cid_str)
-                     except Exception:
-                         pass
-
+                err = str(e).lower()
+                if "not found" in err or "participant_id_invalid" in err or "user_not_participant" in err:
+                    already_banned_or_not_present.append(cid_str)
+                else:
+                    failed.append(cid_str)
         except Exception:
              continue
         await asyncio.sleep(0.1) # Prevent FloodWait
@@ -7396,6 +7401,9 @@ def start_bot():
 
     # react when bot is added/removed
     app.add_handler(ChatMemberHandler(chat_member_update))
+
+    # Auto reaction for channel posts
+    app.add_handler(MessageHandler(filters.ChatType.CHANNEL, auto_channel_react))
 
     app.add_handler(InlineQueryHandler(inline_search))
     app.add_handler(ChosenInlineResultHandler(chosen_inline_result))
