@@ -7402,6 +7402,13 @@ def start_bot():
     # react when bot is added/removed
     app.add_handler(ChatMemberHandler(chat_member_update))
 
+    # ── Group Control System (optional plugin — fails silently) ───────────────
+    try:
+        from plugins.group.router import register_group_handlers
+        register_group_handlers(app)
+    except Exception as _gcp_err:
+        logger.warning(f"[GCP] Group plugin not loaded: {_gcp_err}")
+
     # Auto reaction for channel posts
     app.add_handler(MessageHandler(filters.ChatType.CHANNEL, auto_channel_react))
 
