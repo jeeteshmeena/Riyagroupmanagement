@@ -7244,6 +7244,17 @@ async def auto_channel_react(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception as e:
         logger.warning(f"[AutoReact] Failed on chat {update.effective_chat.id}: {e}")
 
+async def _resolve_chat_title(bot, cid: int) -> str:
+    """Return a human-readable label for a chat ID."""
+    try:
+        chat = await bot.get_chat(cid)
+        title = chat.title or chat.username or chat.first_name or str(cid)
+        link  = f"https://t.me/c/{str(cid).replace('-100', '')}"
+        return f'<a href="{link}">{title}</a> (<code>{cid}</code>)'
+    except Exception:
+        return f"<code>{cid}</code>"
+
+
 async def gban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin-only: globally ban a user from all authorized channels."""
     if not is_admin(update.effective_user.id):
@@ -7254,69 +7265,172 @@ async def gban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         lang = get_chat_lang(update.effective_chat.id)
         await update.message.reply_text(
-            "<b>Usage:</b> /gban &lt;user_id or @username&gt;\n\n"
-            "Bans the user from all groups/channels where the bot is admin and tracks them.",
+            "<b>Usage:</b> /gban &lt;user_id&gt;\n\n"
+            "Bans the user from all groups/channels where the bot is admin.",
             parse_mode="HTML"
         )
         return
 
     user_str = context.args[0]
-    target_user_id = None
+    target_user_id   = None
     target_user_name = None
 
     if user_str.startswith("@") or not user_str.lstrip("-").isdigit():
         try:
             chat_info = await context.bot.get_chat(user_str)
-            target_user_id = chat_info.id
+            target_user_id   = chat_info.id
             target_user_name = chat_info.username or chat_info.first_name
-        except Exception as e:
-            await update.message.reply_text(f"❌ Could not resolve username <b>{user_str}</b>.\nPlease use their numeric User ID.", parse_mode="HTML")
+        except Exception:
+            await update.message.reply_text(
+                f"❌ Could not resolve <b>{user_str}</b>. Use a numeric User ID.",
+                parse_mode="HTML"
+            )
             return
     else:
         target_user_id = int(user_str)
 
-    wait_msg = await update.message.reply_text(f"⏳ Searching and executing Global Ban for <code>{target_user_id}</code>...\nPlease wait.", parse_mode="HTML")
+    wait_msg = await update.message.reply_text(
+        f"⏳ Running Global Ban on <code>{target_user_id}</code>…\nPlease wait.",
+        parse_mode="HTML"
+    )
 
     chats_to_check = set(chat_languages.keys())
-    if GROUP_ID: chats_to_check.add(str(GROUP_ID))
-    if REQUEST_GROUP: chats_to_check.add(str(REQUEST_GROUP))
+    if GROUP_ID:       chats_to_check.add(str(GROUP_ID))
+    if REQUEST_GROUP:  chats_to_check.add(str(REQUEST_GROUP))
     for c in bot_config.get("sources", []):
         chats_to_check.add(str(c))
 
-    success = []
-    already_banned_or_not_present = []
-    failed = []
+    success  = []   # (cid, label)
+    skipped  = []   # (cid, label)  — not present or already banned
+    failed   = []   # (cid, label)  — no admin rights
 
     for cid_str in chats_to_check:
         try:
-            cid = int(cid_str)
+            cid   = int(cid_str)
+            label = await _resolve_chat_title(context.bot, cid)
             try:
-                # Blindly ban without getting chat member to avoid "not found" skip bug
                 await context.bot.ban_chat_member(chat_id=cid, user_id=target_user_id)
-                success.append(cid_str)
+                success.append(label)
             except Exception as e:
                 err = str(e).lower()
-                if "not found" in err or "participant_id_invalid" in err or "user_not_participant" in err:
-                    already_banned_or_not_present.append(cid_str)
+                if any(x in err for x in ("not found", "participant_id_invalid",
+                                           "user_not_participant", "user not found")):
+                    skipped.append(label)
                 else:
-                    failed.append(cid_str)
+                    failed.append(label)
         except Exception:
-             continue
-        await asyncio.sleep(0.1) # Prevent FloodWait
+            continue
+        await asyncio.sleep(0.1)
 
+    def _list_block(title: str, items: list) -> str:
+        if not items:
+            return ""
+        entries = "\n".join(f"  • {i}" for i in items)
+        return f"\n<b>{title} ({len(items)}):</b>\n{entries}\n"
+
+    target_label = ("@" + target_user_name) if target_user_name else ""
     report = (
         f"<b>🚫 Global Ban Report</b>\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"<b>Target:</b> <code>{target_user_id}</code> {('@' + target_user_name) if target_user_name else ''}\n\n"
-        f"<b>✅ Successfully Banned in:</b> {len(success)} chats\n"
-        f"<b>⚪ Not Present / Already Banned:</b> {len(already_banned_or_not_present)} chats\n"
-        f"<b>❌ Failed (No Admin Rights):</b> {len(failed)} chats\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"<i>Action performed by Admin {update.effective_user.id}</i>"
+        f"<b>Target:</b> <code>{target_user_id}</code> {target_label}\n"
+        + _list_block("✅ Banned in",           success)
+        + _list_block("⚪ Already Banned / Not Present in", skipped)
+        + _list_block("❌ Failed (No Admin Rights) in",      failed)
+        + f"━━━━━━━━━━━━━━━━━━\n"
+        f"<i>Action by Admin {update.effective_user.id}</i>"
     )
-    
-    await wait_msg.edit_text(report, parse_mode="HTML")
+    await wait_msg.edit_text(report, parse_mode="HTML", disable_web_page_preview=True)
     await log(context, f"GLOBAL BAN | Admin={update.effective_user.id} Target={target_user_id}")
+
+
+async def gunban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin-only: globally unban a user from all authorized channels."""
+    if not is_admin(update.effective_user.id):
+        lang = get_chat_lang(update.effective_chat.id)
+        await update.message.reply_text("⛔ Admin only." if lang != "hi" else "⛔ केवल एडमिन।")
+        return
+
+    if not context.args:
+        await update.message.reply_text(
+            "<b>Usage:</b> /gunban &lt;user_id&gt;\n\n"
+            "Removes the ban from all groups/channels where the bot is admin.",
+            parse_mode="HTML"
+        )
+        return
+
+    user_str = context.args[0]
+    target_user_id   = None
+    target_user_name = None
+
+    if user_str.startswith("@") or not user_str.lstrip("-").isdigit():
+        try:
+            chat_info = await context.bot.get_chat(user_str)
+            target_user_id   = chat_info.id
+            target_user_name = chat_info.username or chat_info.first_name
+        except Exception:
+            await update.message.reply_text(
+                f"❌ Could not resolve <b>{user_str}</b>. Use a numeric User ID.",
+                parse_mode="HTML"
+            )
+            return
+    else:
+        target_user_id = int(user_str)
+
+    wait_msg = await update.message.reply_text(
+        f"⏳ Running Global Unban on <code>{target_user_id}</code>…\nPlease wait.",
+        parse_mode="HTML"
+    )
+
+    chats_to_check = set(chat_languages.keys())
+    if GROUP_ID:       chats_to_check.add(str(GROUP_ID))
+    if REQUEST_GROUP:  chats_to_check.add(str(REQUEST_GROUP))
+    for c in bot_config.get("sources", []):
+        chats_to_check.add(str(c))
+
+    success  = []
+    skipped  = []   # already not banned / not present
+    failed   = []
+
+    for cid_str in chats_to_check:
+        try:
+            cid   = int(cid_str)
+            label = await _resolve_chat_title(context.bot, cid)
+            try:
+                # only_if_banned=True avoids error when user is not banned there
+                await context.bot.unban_chat_member(
+                    chat_id=cid, user_id=target_user_id, only_if_banned=True
+                )
+                success.append(label)
+            except Exception as e:
+                err = str(e).lower()
+                if any(x in err for x in ("not found", "participant_id_invalid",
+                                           "user_not_participant", "user not found")):
+                    skipped.append(label)
+                else:
+                    failed.append(label)
+        except Exception:
+            continue
+        await asyncio.sleep(0.1)
+
+    def _list_block(title: str, items: list) -> str:
+        if not items:
+            return ""
+        entries = "\n".join(f"  • {i}" for i in items)
+        return f"\n<b>{title} ({len(items)}):</b>\n{entries}\n"
+
+    target_label = ("@" + target_user_name) if target_user_name else ""
+    report = (
+        f"<b>✅ Global Unban Report</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"<b>Target:</b> <code>{target_user_id}</code> {target_label}\n"
+        + _list_block("✅ Unbanned in",                   success)
+        + _list_block("⚪ Was Not Banned / Not Found in", skipped)
+        + _list_block("❌ Failed (No Admin Rights) in",   failed)
+        + f"━━━━━━━━━━━━━━━━━━\n"
+        f"<i>Action by Admin {update.effective_user.id}</i>"
+    )
+    await wait_msg.edit_text(report, parse_mode="HTML", disable_web_page_preview=True)
+    await log(context, f"GLOBAL UNBAN | Admin={update.effective_user.id} Target={target_user_id}")
 
 def start_bot():
 
@@ -7393,7 +7507,8 @@ def start_bot():
     app.add_handler(CommandHandler("addsource", addsource_cmd))
     app.add_handler(CommandHandler("removesource", removesource_cmd))
     app.add_handler(CommandHandler("addalias", addalias_cmd))
-    app.add_handler(CommandHandler("gban", gban_cmd))
+    app.add_handler(CommandHandler("gban",   gban_cmd))
+    app.add_handler(CommandHandler("gunban", gunban_cmd))
     app.add_handler(CommandHandler("removealias", removealias_cmd))
     app.add_handler(CommandHandler("listalias", listalias_cmd))
     app.add_handler(CommandHandler("whisper", whisper_cmd))
