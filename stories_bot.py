@@ -7313,9 +7313,9 @@ async def gban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             success_names.append(cid_str)
             
-    success_bullet = "\n  • ".join(success_names)
+    success_bullet = "\n• ".join(success_names)
     if success_bullet:
-        success_bullet = "\n  • " + success_bullet
+        success_bullet = f"\n<blockquote expandable>• {success_bullet}</blockquote>"
 
     reason_text = f"\n<b>Reason:</b> {reason_str}" if reason_str else ""
     report = (
@@ -7408,9 +7408,9 @@ async def gunban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             success_names.append(cid_str)
             
-    success_bullet = "\n  • ".join(success_names)
+    success_bullet = "\n• ".join(success_names)
     if success_bullet:
-        success_bullet = "\n  • " + success_bullet
+        success_bullet = f"\n<blockquote expandable>• {success_bullet}</blockquote>"
 
     report = (
         f"<b>✅ Global Unban Report</b>\n"
