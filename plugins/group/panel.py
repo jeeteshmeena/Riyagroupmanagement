@@ -223,16 +223,27 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         # ── Warnings sub-panel ─────────────────────────────────────────────────
         if action == "grp_warns":
             limit = s.get("warn_limit", 3)
+            mode = s.get("warn_mode", "mute").capitalize()
             text = (
                 f"<b>⚠️ Warnings</b>\n{_DIV}\n\n"
-                f"Warn limit: <b>{limit}</b>\n\n"
+                f"Warn limit: <b>{limit}</b>\n"
+                f"Action on limit: <b>{mode}</b>\n\n"
                 "<i>Use /setwarnlimit &lt;number&gt; to change.\n"
-                "On limit: user is auto-muted.</i>"
+                "On limit: user is auto-muted or banned.</i>"
             )
-            markup = InlineKeyboardMarkup([[
-                InlineKeyboardButton("« Back", callback_data="grp_back")
-            ]])
+            markup = InlineKeyboardMarkup([
+                [InlineKeyboardButton(f"🔘 Mode: {mode}", callback_data="grp_warn_toggle_mode")],
+                [InlineKeyboardButton("« Back", callback_data="grp_back")]
+            ])
             await query.edit_message_text(text, parse_mode="HTML", reply_markup=markup)
+            return
+
+        if action == "grp_warn_toggle_mode":
+            current = s.get("warn_mode", "mute")
+            s["warn_mode"] = "ban" if current == "mute" else "mute"
+            save_settings(chat_id, s)
+            query.data = "grp_warns"
+            await panel_callback(update, context)
             return
 
         # ── Filters sub-panel ──────────────────────────────────────────────────

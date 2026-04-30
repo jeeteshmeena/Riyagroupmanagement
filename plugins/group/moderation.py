@@ -1,13 +1,13 @@
 """
 plugins/group/moderation.py
 ───────────────────────────
-Admin moderation commands: /ban /unban /mute /unmute /warn /dban /dmute
-- dmute / dban delete the replied message before moderating
-- Auto-mute when warn count hits warn_limit
-- All actions logged to configured log channel
+Admin moderation commands: /ban /unban /mute /unmute /warn /dban /dmute /dwarn /dban
+- dmute / dban / dwarn delete the replied message before moderating
+- Auto-action (mute or ban) when warn count hits warn_limit
+- Inline buttons for /mute (🔘 Unmute) and /warn (🔘 Remove Warn)
 """
 import logging
-from telegram import Update, ChatPermissions
+from telegram import Update, ChatPermissions, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from .utils import get_settings, save_settings, add_warn, reset_warns, is_enabled
 from .logs import send_log
@@ -60,13 +60,20 @@ async def ban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not target:
             await update.message.reply_text("⚠️ Reply to a user or provide a user_id.")
             return
-        await context.bot.ban_chat_member(update.effective_chat.id, target.id)
-        r = f"\n📝 Reason: {reason}" if reason else ""
+        
+        chat = update.effective_chat
+        admin = update.effective_user
+        
+        await context.bot.ban_chat_member(chat.id, target.id)
+        
+        res = reason if reason else "No reason provided"
         await update.message.reply_text(
-            f"🚫 <b>{target.first_name}</b> has been banned.{r}", parse_mode="HTML"
+            f"Admin <code>{admin.full_name}</code> has successfully banned <code>{target.full_name}</code> in <b>{chat.title}</b> !\n"
+            f"<b>Reason: {res}</b>",
+            parse_mode="HTML"
         )
-        await send_log(context, update.effective_chat.id,
-                       f"🚫 Banned {target.first_name} ({target.id}).{r}")
+        await send_log(context, chat.id,
+                       f"🚫 Banned <code>{target.full_name}</code> ({target.id}).\nReason: {res}")
     except Exception as e:
         logger.error(f"[GCP-Mod] ban_cmd: {e}")
 
@@ -104,9 +111,10 @@ async def unban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not target:
             await update.message.reply_text("⚠️ Reply to a user or provide a user_id.")
             return
+        
         await context.bot.unban_chat_member(update.effective_chat.id, target.id, only_if_banned=True)
         await update.message.reply_text(
-            f"✅ <b>{target.first_name}</b> has been unbanned.", parse_mode="HTML"
+            f"Yep, this <code>{target.first_name}</code> can join!", parse_mode="HTML"
         )
     except Exception as e:
         logger.error(f"[GCP-Mod] unban_cmd: {e}")
@@ -124,16 +132,40 @@ async def mute_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not target:
             await update.message.reply_text("⚠️ Reply to a user or provide a user_id.")
             return
+        
+        chat = update.effective_chat
+        admin = update.effective_user
+        
+        # Check if already muted (has right to speak)
+        try:
+            m = await context.bot.get_chat_member(chat.id, target.id)
+            if m.status in ("left", "kicked"):
+                await update.message.reply_text("This user isn't even in the chat, unmuting them won't make them talk more than they already do!")
+                return
+            if m.can_send_messages is False:
+                await update.message.reply_text(f"This user already has the right to speak in <b>{chat.title}</b> .", parse_mode="HTML")
+                return
+        except Exception:
+            pass
+
         await context.bot.restrict_chat_member(
-            update.effective_chat.id, target.id,
+            chat.id, target.id,
             permissions=ChatPermissions(can_send_messages=False),
         )
-        r = f"\n📝 Reason: {reason}" if reason else ""
+        
+        res = reason if reason else "No reason provided"
+        markup = InlineKeyboardMarkup([[
+            InlineKeyboardButton("🔘 Unmute", callback_data=f"mod_unmute_{target.id}")
+        ]])
+        
         await update.message.reply_text(
-            f"🔇 <b>{target.first_name}</b> has been muted.{r}", parse_mode="HTML"
+            f"<code>{target.full_name}</code> was muted by <code>{admin.full_name}</code> in <b>{chat.title}</b>\n"
+            f"<b>Reason: {res}</b>",
+            parse_mode="HTML",
+            reply_markup=markup
         )
-        await send_log(context, update.effective_chat.id,
-                       f"🔇 Muted {target.first_name} ({target.id}).{r}")
+        await send_log(context, chat.id,
+                       f"🔇 Muted <code>{target.full_name}</code> ({target.id}).\nReason: {res}")
     except Exception as e:
         logger.error(f"[GCP-Mod] mute_cmd: {e}")
 
@@ -171,8 +203,20 @@ async def unmute_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         if not target:
             await update.message.reply_text("⚠️ Reply to a user or provide a user_id.")
             return
+        
+        chat = update.effective_chat
+        
+        # Check if in chat
+        try:
+            m = await context.bot.get_chat_member(chat.id, target.id)
+            if m.status in ("left", "kicked"):
+                await update.message.reply_text("This user isn't even in the chat, unmuting them won't make them talk more than they already do!")
+                return
+        except Exception:
+            pass
+
         await context.bot.restrict_chat_member(
-            update.effective_chat.id, target.id,
+            chat.id, target.id,
             permissions=ChatPermissions(
                 can_send_messages=True,
                 can_send_media_messages=True,
@@ -181,7 +225,8 @@ async def unmute_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             ),
         )
         await update.message.reply_text(
-            f"✅ <b>{target.first_name}</b> has been unmuted.", parse_mode="HTML"
+            f"Yep, <code>{target.full_name}</code> can start talking again in <b>{chat.title}</b> !",
+            parse_mode="HTML"
         )
     except Exception as e:
         logger.error(f"[GCP-Mod] unmute_cmd: {e}")
@@ -199,34 +244,73 @@ async def warn_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not target:
             await update.message.reply_text("⚠️ Reply to a user or provide a user_id.")
             return
+        
         chat_id = update.effective_chat.id
+        chat_title = update.effective_chat.title
         s = get_settings(chat_id)
         limit = s.get("warn_limit", 3)
         count = add_warn(chat_id, target.id)
-        r = f"\n📝 Reason: {reason}" if reason else ""
+        res = reason if reason else "No reason provided"
+        
+        markup = InlineKeyboardMarkup([[
+            InlineKeyboardButton("🔘 Remove Warn", callback_data=f"mod_rmwarn_{target.id}")
+        ]])
 
         if count >= limit:
-            await context.bot.restrict_chat_member(
-                chat_id, target.id,
-                permissions=ChatPermissions(can_send_messages=False),
-            )
+            mode = s.get("warn_mode", "mute")
             reset_warns(chat_id, target.id)
-            await update.message.reply_text(
-                f"⚠️ <b>{target.first_name}</b> warned ({count}/{limit}).{r}\n"
-                f"🔇 Auto-muted for reaching the warn limit!",
-                parse_mode="HTML",
-            )
-            await send_log(context, chat_id,
-                           f"🔇 {target.first_name} auto-muted after {limit} warnings.{r}")
+            
+            if mode == "ban":
+                await context.bot.ban_chat_member(chat_id, target.id)
+                await update.message.reply_text(
+                    f"User <code>{target.full_name}</code> has been banned for reaching <b>{limit}</b> warnings!",
+                    parse_mode="HTML"
+                )
+                await send_log(context, chat_id,
+                               f"🔨 <code>{target.full_name}</code> auto-banned after {limit} warnings.")
+            else:
+                await context.bot.restrict_chat_member(
+                    chat_id, target.id,
+                    permissions=ChatPermissions(can_send_messages=False),
+                )
+                await update.message.reply_text(
+                    f"User <code>{target.full_name}</code> has been muted for reaching <b>{limit}</b> warnings!",
+                    parse_mode="HTML"
+                )
+                await send_log(context, chat_id,
+                               f"🔇 <code>{target.full_name}</code> auto-muted after {limit} warnings.")
         else:
             await update.message.reply_text(
-                f"⚠️ <b>{target.first_name}</b> warned ({count}/{limit}).{r}",
+                f"User <code>{target.full_name}</code> has been warned!\n"
+                f"They have <b>{count}</b> warnings.",
                 parse_mode="HTML",
+                reply_markup=markup
             )
             await send_log(context, chat_id,
-                           f"⚠️ Warned {target.first_name} ({target.id}). {count}/{limit}.{r}")
+                           f"⚠️ Warned <code>{target.full_name}</code> ({target.id}). {count}/{limit}.\nReason: {res}")
     except Exception as e:
         logger.error(f"[GCP-Mod] warn_cmd: {e}")
+
+
+# ── /dwarn (delete + warn) ────────────────────────────────────────────────────
+async def dwarn_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    try:
+        if not _in_group(update) or not is_enabled(update.effective_chat.id):
+            return
+        if not await _is_admin(update, context):
+            return
+        if update.message and update.message.reply_to_message:
+            try:
+                await update.message.reply_to_message.delete()
+            except Exception:
+                pass
+        await warn_cmd(update, context)
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+    except Exception as e:
+        logger.error(f"[GCP-Mod] dwarn_cmd: {e}")
 
 
 # ── /setwarnlimit ─────────────────────────────────────────────────────────────
@@ -251,3 +335,67 @@ async def setwarnlimit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         )
     except Exception as e:
         logger.error(f"[GCP-Mod] setwarnlimit_cmd: {e}")
+
+
+# ── Callbacks ─────────────────────────────────────────────────────────────────
+async def unmute_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    try:
+        query = update.callback_query
+        if not query.data.startswith("mod_unmute_"):
+            return
+        
+        chat = update.effective_chat
+        admin = update.effective_user
+        
+        # Admin check
+        m = await context.bot.get_chat_member(chat.id, admin.id)
+        if m.status not in ("administrator", "creator"):
+            await query.answer("⛔ Admin only!", show_alert=True)
+            return
+        
+        target_id = int(query.data.split("_")[2])
+        
+        await context.bot.restrict_chat_member(
+            chat.id, target_id,
+            permissions=ChatPermissions(
+                can_send_messages=True,
+                can_send_media_messages=True,
+                can_send_other_messages=True,
+                can_add_web_page_previews=True,
+            ),
+        )
+        
+        await query.answer("User unmuted!")
+        await query.edit_message_text(
+            f"Yep , This User Unmuted by <code>{admin.full_name}</code> In <b>{chat.title}</b> .",
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"[GCP-Mod] unmute_callback: {e}")
+
+
+async def remove_warn_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    try:
+        query = update.callback_query
+        if not query.data.startswith("mod_rmwarn_"):
+            return
+        
+        chat = update.effective_chat
+        admin = update.effective_user
+        
+        # Admin check
+        m = await context.bot.get_chat_member(chat.id, admin.id)
+        if m.status not in ("administrator", "creator"):
+            await query.answer("⛔ Admin only!", show_alert=True)
+            return
+        
+        target_id = int(query.data.split("_")[2])
+        reset_warns(chat.id, target_id)
+        
+        await query.answer("Warn removed!")
+        await query.edit_message_text(
+            f"Yep , Warn removed by <code>{admin.full_name}</code> .",
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"[GCP-Mod] remove_warn_callback: {e}")

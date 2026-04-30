@@ -34,7 +34,8 @@ def register_group_handlers(app: Application) -> None:
                                   clearwelcome_cmd, previewwelcome_cmd)
         from .moderation  import (ban_cmd, dban_cmd, unban_cmd,
                                   mute_cmd, dmute_cmd, unmute_cmd,
-                                  warn_cmd, setwarnlimit_cmd)
+                                  warn_cmd, dwarn_cmd, setwarnlimit_cmd,
+                                  unmute_callback, remove_warn_callback)
         from .nsfw        import nsfw_guard
         from .locks       import locks_guard
         from .filters     import filters_guard, addfilter_cmd, delfilter_cmd
@@ -64,6 +65,7 @@ def register_group_handlers(app: Application) -> None:
         app.add_handler(CommandHandler("dmute",        dmute_cmd),        group=_g)
         app.add_handler(CommandHandler("unmute",       unmute_cmd),       group=_g)
         app.add_handler(CommandHandler("warn",         warn_cmd),         group=_g)
+        app.add_handler(CommandHandler("dwarn",        dwarn_cmd),        group=_g)
         app.add_handler(CommandHandler("setwarnlimit", setwarnlimit_cmd), group=_g)
 
         # ── Filters ────────────────────────────────────────────────────────────
@@ -83,9 +85,17 @@ def register_group_handlers(app: Application) -> None:
         app.add_handler(MessageHandler(_grp_msg, locks_guard),    group=22)
         app.add_handler(MessageHandler(_grp_msg, filters_guard),  group=23)
 
-        # ── Inline panel callbacks (pattern ensures no clash) ──────────────────
+        # ── Inline callbacks (pattern ensures no clash) ──────────────────
         app.add_handler(
             CallbackQueryHandler(panel_callback, pattern=r"^grp_"),
+            group=_g,
+        )
+        app.add_handler(
+            CallbackQueryHandler(unmute_callback, pattern=r"^mod_unmute_"),
+            group=_g,
+        )
+        app.add_handler(
+            CallbackQueryHandler(remove_warn_callback, pattern=r"^mod_rmwarn_"),
             group=_g,
         )
 

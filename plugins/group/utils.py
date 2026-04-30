@@ -37,6 +37,7 @@ _DEFAULT_SETTINGS: Dict[str, Any] = {
     "enabled":     False,
     "admins_only": False,
     "warn_limit":  3,
+    "warn_mode":   "mute",  # "mute" or "ban"
     "nsfw_strict": True,
     "locks": {
         "links":    False,
