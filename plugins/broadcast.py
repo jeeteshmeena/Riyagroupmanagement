@@ -2,8 +2,6 @@ import asyncio
 import logging
 from telegram import Update
 from telegram.ext import ContextTypes, MessageHandler, filters
-from .utils import is_enabled # if needed
-
 from telegram.ext.filters import MessageFilter
 
 logger = logging.getLogger(__name__)
