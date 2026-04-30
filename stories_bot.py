@@ -5816,11 +5816,13 @@ async def handle_config_input(update: Update, context: ContextTypes.DEFAULT_TYPE
                     detected_mood = mood
                     break
 
-            if detected_mood and premium_userbot.is_connected():
-                asyncio.create_task(premium_userbot.react_with_mood(
+            if detected_mood:
+                react_emoji = next(k for k, v in _EMOJI_TO_MOOD.items() if v == detected_mood)
+                asyncio.create_task(_try_react(
+                    context.bot,
                     update.effective_chat.id,
                     update.message.message_id,
-                    detected_mood
+                    react_emoji
                 ))
         except Exception as e:
             logger.warning(f"[Premium] Reaction error: {e}")
@@ -6287,12 +6289,15 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         )
                         break
 
-                # Premium reaction on user's incoming message via userbot
-                if detected_mood and premium_userbot.is_connected():
-                    asyncio.create_task(premium_userbot.react_with_mood(
+                # Standard reaction on user's incoming message via Bot
+                if detected_mood:
+                    # Find the original standard emoji char that triggered this mood
+                    react_emoji = next(k for k, v in _EMOJI_TO_PREMIUM.items() if v[0] == detected_mood)
+                    asyncio.create_task(_try_react(
+                        context.bot,
                         update.effective_chat.id,
                         update.message.message_id,
-                        detected_mood
+                        react_emoji
                     ))
             except Exception as e:
                 logger.warning(f"[Premium] Emoji injection error: {e}")
