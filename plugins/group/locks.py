@@ -41,14 +41,15 @@ async def locks_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
         # Links lock
         if locks.get("links"):
-            ents = msg.entities or msg.caption_entities or []
-            if any(e.type in (MessageEntityType.URL, MessageEntityType.TEXT_LINK)
-                   for e in ents):
+            ents = msg.entities or []
+            cents = msg.caption_entities or []
+            all_ents = ents + cents
+            if any(e.type in (MessageEntityType.URL, MessageEntityType.TEXT_LINK) for e in all_ents):
                 violated = "links"
 
         # Media lock
         if not violated and locks.get("media"):
-            if msg.photo or msg.video or msg.document or msg.audio or msg.animation:
+            if msg.photo or msg.video or msg.document or msg.audio or msg.animation or msg.voice or msg.video_note:
                 violated = "media"
 
         # Stickers lock
@@ -58,7 +59,11 @@ async def locks_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
         # Forwards lock
         if not violated and locks.get("forwards"):
-            if msg.forward_date or msg.forward_from or msg.forward_from_chat:
+            # Check for modern PTB v20+ forward attribute
+            if hasattr(msg, "forward_origin") and msg.forward_origin:
+                violated = "forwards"
+            # Fallback for older versions if still somehow used
+            elif getattr(msg, "forward_date", None):
                 violated = "forwards"
 
         if violated:

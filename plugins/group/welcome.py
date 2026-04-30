@@ -38,6 +38,42 @@ def welcome_panel(chat_id: int) -> tuple:
     return text, markup
 
 
+async def _send_welcome_msg(context, chat_id, msg_data, member=None, reply_to=None):
+    name = member.first_name if member else "Friend"
+    username = f"@{member.username}" if member and member.username else name
+    full_name = member.full_name if member else name
+    uid = member.id if member else 123456789
+    
+    content = msg_data.get("content", "Welcome!")
+    # Replace placeholders
+    content = content.replace("{name}", f"<b>{name}</b>")
+    content = content.replace("{first_name}", f"<b>{name}</b>")
+    content = content.replace("{username}", username)
+    content = content.replace("{user_fullname}", f"<b>{full_name}</b>")
+    content = content.replace("{user_id}", str(uid))
+    
+    file_type = msg_data.get("type", "text")
+    file_id = msg_data.get("file_id")
+    
+    kwargs = {"chat_id": chat_id, "parse_mode": "HTML"}
+    if reply_to:
+        kwargs["reply_to_message_id"] = reply_to
+        
+    try:
+        if file_type == "text" or not file_id:
+            await context.bot.send_message(text=content, **kwargs)
+        elif file_type == "photo":
+            await context.bot.send_photo(photo=file_id, caption=content, **kwargs)
+        elif file_type == "video":
+            await context.bot.send_video(video=file_id, caption=content, **kwargs)
+        elif file_type == "animation":
+            await context.bot.send_animation(animation=file_id, caption=content, **kwargs)
+        elif file_type == "document":
+            await context.bot.send_document(document=file_id, caption=content, **kwargs)
+    except Exception as e:
+        logger.error(f"[GCP-Welcome] Failed to send: {e}")
+
+
 async def new_member_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Triggered when new members join the group."""
     try:
@@ -61,15 +97,13 @@ async def new_member_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         for member in new_members:
             if member.is_bot:
                 continue
-            name = member.first_name or "Friend"
-            content = msg.get("content", "Welcome!").replace("{name}", f"<b>{name}</b>")
-            await update.message.reply_text(content, parse_mode="HTML")
+            await _send_welcome_msg(context, chat_id, msg, member, reply_to=update.message.message_id)
     except Exception as e:
         logger.warning(f"[GCP-Welcome] new_member_handler: {e}")
 
 
 async def setwelcome_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/setwelcome <text>  — add a welcome message"""
+    """/setwelcome <text> or reply to a message — add a welcome message"""
     try:
         if not update.effective_chat or update.effective_chat.type not in ("group", "supergroup"):
             return
@@ -86,16 +120,40 @@ async def setwelcome_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await update.message.reply_text("⚠️ Max 5 welcome messages. Use /clearwelcome first.")
             return
 
-        text = " ".join(context.args) if context.args else ""
-        if not text:
+        file_id = None
+        file_type = "text"
+        text = ""
+        
+        if update.message.reply_to_message:
+            rep = update.message.reply_to_message
+            if rep.photo:
+                file_id = rep.photo[-1].file_id
+                file_type = "photo"
+            elif rep.video:
+                file_id = rep.video.file_id
+                file_type = "video"
+            elif rep.animation:
+                file_id = rep.animation.file_id
+                file_type = "animation"
+            elif rep.document:
+                file_id = rep.document.file_id
+                file_type = "document"
+            
+            text = rep.caption or rep.text or ""
+            if context.args:
+                text = " ".join(context.args)
+        else:
+            text = " ".join(context.args) if context.args else ""
+            
+        if not text and not file_id:
             await update.message.reply_text(
-                "Usage: /setwelcome &lt;text&gt;\n"
-                "<i>Use {name} as placeholder for the new member's name.</i>",
+                "Usage: /setwelcome &lt;text&gt; or reply to a media/text message.\n"
+                "<i>Placeholders: {first_name}, {user_fullname}, {username}, {user_id}</i>",
                 parse_mode="HTML",
             )
             return
 
-        msgs.append({"type": "text", "content": text})
+        msgs.append({"type": file_type, "file_id": file_id, "content": text})
         w["messages"] = msgs
         save_welcome(chat_id, w)
         await update.message.reply_text(f"✅ Welcome message added! ({len(msgs)}/5)")
@@ -130,10 +188,8 @@ async def previewwelcome_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text("❌ No welcome messages set. Use /setwelcome.")
             return
         msg = random.choice(msgs) if w.get("random") else msgs[0]
-        name = update.effective_user.first_name or "Friend"
-        preview = msg.get("content", "").replace("{name}", f"<b>{name}</b>")
-        await update.message.reply_text(
-            f"<b>👀 Welcome Preview:</b>\n\n{preview}", parse_mode="HTML"
-        )
+        
+        await update.message.reply_text("<b>👀 Welcome Preview:</b>", parse_mode="HTML")
+        await _send_welcome_msg(context, chat_id, msg, update.effective_user)
     except Exception as e:
         logger.error(f"[GCP-Welcome] previewwelcome_cmd: {e}")

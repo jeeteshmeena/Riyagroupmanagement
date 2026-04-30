@@ -57,6 +57,20 @@ async def _get_target(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return None, ""
 
 
+async def _is_bot_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    try:
+        m = await context.bot.get_chat_member(update.effective_chat.id, context.bot.id)
+        if m.status not in ("administrator", "creator"):
+            if update.callback_query:
+                await update.callback_query.answer("I can't restrict people here! Make sure I'm admin.", show_alert=True)
+            elif update.message:
+                await update.message.reply_text("I can't restrict people here! Make sure I'm admin and can appoint new admins.")
+            return False
+        return True
+    except Exception:
+        return False
+
+
 def _in_group(update: Update) -> bool:
     return (
         update.effective_chat is not None
@@ -71,6 +85,8 @@ async def ban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
         if not await _is_admin(update, context):
             await update.message.reply_text("⛔ Admin only.")
+            return
+        if not await _is_bot_admin(update, context):
             return
         target, reason = await _get_target(update, context)
         if not target:
@@ -300,8 +316,8 @@ async def warn_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                                f"🔇 <a href=\"tg://user?id={target.id}\">{target.full_name}</a> auto-muted after {limit} warnings.")
         else:
             await update.message.reply_text(
-                f"User <a href=\"tg://user?id={target.id}\">{target.full_name}</a> has been warned!\n"
-                f"They have <b>{count}</b> warnings.",
+                f"User {target.full_name} has been warned!\n"
+                f"They have {count}/{limit} warnings.",
                 parse_mode="HTML",
                 reply_markup=markup
             )
@@ -496,6 +512,9 @@ async def unmute_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if m.status not in ("administrator", "creator"):
             await query.answer("⛔ Admin only!", show_alert=True)
             return
+            
+        if not await _is_bot_admin(update, context):
+            return
         
         target_id = int(query.data.split("_")[2])
         
@@ -531,6 +550,9 @@ async def remove_warn_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         m = await context.bot.get_chat_member(chat.id, admin.id)
         if m.status not in ("administrator", "creator"):
             await query.answer("⛔ Admin only!", show_alert=True)
+            return
+            
+        if not await _is_bot_admin(update, context):
             return
         
         target_id = int(query.data.split("_")[2])

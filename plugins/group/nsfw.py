@@ -60,6 +60,10 @@ async def nsfw_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         if not is_enabled(chat_id):
             return
 
+        s = get_settings(chat_id)
+        if not s.get("nsfw", True):
+            return
+
         # Skip admins and bots
         try:
             cm = await context.bot.get_chat_member(chat_id, update.effective_user.id)

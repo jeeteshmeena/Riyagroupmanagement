@@ -1398,28 +1398,49 @@ _ADMIN_COMMANDS = [
 ]
 
 
+_GROUP_COMMANDS = [
+    ("/gcp",         "👮", "Open Group Control Panel (Admin)"),
+    ("/rules",       "📜", "View the group rules"),
+    ("/id",          "🆔", "Get your ID or chat ID"),
+    ("/userinfo",    "👤", "Get detailed info about a user"),
+    ("/mute",        "🔇", "Mute a user (Admin)"),
+    ("/ban",         "🚫", "Ban a user (Admin)"),
+    ("/warn",        "⚠️", "Warn a user (Admin)"),
+    ("/kick",        "👢", "Kick a user (Admin)"),
+    ("/purge",       "🗑", "Purge messages (Admin)"),
+]
+
+
 def _build_commands_page(page: int, admin: bool = False) -> tuple:
     """Build one page of the commands menu. Returns (text, markup)."""
     if page == 0:
         title  = "✺ <b>User Commands</b>"
         cmds   = _USER_COMMANDS
         footer = "<i>✧ Simply send a story name to search without any command.</i>"
-        next_label = "🔐 Admin Commands ›"
+        next_label = "🛡 Group Commands ›"
         next_cb    = "cmdmenu|1"
         prev_row   = []
+    elif page == 1:
+        title  = "🛡 <b>Group Commands</b>"
+        cmds   = _GROUP_COMMANDS
+        footer = "<i>✧ Group features (HarukaAya style). Some require admin.</i>"
+        next_label = "🔐 Admin Commands ›"
+        next_cb    = "cmdmenu|2"
+        prev_row   = [InlineKeyboardButton("‹ User Commands", callback_data="cmdmenu|0")]
     else:
         title  = "🔐 <b>Admin-Only Commands</b>"
         cmds   = _ADMIN_COMMANDS
-        footer = "<i>✧ All commands above require admin or owner privileges.</i>"
+        footer = "<i>✧ All commands above require bot admin or owner privileges.</i>"
         next_label = None
-        prev_row   = [InlineKeyboardButton("‹ User Commands", callback_data="cmdmenu|0")]
+        next_cb    = None
+        prev_row   = [InlineKeyboardButton("‹ Group Commands", callback_data="cmdmenu|1")]
 
     lines = []
     for cmd, icon, desc in cmds:
         lines.append(f"{icon} <code>{cmd}</code>\n        <i>{desc}</i>")
 
     body = "\n\n".join(lines)
-    page_label = "1 / 2" if page == 0 else "2 / 2"
+    page_label = f"{page+1} / 3"
 
     text = (
         f"{title}  <code>({page_label})</code>\n"
@@ -1432,7 +1453,7 @@ def _build_commands_page(page: int, admin: bool = False) -> tuple:
 
     nav_row = list(prev_row)
     if next_label:
-        nav_row.append(InlineKeyboardButton(next_label, callback_data="cmdmenu|1"))
+        nav_row.append(InlineKeyboardButton(next_label, callback_data=next_cb))
 
     markup = InlineKeyboardMarkup([
         nav_row,
@@ -7313,9 +7334,9 @@ async def gban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             success_names.append(cid_str)
             
-    success_bullet = "\n• ".join(success_names)
+    success_bullet = "\n  • ".join(success_names)
     if success_bullet:
-        success_bullet = f"\n<blockquote expandable>• {success_bullet}</blockquote>"
+        success_bullet = "\n  • " + success_bullet
 
     reason_text = f"\n<b>Reason:</b> {reason_str}" if reason_str else ""
     report = (
@@ -7408,9 +7429,9 @@ async def gunban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             success_names.append(cid_str)
             
-    success_bullet = "\n• ".join(success_names)
+    success_bullet = "\n  • ".join(success_names)
     if success_bullet:
-        success_bullet = f"\n<blockquote expandable>• {success_bullet}</blockquote>"
+        success_bullet = "\n  • " + success_bullet
 
     report = (
         f"<b>✅ Global Unban Report</b>\n"

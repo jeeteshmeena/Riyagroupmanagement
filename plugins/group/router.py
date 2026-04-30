@@ -42,7 +42,7 @@ def register_group_handlers(app: Application) -> None:
         from .locks       import locks_guard
         from .filters     import filters_guard, addfilter_cmd, delfilter_cmd
         from .logs        import setlogchannel_cmd
-        from .utils_cmds  import id_cmd, info_cmd
+        from .utils_cmds  import id_cmd, userinfo_cmd
 
         _g = 20   # Base handler group (above existing bot handlers)
 
@@ -88,8 +88,8 @@ def register_group_handlers(app: Application) -> None:
         app.add_handler(CommandHandler("setlogchannel", setlogchannel_cmd), group=_g)
 
         # ── Utilities ──────────────────────────────────────────────────────────
-        app.add_handler(CommandHandler("id",   id_cmd),   group=_g)
-        app.add_handler(CommandHandler("info", info_cmd), group=_g)
+        app.add_handler(CommandHandler("id",       id_cmd),       group=_g)
+        app.add_handler(CommandHandler("userinfo", userinfo_cmd), group=_g)
 
         # ── Message guards (groups only, non-commands) ─────────────────────────
         _grp_msg = filters.ChatType.GROUPS & ~filters.COMMAND

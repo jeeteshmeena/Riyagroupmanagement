@@ -40,8 +40,8 @@ async def id_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.error(f"[GCP-Utils] id_cmd: {e}")
 
 
-async def info_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/info [reply or user_id] — show detailed user info"""
+async def userinfo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/userinfo [reply or user_id] — show detailed user info"""
     try:
         chat_id = update.effective_chat.id
         target = None

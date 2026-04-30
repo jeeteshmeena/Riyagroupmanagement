@@ -166,24 +166,37 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         # ── NSFW sub-panel ─────────────────────────────────────────────────────
         if action == "grp_nsfw":
-            nsfw = s.get("nsfw_strict", True)
+            nsfw_on = s.get("nsfw", True)
+            nsfw_strict = s.get("nsfw_strict", True)
             text = (
-                f"<b>🚫 NSFW Control</b>\n{_DIV}\n\n"
-                f"Strict mode: <b>{'🟢 ON' if nsfw else '🔴 OFF'}</b>\n\n"
-                "<i>• Strict: delete → warn → mute → ban\n"
-                "• Non-strict: delete only</i>"
+                f"<b>🚫 NSFW Guard</b>\n{_DIV}\n\n"
+                f"System: <b>{'🟢 Enabled' if nsfw_on else '🔴 Disabled'}</b>\n"
+                f"Mode: <b>{'Strict' if nsfw_strict else 'Lenient'}</b>\n\n"
+                "<i>• Strict mode: Deletes content, then warns/mutes/bans the user depending on their warn count.\n"
+                "• Lenient mode: Only deletes the content.</i>"
             )
             markup = InlineKeyboardMarkup([
                 [InlineKeyboardButton(
-                    f"{'🟢' if nsfw else '🔴'} Toggle Strict",
-                    callback_data="grp_nsfw_toggle"
+                    f"{'🔴 Turn OFF' if nsfw_on else '🟢 Turn ON'}",
+                    callback_data="grp_nsfw_toggle_main"
+                )],
+                [InlineKeyboardButton(
+                    f"{'🔀 Switch to Lenient' if nsfw_strict else '🔀 Switch to Strict'}",
+                    callback_data="grp_nsfw_toggle_strict"
                 )],
                 [InlineKeyboardButton("« Back", callback_data="grp_back")],
             ])
             await query.edit_message_text(text, parse_mode="HTML", reply_markup=markup)
             return
 
-        if action == "grp_nsfw_toggle":
+        if action == "grp_nsfw_toggle_main":
+            s["nsfw"] = not s.get("nsfw", True)
+            save_settings(chat_id, s)
+            query.data = "grp_nsfw"
+            await panel_callback(update, context)
+            return
+
+        if action == "grp_nsfw_toggle_strict":
             s["nsfw_strict"] = not s.get("nsfw_strict", True)
             save_settings(chat_id, s)
             query.data = "grp_nsfw"
@@ -195,17 +208,17 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             locks = s.get("locks", {})
             buttons = [
                 [InlineKeyboardButton(
-                    f"{'🔒' if locks.get(k) else '🔓'} {k.capitalize()}",
+                    f"{'🟢' if locks.get(k) else '🔴'} Lock {k.capitalize()}",
                     callback_data=f"grp_lock_toggle_{k}",
                 )]
                 for k in ("links", "media", "stickers", "forwards")
             ]
             buttons.append([InlineKeyboardButton("« Back", callback_data="grp_back")])
             lines = "\n".join(
-                f"{'🔒' if locks.get(k) else '🔓'} {k.capitalize()}"
+                f"{'🟢 Locked' if locks.get(k) else '🔴 Unlocked'} : <b>{k.capitalize()}</b>"
                 for k in ("links", "media", "stickers", "forwards")
             )
-            text = f"<b>🔒 Locks</b>\n{_DIV}\n\n{lines}\n\n<i>Tap to toggle each lock.</i>"
+            text = f"<b>🔒 Locks Configuration</b>\n{_DIV}\n\n{lines}\n\n<i>Tap the buttons below to lock/unlock specific content types. Locked content will be automatically deleted when sent by normal users.</i>"
             await query.edit_message_text(
                 text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(buttons)
             )
@@ -287,7 +300,7 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             text = (
                 f"<b>⚙️ Utilities</b>\n{_DIV}\n\n"
                 "/id — Get chat/user IDs\n"
-                "/info [reply or user_id] — Detailed user profile\n"
+                "/userinfo [reply or user_id] — Detailed user profile\n"
                 "/rules — View group rules\n"
                 "/setrules &lt;text&gt; — Set group rules\n"
                 "/clearrules — Clear group rules\n"
