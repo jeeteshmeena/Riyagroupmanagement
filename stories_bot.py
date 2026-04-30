@@ -5086,11 +5086,121 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if section == "broadcast":
+        # Clear any previous broadcast state
+        try:
+            from plugins.broadcast import GLOBAL_BROADCAST_WAITING
+            GLOBAL_BROADCAST_WAITING.discard(user.id)
+        except Exception:
+            pass
+        context.user_data.pop("broadcast_selected", None)
+
+        total = len(chat_languages)
+        markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🌐 All Channels / Groups",       callback_data=f"cfg|bc_all||{caller_id}")],
+            [InlineKeyboardButton("✅ Select Specific Channels",     callback_data=f"cfg|bc_page|0|{caller_id}")],
+            [InlineKeyboardButton("✖ Cancel",                       callback_data=f"cfg|main||{caller_id}")],
+        ])
+        await query.edit_message_text(
+            f"📢 <b>Broadcast</b>\n<i>Total chats available: <b>{total}</b></i>\n\nChoose where to send:",
+            parse_mode="HTML", reply_markup=markup
+        )
+        return
+
+    # ── Broadcast: All channels ──────────────────────────────────────────────
+    if section == "bc_all":
+        context.user_data["broadcast_selected"] = None   # None = all chats
         from plugins.broadcast import GLOBAL_BROADCAST_WAITING
         GLOBAL_BROADCAST_WAITING.add(user.id)
         markup = InlineKeyboardMarkup([[InlineKeyboardButton("✖ Cancel", callback_data=f"cfg|main||{caller_id}")]])
-        msg = "📢 <b>Global Broadcast Mode</b>\n\nPlease send me the exact post you want to broadcast.\n\n<i>Note: You can send a Photo, Video, File, or Text with any custom formatting (bold, spoilers, expandable quotes). Once you send it, it will be immediately broadcast to all chats where I am an admin!</i>"
-        await query.edit_message_text(text=msg, parse_mode="HTML", reply_markup=markup)
+        await query.edit_message_text(
+            "📢 <b>Global Broadcast</b>\n\n"
+            "Send me the post — it will go to <b>all</b> chats.\n\n"
+            "<i>Supports: Photo, Video, GIF, File, Text with any Telegram formatting.</i>",
+            parse_mode="HTML", reply_markup=markup
+        )
+        return
+
+    # ── Broadcast: Paginated channel selection ───────────────────────────────
+    if section in ("bc_page", "bc_toggle"):
+        page = 0
+        toggled_cid = None
+
+        if section == "bc_page":
+            try: page = int(parts[2])
+            except: page = 0
+        else:  # bc_toggle
+            toggled_cid = parts[2]
+            try: page = int(parts[3])
+            except: page = 0
+
+        # Update selection set in user_data
+        selected = context.user_data.get("broadcast_selected")
+        if not isinstance(selected, set):
+            selected = set()
+        if toggled_cid:
+            if toggled_cid in selected:
+                selected.discard(toggled_cid)
+            else:
+                selected.add(toggled_cid)
+        context.user_data["broadcast_selected"] = selected
+
+        # Build chat list
+        all_chats = sorted(chat_languages.keys())
+        if GROUP_ID and str(GROUP_ID) not in all_chats:
+            all_chats.append(str(GROUP_ID))
+
+        ITEMS = 6
+        start = page * ITEMS
+        end   = start + ITEMS
+        page_chats  = all_chats[start:end]
+        total_pages = max(1, (len(all_chats) + ITEMS - 1) // ITEMS)
+
+        buttons = []
+        for cid in page_chats:
+            tick = "✅" if cid in selected else "⬜"
+            cb   = f"cfg|bc_toggle|{cid}|{page}|{caller_id}"
+            # Trim cid display to keep button readable
+            label = f"{tick} {cid}"
+            buttons.append([InlineKeyboardButton(label, callback_data=cb)])
+
+        # Pagination row
+        nav_row = []
+        if page > 0:
+            nav_row.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"cfg|bc_page|{page-1}|{caller_id}"))
+        nav_row.append(InlineKeyboardButton(f"📄 {page+1}/{total_pages}", callback_data=f"cfg|bc_page|{page}|{caller_id}"))
+        if end < len(all_chats):
+            nav_row.append(InlineKeyboardButton("Next ➡️", callback_data=f"cfg|bc_page|{page+1}|{caller_id}"))
+        buttons.append(nav_row)
+
+        cnt = len(selected)
+        if cnt > 0:
+            buttons.append([InlineKeyboardButton(f"📤 Send to {cnt} selected channel(s) ›", callback_data=f"cfg|bc_ready||{caller_id}")])
+        buttons.append([InlineKeyboardButton("✖ Cancel", callback_data=f"cfg|main||{caller_id}")])
+
+        text = (
+            f"✅ <b>Select Channels</b>  •  <i>{cnt} / {len(all_chats)} selected</i>\n"
+            f"<i>Page {page+1} of {total_pages}</i>\n\n"
+            "Tap a channel ID to toggle ✅ / ⬜ :"
+        )
+        await query.edit_message_text(text=text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(buttons))
+        return
+
+    # ── Broadcast: Confirm selected and wait for post ────────────────────────
+    if section == "bc_ready":
+        selected = context.user_data.get("broadcast_selected")
+        if not selected or len(selected) == 0:
+            await query.answer("⚠️ Select at least one channel first!", show_alert=True)
+            return
+        from plugins.broadcast import GLOBAL_BROADCAST_WAITING
+        GLOBAL_BROADCAST_WAITING.add(user.id)
+        cnt = len(selected)
+        markup = InlineKeyboardMarkup([[InlineKeyboardButton("✖ Cancel", callback_data=f"cfg|main||{caller_id}")]])
+        await query.edit_message_text(
+            f"📢 <b>Selective Broadcast</b>\n\n"
+            f"Send me the post — it will go to <b>{cnt} selected channel(s)</b>.\n\n"
+            "<i>Supports: Photo, Video, GIF, File, Text with any Telegram formatting.</i>",
+            parse_mode="HTML", reply_markup=markup
+        )
         return
 
     # ── Permission guard ────────────────────────────────────────────────────

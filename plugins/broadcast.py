@@ -17,38 +17,49 @@ broadcast_filter_instance = BroadcastFilter()
 async def broadcast_wait_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if not user or user.id not in GLOBAL_BROADCAST_WAITING:
-        # Not handled by this handler
-        return 
-        
-    # We must intercept it, but wait, python-telegram-bot's MessageHandler 
-    # doesn't easily stop propagation if we just return.
-    # Actually, in PTB, if a handler triggers, it stops propagation to other handlers in the SAME group.
-    # So if we put this in group 0, it stops it.
-    
+        return
+
     msg = update.message
     if not msg:
         return
 
     GLOBAL_BROADCAST_WAITING.remove(user.id)
 
-    from stories_bot import chat_languages, GROUP_ID
+    # Determine target chats
+    # None  → all chats from chat_languages
+    # set() → only selected chat IDs
+    selected = context.user_data.pop("broadcast_selected", None)
 
-    chats = set(chat_languages.keys())
-    if GROUP_ID:
-        chats.add(str(GROUP_ID))
-        
-    status_msg = await msg.reply_text(f"🚀 Broadcasting exact post to {len(chats)} groups/channels...")
-    
+    if selected is None:
+        # Broadcast to ALL
+        from stories_bot import chat_languages, GROUP_ID
+        chats = set(chat_languages.keys())
+        if GROUP_ID:
+            chats.add(str(GROUP_ID))
+        label = "all"
+    elif isinstance(selected, set) and len(selected) > 0:
+        chats = selected
+        label = f"{len(chats)} selected"
+    else:
+        await msg.reply_text("❌ No channels were selected. Broadcast cancelled.")
+        return
+
+    status_msg = await msg.reply_text(f"🚀 Broadcasting to <b>{label}</b> chats ({len(chats)} total)…", parse_mode="HTML")
+
     success = 0
-    failed = 0
-    
+    failed  = 0
+
     for cid in chats:
         try:
             await msg.copy(chat_id=int(cid))
             success += 1
-            await asyncio.sleep(0.05) # flood control
-        except Exception as e:
+            await asyncio.sleep(0.05)   # flood control
+        except Exception:
             failed += 1
 
-    await status_msg.edit_text(f"✅ <b>Global Broadcast Complete!</b>\n\nSuccesful: {success}\nFailed: {failed}", parse_mode="HTML")
-    return
+    await status_msg.edit_text(
+        f"✅ <b>Broadcast Complete!</b>\n\n"
+        f"✔ Successful : <b>{success}</b>\n"
+        f"✘ Failed     : <b>{failed}</b>",
+        parse_mode="HTML"
+    )
