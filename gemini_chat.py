@@ -415,10 +415,9 @@ async def process_gemini_message(
         )
     elif is_voice:
         sys_note = (
-            "[INSTRUCTION: VOICE NOTE MODE. "
-            "1. Reply as Riya (a real girl) leaving a short, natural WhatsApp voice note for a friend. "
-            "2. CRITICAL: NEVER mention that you are sending a voice note, NEVER say 'tumne manga hai isliye bhej rahi hun' or 'main bol rahi hun'. "
-            "3. Just start talking directly. Keep it under 2 sentences. Use natural filler words like 'hmm', 'arre yaar', 'achha'.]"
+            "[INSTRUCTION: This is a VOICE NOTE. Just provide the exact conversational spoken words you want to say. "
+            "Start talking directly like a real girl. Use natural filler words (hmm, acha, yaar). "
+            "Keep it under 2 sentences. Do NOT include any action tags, meta-text, or mention that this is a voice note.]"
         )
     elif user_words <= 5:
         sys_note = "[INSTRUCTION: Very short message. Reply in max 1-2 casual lines.]"

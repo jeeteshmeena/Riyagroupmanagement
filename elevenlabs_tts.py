@@ -40,15 +40,10 @@ DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"  # Rachel — free pre-made voice
 #   Dorothy  : ThT5KcBeYPX3keUQqHPh  (warm, nurturing)
 # NOTE: Library/community voices (like Aria) require PAID plan — use pre-made voices only
 
-# ── Highly expressive settings — maximum human-like emotion ────────────────────
-# stability=0.18: very low → maximum natural pitch variation (laughter, sadness,
-#   surprise, anger all come through naturally instead of flat robotic tone)
-# style=0.82: very high → Riya sounds passionate, intense, genuinely emotional
-# similarity_boost=0.85: stays true to the voice character
 _VOICE_SETTINGS_EXPRESSIVE = {
-    "stability":         0.18,   # LOW = maximum emotional range (human-like variation)
-    "similarity_boost":  0.85,   # High voice fidelity
-    "style":             0.82,   # HIGH = passionate, intense, emotional delivery
+    "stability":         0.40,   # Balanced stability for natural tone without being too erratic
+    "similarity_boost":  0.75,   # High voice fidelity
+    "style":             0.40,   # Moderate style to prevent over-dramatic delivery
     "use_speaker_boost": True,   # Clarity and presence boost
 }
 
@@ -124,7 +119,15 @@ def _do_tts(text: str, voice_id: str, api_key: str, lang: str = "auto") -> bytes
 async def synthesize(text: str, voice_id: str, api_key: str, lang: str = "auto") -> bytes:
     """Async wrapper — returns MP3 bytes or raises on failure."""
     vid   = voice_id or DEFAULT_VOICE_ID
-    clean = re.sub(r"<[^>]+>", "", text).strip()
+    # Strip HTML tags
+    clean = re.sub(r"<[^>]+>", "", text)
+    # Strip markdown asterisks completely, and any text inside them (e.g. *laughs*)
+    clean = re.sub(r"\*.*?\*", "", clean)
+    # Strip text inside parentheses (e.g. (giggles))
+    clean = re.sub(r"\(.*?\)", "", clean)
+    # Strip any remaining standalone asterisks
+    clean = clean.replace("*", "").strip()
+
     if not clean:
-        raise ValueError("Empty text after HTML strip")
+        raise ValueError("Empty text after cleaning")
     return await asyncio.to_thread(_do_tts, clean, vid, api_key, lang)

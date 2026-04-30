@@ -119,8 +119,16 @@ def _do_tts(text: str, speaker: str, api_key: str) -> bytes:
 async def synthesize(text: str, voice_id: str, api_key: str, gender: str = "female") -> bytes:
     """Async wrapper — returns WAV bytes or raises on failure."""
     speaker = _resolve_speaker(voice_id, gender)
-    clean   = re.sub(r"<[^>]+>", "", text).strip()
+    # Strip HTML tags
+    clean = re.sub(r"<[^>]+>", "", text)
+    # Strip markdown asterisks completely, and any text inside them (e.g. *laughs*)
+    clean = re.sub(r"\*.*?\*", "", clean)
+    # Strip text inside parentheses (e.g. (giggles))
+    clean = re.sub(r"\(.*?\)", "", clean)
+    # Strip any remaining standalone asterisks
+    clean = clean.replace("*", "").strip()
+    
     if not clean:
-        raise ValueError("Empty text after HTML strip")
+        raise ValueError("Empty text after cleaning")
     return await asyncio.to_thread(_do_tts, clean, speaker, api_key)
 
