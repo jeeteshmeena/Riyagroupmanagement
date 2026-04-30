@@ -25,19 +25,35 @@ async def _is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
 
 
 async def _get_target(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Return (user, reason_str) from a reply or first argument."""
+    """Return (user, reason_str) from a reply, text mention, or first argument."""
+    # 1. Reply
     if update.message and update.message.reply_to_message:
         u = update.message.reply_to_message.from_user
         reason = " ".join(context.args) if context.args else ""
         return u, reason
+
+    # 2. Text Mention
+    if update.message and update.message.entities:
+        for ent in update.message.entities:
+            if ent.type == "text_mention" and ent.user:
+                reason = update.message.text[ent.offset+ent.length:].strip()
+                return ent.user, reason
+            if ent.type == "mention":
+                # We can't resolve @usernames easily via Bot API
+                pass
+
+    # 3. User ID
     if context.args:
         try:
             uid = int(context.args[0])
             cm = await context.bot.get_chat_member(update.effective_chat.id, uid)
             reason = " ".join(context.args[1:])
             return cm.user, reason
+        except ValueError:
+            pass # Not an integer
         except Exception:
             pass
+
     return None, ""
 
 
@@ -58,7 +74,7 @@ async def ban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
         target, reason = await _get_target(update, context)
         if not target:
-            await update.message.reply_text("⚠️ Reply to a user or provide a user_id.")
+            await update.message.reply_text("⚠️ Reply to a user, provide their ID, or use a direct click-mention (not @username).")
             return
         
         chat = update.effective_chat
@@ -109,7 +125,7 @@ async def unban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
         target, _ = await _get_target(update, context)
         if not target:
-            await update.message.reply_text("⚠️ Reply to a user or provide a user_id.")
+            await update.message.reply_text("⚠️ Reply to a user, provide their ID, or use a direct click-mention (not @username).")
             return
         
         await context.bot.unban_chat_member(update.effective_chat.id, target.id, only_if_banned=True)
@@ -130,20 +146,20 @@ async def mute_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
         target, reason = await _get_target(update, context)
         if not target:
-            await update.message.reply_text("⚠️ Reply to a user or provide a user_id.")
+            await update.message.reply_text("⚠️ Reply to a user, provide their ID, or use a direct click-mention (not @username).")
             return
         
         chat = update.effective_chat
         admin = update.effective_user
         
-        # Check if already muted (has right to speak)
+        # Check if already muted
         try:
             m = await context.bot.get_chat_member(chat.id, target.id)
             if m.status in ("left", "kicked"):
-                await update.message.reply_text("This user isn't even in the chat, unmuting them won't make them talk more than they already do!")
+                await update.message.reply_text("This user isn't even in the chat, muting them won't do much!")
                 return
-            if m.can_send_messages is False:
-                await update.message.reply_text(f"This user already has the right to speak in <b>{chat.title}</b> .", parse_mode="HTML")
+            if m.status == "restricted" and m.can_send_messages is False:
+                await update.message.reply_text(f"This user is already muted in <b>{chat.title}</b>.", parse_mode="HTML")
                 return
         except Exception:
             pass
@@ -201,16 +217,19 @@ async def unmute_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             return
         target, _ = await _get_target(update, context)
         if not target:
-            await update.message.reply_text("⚠️ Reply to a user or provide a user_id.")
+            await update.message.reply_text("⚠️ Reply to a user, provide their ID, or use a direct click-mention (not @username).")
             return
         
         chat = update.effective_chat
         
-        # Check if in chat
+        # Check if in chat and if already unmuted
         try:
             m = await context.bot.get_chat_member(chat.id, target.id)
             if m.status in ("left", "kicked"):
                 await update.message.reply_text("This user isn't even in the chat, unmuting them won't make them talk more than they already do!")
+                return
+            if m.status != "restricted" or m.can_send_messages is not False:
+                await update.message.reply_text(f"This user already has the right to speak in <b>{chat.title}</b> .", parse_mode="HTML")
                 return
         except Exception:
             pass
@@ -242,7 +261,7 @@ async def warn_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
         target, reason = await _get_target(update, context)
         if not target:
-            await update.message.reply_text("⚠️ Reply to a user or provide a user_id.")
+            await update.message.reply_text("⚠️ Reply to a user, provide their ID, or use a direct click-mention (not @username).")
             return
         
         chat_id = update.effective_chat.id
@@ -347,7 +366,7 @@ async def kick_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
         target, reason = await _get_target(update, context)
         if not target:
-            await update.message.reply_text("⚠️ Reply to a user or provide a user_id.")
+            await update.message.reply_text("⚠️ Reply to a user, provide their ID, or use a direct click-mention (not @username).")
             return
         
         chat = update.effective_chat
