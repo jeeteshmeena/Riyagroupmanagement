@@ -7,6 +7,7 @@ Admin moderation commands: /ban /unban /mute /unmute /warn /dban /dmute /dwarn /
 - Inline buttons for /mute (🔘 Unmute) and /warn (🔘 Remove Warn)
 """
 import logging
+import html
 from telegram import Update, ChatPermissions, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from .utils import get_settings, save_settings, add_warn, reset_warns, is_enabled
@@ -25,7 +26,7 @@ async def _is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
 
 
 async def _get_target(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Return (user, reason_str) from a reply, text mention, or first argument."""
+    """Return (user, reason_str) from a reply, text mention, @username, or user ID."""
     # 1. Reply
     if update.message and update.message.reply_to_message:
         u = update.message.reply_to_message.from_user
@@ -38,20 +39,17 @@ async def _get_target(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if ent.type == "text_mention" and ent.user:
                 reason = update.message.text[ent.offset+ent.length:].strip()
                 return ent.user, reason
-            if ent.type == "mention":
-                # We can't resolve @usernames easily via Bot API
-                pass
 
-    # 3. User ID
+    # 3. User ID or @username
     if context.args:
+        arg = context.args[0]
+        reason = " ".join(context.args[1:])
         try:
-            uid = int(context.args[0])
-            cm = await context.bot.get_chat_member(update.effective_chat.id, uid)
-            reason = " ".join(context.args[1:])
+            # Bot API get_chat_member supports @username!
+            cm = await context.bot.get_chat_member(update.effective_chat.id, arg)
             return cm.user, reason
-        except ValueError:
-            pass # Not an integer
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Could not resolve target '{arg}': {e}")
             pass
 
     return None, ""
@@ -174,7 +172,7 @@ async def mute_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             if m.status in ("left", "kicked"):
                 await update.message.reply_text("This user isn't even in the chat, muting them won't do much!")
                 return
-            if m.status == "restricted" and m.can_send_messages is False:
+            if m.status in ("restricted", "member") and m.can_send_messages is False:
                 await update.message.reply_text(f"This user is already muted in <b>{chat.title}</b>.", parse_mode="HTML")
                 return
         except Exception:
@@ -185,19 +183,19 @@ async def mute_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             permissions=ChatPermissions(can_send_messages=False),
         )
         
-        res = reason if reason else "No reason provided"
+        res = html.escape(reason) if reason else "No reason provided"
         markup = InlineKeyboardMarkup([[
             InlineKeyboardButton("🔘 Unmute", callback_data=f"mod_unmute_{target.id}")
         ]])
         
         await update.message.reply_text(
-            f"<a href=\"tg://user?id={target.id}\">{target.full_name}</a> was muted by <a href=\"tg://user?id={admin.id}\">{admin.full_name}</a> in <b>{chat.title}</b>\n"
+            f"<a href=\"tg://user?id={target.id}\">{html.escape(target.full_name)}</a> was muted by <a href=\"tg://user?id={admin.id}\">{html.escape(admin.full_name)}</a> in <b>{html.escape(chat.title)}</b>\n"
             f"<b>Reason: {res}</b>",
             parse_mode="HTML",
             reply_markup=markup
         )
         await send_log(context, chat.id,
-                       f"🔇 Muted <a href=\"tg://user?id={target.id}\">{target.full_name}</a> ({target.id}).\nReason: {res}")
+                       f"🔇 Muted <a href=\"tg://user?id={target.id}\">{html.escape(target.full_name)}</a> ({target.id}).\nReason: {res}")
     except Exception as e:
         logger.error(f"[GCP-Mod] mute_cmd: {e}")
 
@@ -244,7 +242,7 @@ async def unmute_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             if m.status in ("left", "kicked"):
                 await update.message.reply_text("This user isn't even in the chat, unmuting them won't make them talk more than they already do!")
                 return
-            if m.status != "restricted" or m.can_send_messages is not False:
+            if m.status == "member" or (m.status == "restricted" and m.can_send_messages is not False):
                 await update.message.reply_text(f"This user already has the right to speak in <b>{chat.title}</b> .", parse_mode="HTML")
                 return
         except Exception:
@@ -530,7 +528,7 @@ async def unmute_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         
         await query.answer("User unmuted!")
         await query.edit_message_text(
-            f"Yep , This User Unmuted by <a href=\"tg://user?id={admin.id}\">{admin.full_name}</a> In <b>{chat.title}</b> .",
+            f"Yep, this user was unmuted by <a href=\"tg://user?id={admin.id}\">{html.escape(admin.full_name)}</a> in <b>{html.escape(chat.title)}</b>.",
             parse_mode="HTML"
         )
     except Exception as e:
