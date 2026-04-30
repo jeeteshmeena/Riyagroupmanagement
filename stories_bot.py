@@ -4428,17 +4428,16 @@ def _cfg_main_panel(caller_id: int, lang: str = "en") -> tuple:
             InlineKeyboardButton("⚙ Maintenance", callback_data=f"cfg|maintenance||{caller_id}"),
             InlineKeyboardButton("▷ Scheduler",   callback_data=f"cfg|scheduler||{caller_id}"),
         ],
+        [
             InlineKeyboardButton("⊘ Global Ban",  callback_data=f"cfg|gban||{caller_id}"),
-        ],
-        [
             InlineKeyboardButton("◎ AI & Voice",  callback_data=f"cfg|aiconfig||{caller_id}"),
+        ],
+        [
             InlineKeyboardButton("✦ Premium",     callback_data=f"cfg|premium_account||{caller_id}"),
-        ],
-        [
             InlineKeyboardButton("▤ Saved Posts", callback_data=f"cfg|savedposts||{caller_id}"),
-            InlineKeyboardButton("↺ Refresh",     callback_data=f"cfg|main||{caller_id}"),
         ],
         [
+            InlineKeyboardButton("↺ Refresh",     callback_data=f"cfg|main||{caller_id}"),
             InlineKeyboardButton("✖ Close",       callback_data=f"cfg|close||{caller_id}"),
         ],
     ])
