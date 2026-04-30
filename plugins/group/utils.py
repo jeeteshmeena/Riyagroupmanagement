@@ -34,7 +34,7 @@ _cache_ts: Dict[str, float] = {}
 _CACHE_TTL = 60.0
 
 _DEFAULT_SETTINGS: Dict[str, Any] = {
-    "enabled":     False,
+    "enabled":     True,
     "admins_only": False,
     "warn_limit":  3,
     "warn_mode":   "mute",  # "mute" or "ban"

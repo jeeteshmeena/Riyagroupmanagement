@@ -288,6 +288,9 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 f"<b>⚙️ Utilities</b>\n{_DIV}\n\n"
                 "/id — Get chat/user IDs\n"
                 "/info [reply or user_id] — Detailed user profile\n"
+                "/rules — View group rules\n"
+                "/setrules &lt;text&gt; — Set group rules\n"
+                "/clearrules — Clear group rules\n"
             )
             markup = InlineKeyboardMarkup([[
                 InlineKeyboardButton("« Back", callback_data="grp_back")
@@ -302,11 +305,16 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 "/ban [reason] — Ban a user\n"
                 "/dban [reason] — Delete msg + ban\n"
                 "/unban — Unban a user\n"
+                "/kick [reason] — Kick user (can rejoin)\n"
                 "/mute [reason] — Mute a user\n"
                 "/dmute [reason] — Delete msg + mute\n"
                 "/unmute — Unmute a user\n"
-                "/warn [reason] — Warn (auto-mute at limit)\n"
+                "/warn [reason] — Warn user\n"
                 "/setwarnlimit &lt;n&gt; — Set warn threshold\n"
+                "/purge — Delete msgs from replied to here\n"
+                "/del — Delete replied message\n"
+                "/pin [loud] — Pin message\n"
+                "/unpin — Unpin message(s)\n"
             )
             markup = InlineKeyboardMarkup([[
                 InlineKeyboardButton("« Back", callback_data="grp_back")

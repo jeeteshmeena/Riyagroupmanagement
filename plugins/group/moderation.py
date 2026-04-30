@@ -337,6 +337,131 @@ async def setwarnlimit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         logger.error(f"[GCP-Mod] setwarnlimit_cmd: {e}")
 
 
+# ── /kick ─────────────────────────────────────────────────────────────────────
+async def kick_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    try:
+        if not _in_group(update) or not is_enabled(update.effective_chat.id):
+            return
+        if not await _is_admin(update, context):
+            await update.message.reply_text("⛔ Admin only.")
+            return
+        target, reason = await _get_target(update, context)
+        if not target:
+            await update.message.reply_text("⚠️ Reply to a user or provide a user_id.")
+            return
+        
+        chat = update.effective_chat
+        admin = update.effective_user
+        
+        await context.bot.ban_chat_member(chat.id, target.id)
+        await context.bot.unban_chat_member(chat.id, target.id) # Unban immediately to just kick
+        
+        res = reason if reason else "No reason provided"
+        await update.message.reply_text(
+            f"Admin <a href=\"tg://user?id={admin.id}\">{admin.full_name}</a> has kicked <a href=\"tg://user?id={target.id}\">{target.full_name}</a> from <b>{chat.title}</b> !\n"
+            f"<b>Reason: {res}</b>",
+            parse_mode="HTML"
+        )
+        await send_log(context, chat.id,
+                       f"👢 Kicked <a href=\"tg://user?id={target.id}\">{target.full_name}</a> ({target.id}).\nReason: {res}")
+    except Exception as e:
+        logger.error(f"[GCP-Mod] kick_cmd: {e}")
+
+
+# ── /purge ────────────────────────────────────────────────────────────────────
+async def purge_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    try:
+        if not _in_group(update) or not is_enabled(update.effective_chat.id):
+            return
+        if not await _is_admin(update, context):
+            return
+        if not update.message or not update.message.reply_to_message:
+            await update.message.reply_text("⚠️ Reply to a message to purge from there to here.")
+            return
+        
+        start_id = update.message.reply_to_message.message_id
+        end_id = update.message.message_id
+        chat_id = update.effective_chat.id
+        
+        message_ids = list(range(start_id, end_id + 1))
+        
+        # Telegram allows max 100 messages to be deleted at once
+        for i in range(0, len(message_ids), 100):
+            batch = message_ids[i:i+100]
+            try:
+                await context.bot.delete_messages(chat_id, batch)
+            except Exception:
+                pass
+                
+        msg = await update.message.reply_text(f"🗑 Purged {len(message_ids)} messages.")
+        import asyncio
+        asyncio.create_task(asyncio.sleep(3)) # Wait 3 sec then delete the notification
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+    except Exception as e:
+        logger.error(f"[GCP-Mod] purge_cmd: {e}")
+
+
+# ── /del ──────────────────────────────────────────────────────────────────────
+async def del_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    try:
+        if not _in_group(update) or not is_enabled(update.effective_chat.id):
+            return
+        if not await _is_admin(update, context):
+            return
+        if not update.message or not update.message.reply_to_message:
+            await update.message.reply_text("⚠️ Reply to a message to delete it.")
+            return
+        
+        try:
+            await update.message.reply_to_message.delete()
+            await update.message.delete()
+        except Exception:
+            pass
+    except Exception as e:
+        logger.error(f"[GCP-Mod] del_cmd: {e}")
+
+
+# ── /pin & /unpin ─────────────────────────────────────────────────────────────
+async def pin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    try:
+        if not _in_group(update) or not is_enabled(update.effective_chat.id):
+            return
+        if not await _is_admin(update, context):
+            return
+        if not update.message or not update.message.reply_to_message:
+            await update.message.reply_text("⚠️ Reply to a message to pin it.")
+            return
+        
+        disable_notification = True
+        if context.args and context.args[0].lower() == "loud":
+            disable_notification = False
+            
+        await update.message.reply_to_message.pin(disable_notification=disable_notification)
+        await update.message.reply_text("📌 Message pinned.")
+    except Exception as e:
+        logger.error(f"[GCP-Mod] pin_cmd: {e}")
+
+
+async def unpin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    try:
+        if not _in_group(update) or not is_enabled(update.effective_chat.id):
+            return
+        if not await _is_admin(update, context):
+            return
+            
+        if update.message and update.message.reply_to_message:
+            await update.message.reply_to_message.unpin()
+            await update.message.reply_text("📌 Message unpinned.")
+        else:
+            await context.bot.unpin_all_chat_messages(update.effective_chat.id)
+            await update.message.reply_text("📌 All messages unpinned.")
+    except Exception as e:
+        logger.error(f"[GCP-Mod] unpin_cmd: {e}")
+
+
 # ── Callbacks ─────────────────────────────────────────────────────────────────
 async def unmute_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
