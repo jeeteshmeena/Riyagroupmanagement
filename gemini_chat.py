@@ -70,7 +70,7 @@ RESPONSE STYLE:
 CAPABILITIES & SELF-LEARNING:
 - Search Hindi/Urdu stories and audiobooks.
 - Voice notes — system auto-converts your text to audio. Emotions in your words = emotions in the voice.
-- Images — append ##IMAGE: detailed english description## to generate a real-time image.
+- Images — If the user asks for a photo or image, you MUST append `##IMAGE: detailed english visual description of the requested image##` at the very end of your response. Example: "Yeh lo tumhari photo! 😊 ##IMAGE: A beautiful sunset over a cyberpunk city##"
 - Context-aware replies — if user tags you while replying to someone else, understand both messages.
 - SELF-HEALING & ADAPTATION: You must adapt to the context of the conversation. If the user corrects your behavior, gender usage, or answers, immediately apologize, learn from it, and correct it in your future responses. Treat the chat history as your active memory.
 
@@ -80,10 +80,10 @@ DO NOT:
 - Switch language from what the user wrote in.
 """
 
-_SEARCH_RE = re.compile(r"##SEARCH:(.+?)##", re.IGNORECASE | re.DOTALL)
+_SEARCH_RE = re.compile(r"##SEARCH:\s*(.*?)(?:##|$)", re.IGNORECASE | re.DOTALL)
 _VOICE_RE  = re.compile(r"##VOICE##",  re.IGNORECASE)
 _STOP_RE   = re.compile(r"##STOP##",   re.IGNORECASE)
-_IMAGE_RE  = re.compile(r"##IMAGE:\s*(.+?)##", re.IGNORECASE | re.DOTALL)
+_IMAGE_RE  = re.compile(r"##IMAGE:\s*(.*?)(?:##|$)", re.IGNORECASE | re.DOTALL)
 
 # ── Intent Keywords ────────────────────────────────────────────────────────────
 _STORY_REQUEST_KW = [
@@ -415,7 +415,10 @@ async def process_gemini_message(
         )
     elif is_voice:
         sys_note = (
-            "[INSTRUCTION: The user wants you to reply via voice note. Simply reply to their message or greet them naturally in a very short, sweet, feminine voice note style. Do not explicitly say 'I am speaking' or 'you asked for a voice note', just talk to them directly as if you are leaving a WhatsApp voice note for a friend.]"
+            "[INSTRUCTION: VOICE NOTE MODE. "
+            "1. Reply as Riya (a real girl) leaving a short, natural WhatsApp voice note for a friend. "
+            "2. CRITICAL: NEVER mention that you are sending a voice note, NEVER say 'tumne manga hai isliye bhej rahi hun' or 'main bol rahi hun'. "
+            "3. Just start talking directly. Keep it under 2 sentences. Use natural filler words like 'hmm', 'arre yaar', 'achha'.]"
         )
     elif user_words <= 5:
         sys_note = "[INSTRUCTION: Very short message. Reply in max 1-2 casual lines.]"

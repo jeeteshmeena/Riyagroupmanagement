@@ -6315,7 +6315,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     flux_url = (
                         f"https://image.pollinations.ai/prompt/"
                         f"{urllib.parse.quote(quality_prompt)}"
-                        f"?model=flux&width=1024&height=1024&nologo=true&enhance=true&seed={hash(img_prompt) % 99999}"
+                        f"?model=flux&width=1080&height=1080&nologo=true&seed={hash(img_prompt) % 99999}"
                     )
                     # Download image bytes and send — avoids Telegram URL timeout issues
                     _img_resp = _req_img.get(flux_url, timeout=30)
