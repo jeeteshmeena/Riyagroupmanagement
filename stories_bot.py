@@ -1401,11 +1401,16 @@ _ADMIN_COMMANDS = [
 _GROUP_COMMANDS = [
     ("/gcp",         "👮", "Open Group Control Panel (Admin)"),
     ("/rules",       "📜", "View the group rules"),
+    ("/setrules",    "📝", "Set group rules (Admin)"),
     ("/id",          "🆔", "Get your ID or chat ID"),
     ("/userinfo",    "👤", "Get detailed info about a user"),
+    ("/setwelcome",  "👋", "Set custom welcome message (Admin)"),
     ("/mute",        "🔇", "Mute a user (Admin)"),
+    ("/unmute",      "🔊", "Unmute a user (Admin)"),
     ("/ban",         "🚫", "Ban a user (Admin)"),
+    ("/unban",       "✅", "Unban a user (Admin)"),
     ("/warn",        "⚠️", "Warn a user (Admin)"),
+    ("/setwarnlimit","⚙️", "Set warn limit (Admin)"),
     ("/kick",        "👢", "Kick a user (Admin)"),
     ("/purge",       "🗑", "Purge messages (Admin)"),
 ]
@@ -4409,18 +4414,20 @@ def _cfg_main_panel(caller_id: int, lang: str = "en") -> tuple:
     markup = InlineKeyboardMarkup([
         [
             InlineKeyboardButton("◈ Language",    callback_data=f"cfg|lang||{caller_id}"),
+            InlineKeyboardButton("📢 Broadcast",  callback_data=f"cfg|broadcast||{caller_id}"),
+        ],
+        [
             InlineKeyboardButton("⌛ Timers",      callback_data=f"cfg|timers||{caller_id}"),
-        ],
-        [
             InlineKeyboardButton("⊞ Channels",    callback_data=f"cfg|sources||{caller_id}"),
+        ],
+        [
             InlineKeyboardButton("◫ Formats",     callback_data=f"cfg|formats||{caller_id}"),
-        ],
-        [
             InlineKeyboardButton("◉ System Info", callback_data=f"cfg|sysinfo||{caller_id}"),
-            InlineKeyboardButton("⚙ Maintenance", callback_data=f"cfg|maintenance||{caller_id}"),
         ],
         [
+            InlineKeyboardButton("⚙ Maintenance", callback_data=f"cfg|maintenance||{caller_id}"),
             InlineKeyboardButton("▷ Scheduler",   callback_data=f"cfg|scheduler||{caller_id}"),
+        ],
             InlineKeyboardButton("⊘ Global Ban",  callback_data=f"cfg|gban||{caller_id}"),
         ],
         [
@@ -5075,6 +5082,14 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("⛔ Only the admin who opened this menu can close it.", show_alert=True)
         return
 
+    if section == "broadcast":
+        from plugins.broadcast import GLOBAL_BROADCAST_WAITING
+        GLOBAL_BROADCAST_WAITING.add(user.id)
+        markup = InlineKeyboardMarkup([[InlineKeyboardButton("✖ Cancel", callback_data=f"cfg|main||{caller_id}")]])
+        msg = "📢 <b>Global Broadcast Mode</b>\n\nPlease send me the exact post you want to broadcast.\n\n<i>Note: You can send a Photo, Video, File, or Text with any custom formatting (bold, spoilers, expandable quotes). Once you send it, it will be immediately broadcast to all chats where I am an admin!</i>"
+        await query.edit_message_text(text=msg, parse_mode="HTML", reply_markup=markup)
+        return
+
     # ── Permission guard ────────────────────────────────────────────────────
     if not is_admin(user.id):
         await query.answer("⛔ Admin only.", show_alert=True)
@@ -5082,6 +5097,11 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
 
     # ── Main panel ──────────────────────────────────────────────────────────
     if section == "main":
+        try:
+            from plugins.broadcast import GLOBAL_BROADCAST_WAITING
+            GLOBAL_BROADCAST_WAITING.discard(user.id)
+        except Exception:
+            pass
         text, markup = _cfg_main_panel(caller_id, lang)
         await _edit_cfg(query, text, markup)
         await query.answer()
@@ -7556,6 +7576,12 @@ def start_bot():
     
     # PB Hook
     app.add_handler(post_builder_handler)
+    
+    from plugins.broadcast import broadcast_wait_handler, broadcast_filter_instance
+    app.add_handler(
+        MessageHandler(broadcast_filter_instance & ~filters.COMMAND, broadcast_wait_handler),
+        group=0
+    )
 
     app.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler)

@@ -313,8 +313,9 @@ async def warn_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 await send_log(context, chat_id,
                                f"🔇 <a href=\"tg://user?id={target.id}\">{target.full_name}</a> auto-muted after {limit} warnings.")
         else:
+            import html
             await update.message.reply_text(
-                f"User {target.full_name} has been warned!\n"
+                f"User {html.escape(target.full_name)} has been warned!\n"
                 f"They have {count}/{limit} warnings.",
                 parse_mode="HTML",
                 reply_markup=markup

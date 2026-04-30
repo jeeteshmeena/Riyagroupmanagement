@@ -39,9 +39,10 @@ def welcome_panel(chat_id: int) -> tuple:
 
 
 async def _send_welcome_msg(context, chat_id, msg_data, member=None, reply_to=None):
-    name = member.first_name if member else "Friend"
-    username = f"@{member.username}" if member and member.username else name
-    full_name = member.full_name if member else name
+    import html
+    name = html.escape(member.first_name) if member else "Friend"
+    username = f"@{html.escape(member.username)}" if member and member.username else name
+    full_name = html.escape(member.full_name) if member else name
     uid = member.id if member else 123456789
     
     content = msg_data.get("content", "Welcome!")
@@ -49,8 +50,11 @@ async def _send_welcome_msg(context, chat_id, msg_data, member=None, reply_to=No
     content = content.replace("{name}", f"<b>{name}</b>")
     content = content.replace("{first_name}", f"<b>{name}</b>")
     content = content.replace("{username}", username)
+    content = content.replace("{user_name}", username)
     content = content.replace("{user_fullname}", f"<b>{full_name}</b>")
+    content = content.replace("{fullname}", f"<b>{full_name}</b>")
     content = content.replace("{user_id}", str(uid))
+    content = content.replace("{id}", str(uid))
     
     file_type = msg_data.get("type", "text")
     file_id = msg_data.get("file_id")
@@ -70,6 +74,8 @@ async def _send_welcome_msg(context, chat_id, msg_data, member=None, reply_to=No
             await context.bot.send_animation(animation=file_id, caption=content, **kwargs)
         elif file_type == "document":
             await context.bot.send_document(document=file_id, caption=content, **kwargs)
+        elif file_type == "sticker":
+            await context.bot.send_sticker(sticker=file_id, **{"chat_id": chat_id, "reply_to_message_id": reply_to} if reply_to else {"chat_id": chat_id})
     except Exception as e:
         logger.error(f"[GCP-Welcome] Failed to send: {e}")
 
@@ -138,6 +144,9 @@ async def setwelcome_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             elif rep.document:
                 file_id = rep.document.file_id
                 file_type = "document"
+            elif rep.sticker:
+                file_id = rep.sticker.file_id
+                file_type = "sticker"
             
             text = rep.caption or rep.text or ""
             if context.args:

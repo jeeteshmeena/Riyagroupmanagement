@@ -192,15 +192,55 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if action == "grp_nsfw_toggle_main":
             s["nsfw"] = not s.get("nsfw", True)
             save_settings(chat_id, s)
-            query.data = "grp_nsfw"
-            await panel_callback(update, context)
+            # Rebuild NSFW panel
+            nsfw_on = s.get("nsfw", True)
+            nsfw_strict = s.get("nsfw_strict", True)
+            text = (
+                f"<b>🚫 NSFW Guard</b>\n{_DIV}\n\n"
+                f"System: <b>{'🟢 Enabled' if nsfw_on else '🔴 Disabled'}</b>\n"
+                f"Mode: <b>{'Strict' if nsfw_strict else 'Lenient'}</b>\n\n"
+                "<i>• Strict mode: Deletes content, then warns/mutes/bans the user depending on their warn count.\n"
+                "• Lenient mode: Only deletes the content.</i>"
+            )
+            markup = InlineKeyboardMarkup([
+                [InlineKeyboardButton(
+                    f"{'🔴 Turn OFF' if nsfw_on else '🟢 Turn ON'}",
+                    callback_data="grp_nsfw_toggle_main"
+                )],
+                [InlineKeyboardButton(
+                    f"{'🔀 Switch to Lenient' if nsfw_strict else '🔀 Switch to Strict'}",
+                    callback_data="grp_nsfw_toggle_strict"
+                )],
+                [InlineKeyboardButton("« Back", callback_data="grp_back")],
+            ])
+            await query.edit_message_text(text, parse_mode="HTML", reply_markup=markup)
             return
 
         if action == "grp_nsfw_toggle_strict":
             s["nsfw_strict"] = not s.get("nsfw_strict", True)
             save_settings(chat_id, s)
-            query.data = "grp_nsfw"
-            await panel_callback(update, context)
+            # Rebuild NSFW panel
+            nsfw_on = s.get("nsfw", True)
+            nsfw_strict = s.get("nsfw_strict", True)
+            text = (
+                f"<b>🚫 NSFW Guard</b>\n{_DIV}\n\n"
+                f"System: <b>{'🟢 Enabled' if nsfw_on else '🔴 Disabled'}</b>\n"
+                f"Mode: <b>{'Strict' if nsfw_strict else 'Lenient'}</b>\n\n"
+                "<i>• Strict mode: Deletes content, then warns/mutes/bans the user depending on their warn count.\n"
+                "• Lenient mode: Only deletes the content.</i>"
+            )
+            markup = InlineKeyboardMarkup([
+                [InlineKeyboardButton(
+                    f"{'🔴 Turn OFF' if nsfw_on else '🟢 Turn ON'}",
+                    callback_data="grp_nsfw_toggle_main"
+                )],
+                [InlineKeyboardButton(
+                    f"{'🔀 Switch to Lenient' if nsfw_strict else '🔀 Switch to Strict'}",
+                    callback_data="grp_nsfw_toggle_strict"
+                )],
+                [InlineKeyboardButton("« Back", callback_data="grp_back")],
+            ])
+            await query.edit_message_text(text, parse_mode="HTML", reply_markup=markup)
             return
 
         # ── Locks sub-panel ────────────────────────────────────────────────────
@@ -226,11 +266,30 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         if action.startswith("grp_lock_toggle_"):
             key = action[len("grp_lock_toggle_"):]
-            if key in s.get("locks", {}):
-                s["locks"][key] = not s["locks"][key]
-                save_settings(chat_id, s)
-            query.data = "grp_locks"
-            await panel_callback(update, context)
+            if "locks" not in s:
+                s["locks"] = {}
+            # Defaults to False if not present
+            s["locks"][key] = not s["locks"].get(key, False)
+            save_settings(chat_id, s)
+            
+            # Rebuild Locks Panel
+            locks = s.get("locks", {})
+            buttons = [
+                [InlineKeyboardButton(
+                    f"{'🟢' if locks.get(k) else '🔴'} Lock {k.capitalize()}",
+                    callback_data=f"grp_lock_toggle_{k}",
+                )]
+                for k in ("links", "media", "stickers", "forwards")
+            ]
+            buttons.append([InlineKeyboardButton("« Back", callback_data="grp_back")])
+            lines = "\n".join(
+                f"{'🟢 Locked' if locks.get(k) else '🔴 Unlocked'} : <b>{k.capitalize()}</b>"
+                for k in ("links", "media", "stickers", "forwards")
+            )
+            text = f"<b>🔒 Locks Configuration</b>\n{_DIV}\n\n{lines}\n\n<i>Tap the buttons below to lock/unlock specific content types. Locked content will be automatically deleted when sent by normal users.</i>"
+            await query.edit_message_text(
+                text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(buttons)
+            )
             return
 
         # ── Warnings sub-panel ─────────────────────────────────────────────────
