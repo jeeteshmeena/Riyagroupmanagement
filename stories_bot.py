@@ -4947,10 +4947,14 @@ def _cfg_saved_post_action_panel(caller_id: int, fmt: str, post_id: str) -> tupl
         "Do you want to re-publish this post?"
     )
     
+    # NOTE: callback format is cfg|section|fmt|post_id|caller_id
+    # _cfg_nav appends "||caller_id" so back param must not include caller_id
+    back_cb = f"sp_fmt|{fmt}|0"
     buttons = [
-        [InlineKeyboardButton("📤 Publish 1-by-1 (Select Destination)", callback_data=f"cfg|spr_one|{fmt}|{post_id[:16]}|{caller_id}")],
-        [InlineKeyboardButton("🚀 Publish to All Config Sources", callback_data=f"cfg|spr_all|{fmt}|{post_id[:16]}|{caller_id}")],
-        _cfg_nav(caller_id, back=f"sp_fmt|{fmt}|0")
+        [InlineKeyboardButton("📤 Publish 1-by-1 (Select Destination)", callback_data=f"cfg|sp_rpl_one|{fmt}|{post_id}|{caller_id}")],
+        [InlineKeyboardButton("🚀 Publish to All Config Sources", callback_data=f"cfg|sp_rpl_all|{fmt}|{post_id}|{caller_id}")],
+        [InlineKeyboardButton("➦ Back", callback_data=f"cfg|sp_fmt|{fmt}|0|{caller_id}"),
+         InlineKeyboardButton("✖ Close", callback_data=f"cfg|close||{caller_id}")]
     ]
     return text, InlineKeyboardMarkup(buttons)
 
@@ -5609,7 +5613,8 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
         await _edit_cfg(query, text, markup)
         return  # outer dispatcher already answered
 
-    if section.startswith("sp_republish_"):
+    # ── Saved Posts: Republish (1-by-1 or All) ──────────────────────────────
+    if section in ("sp_rpl_one", "sp_rpl_all"):
         fmt = parts[2]
         post_id = parts[3]
         from database import load_saved_posts
@@ -5617,7 +5622,17 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
         posts = saved_db.get(fmt, [])
         post = next((p for p in posts if p["id"] == post_id), None)
         
+        # Fallback: search all formats if not found in exact fmt key
         if not post:
+            for k, kposts in saved_db.items():
+                found = next((p for p in kposts if p["id"] == post_id), None)
+                if found:
+                    post = found
+                    fmt = k
+                    break
+
+        if not post:
+            logger.error(f"[SP_RPL] post_id={post_id!r} not found in fmt={fmt!r}. DB keys={list(saved_db.keys())}")
             await query.answer("Post not found in history.", show_alert=True)
             return
             
@@ -5626,14 +5641,17 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["pb_data"]["post_mode"] = "new"
         context.user_data["pb_data"].pop("_wm_applied", None)
         
-        if section == "sp_republish_one":
+        if section == "sp_rpl_one":
             context.chat_data["config_state"] = "waiting_sp_republish_dest"
             context.chat_data["sp_republish_data"] = post["data"]
             await query.answer()
-            await query.message.reply_text("📤 <b>1-by-1 Publish Mode</b>\n\nPlease send the Channel Username (e.g. <code>@MyChannel</code>) or Channel ID where you want to republish this post.", parse_mode="HTML")
+            await query.message.reply_text(
+                "📤 <b>1-by-1 Publish Mode</b>\n\nPlease send the Channel Username (e.g. <code>@MyChannel</code>) or Channel ID where you want to republish this post.",
+                parse_mode="HTML"
+            )
             return
             
-        if section == "sp_republish_all":
+        if section == "sp_rpl_all":
             sources = bot_config.get("sources", [])
             if not sources:
                 await query.answer("No Config Sources defined!", show_alert=True)
