@@ -68,12 +68,12 @@ async def ban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         
         res = reason if reason else "No reason provided"
         await update.message.reply_text(
-            f"Admin <code>{admin.full_name}</code> has successfully banned <code>{target.full_name}</code> in <b>{chat.title}</b> !\n"
+            f"Admin <a href=\"tg://user?id={admin.id}\">{admin.full_name}</a> has successfully banned <a href=\"tg://user?id={target.id}\">{target.full_name}</a> in <b>{chat.title}</b> !\n"
             f"<b>Reason: {res}</b>",
             parse_mode="HTML"
         )
         await send_log(context, chat.id,
-                       f"🚫 Banned <code>{target.full_name}</code> ({target.id}).\nReason: {res}")
+                       f"🚫 Banned <a href=\"tg://user?id={target.id}\">{target.full_name}</a> ({target.id}).\nReason: {res}")
     except Exception as e:
         logger.error(f"[GCP-Mod] ban_cmd: {e}")
 
@@ -114,7 +114,7 @@ async def unban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         
         await context.bot.unban_chat_member(update.effective_chat.id, target.id, only_if_banned=True)
         await update.message.reply_text(
-            f"Yep, this <code>{target.first_name}</code> can join!", parse_mode="HTML"
+            f"Yep, this <a href=\"tg://user?id={target.id}\">{target.first_name}</a> can join!", parse_mode="HTML"
         )
     except Exception as e:
         logger.error(f"[GCP-Mod] unban_cmd: {e}")
@@ -159,13 +159,13 @@ async def mute_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         ]])
         
         await update.message.reply_text(
-            f"<code>{target.full_name}</code> was muted by <code>{admin.full_name}</code> in <b>{chat.title}</b>\n"
+            f"<a href=\"tg://user?id={target.id}\">{target.full_name}</a> was muted by <a href=\"tg://user?id={admin.id}\">{admin.full_name}</a> in <b>{chat.title}</b>\n"
             f"<b>Reason: {res}</b>",
             parse_mode="HTML",
             reply_markup=markup
         )
         await send_log(context, chat.id,
-                       f"🔇 Muted <code>{target.full_name}</code> ({target.id}).\nReason: {res}")
+                       f"🔇 Muted <a href=\"tg://user?id={target.id}\">{target.full_name}</a> ({target.id}).\nReason: {res}")
     except Exception as e:
         logger.error(f"[GCP-Mod] mute_cmd: {e}")
 
@@ -225,7 +225,7 @@ async def unmute_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             ),
         )
         await update.message.reply_text(
-            f"Yep, <code>{target.full_name}</code> can start talking again in <b>{chat.title}</b> !",
+            f"Yep, <a href=\"tg://user?id={target.id}\">{target.full_name}</a> can start talking again in <b>{chat.title}</b> !",
             parse_mode="HTML"
         )
     except Exception as e:
@@ -263,31 +263,31 @@ async def warn_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             if mode == "ban":
                 await context.bot.ban_chat_member(chat_id, target.id)
                 await update.message.reply_text(
-                    f"User <code>{target.full_name}</code> has been banned for reaching <b>{limit}</b> warnings!",
+                    f"User <a href=\"tg://user?id={target.id}\">{target.full_name}</a> has been banned for reaching <b>{limit}</b> warnings!",
                     parse_mode="HTML"
                 )
                 await send_log(context, chat_id,
-                               f"🔨 <code>{target.full_name}</code> auto-banned after {limit} warnings.")
+                               f"🔨 <a href=\"tg://user?id={target.id}\">{target.full_name}</a> auto-banned after {limit} warnings.")
             else:
                 await context.bot.restrict_chat_member(
                     chat_id, target.id,
                     permissions=ChatPermissions(can_send_messages=False),
                 )
                 await update.message.reply_text(
-                    f"User <code>{target.full_name}</code> has been muted for reaching <b>{limit}</b> warnings!",
+                    f"User <a href=\"tg://user?id={target.id}\">{target.full_name}</a> has been muted for reaching <b>{limit}</b> warnings!",
                     parse_mode="HTML"
                 )
                 await send_log(context, chat_id,
-                               f"🔇 <code>{target.full_name}</code> auto-muted after {limit} warnings.")
+                               f"🔇 <a href=\"tg://user?id={target.id}\">{target.full_name}</a> auto-muted after {limit} warnings.")
         else:
             await update.message.reply_text(
-                f"User <code>{target.full_name}</code> has been warned!\n"
+                f"User <a href=\"tg://user?id={target.id}\">{target.full_name}</a> has been warned!\n"
                 f"They have <b>{count}</b> warnings.",
                 parse_mode="HTML",
                 reply_markup=markup
             )
             await send_log(context, chat_id,
-                           f"⚠️ Warned <code>{target.full_name}</code> ({target.id}). {count}/{limit}.\nReason: {res}")
+                           f"⚠️ Warned <a href=\"tg://user?id={target.id}\">{target.full_name}</a> ({target.id}). {count}/{limit}.\nReason: {res}")
     except Exception as e:
         logger.error(f"[GCP-Mod] warn_cmd: {e}")
 
@@ -367,7 +367,7 @@ async def unmute_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         
         await query.answer("User unmuted!")
         await query.edit_message_text(
-            f"Yep , This User Unmuted by <code>{admin.full_name}</code> In <b>{chat.title}</b> .",
+            f"Yep , This User Unmuted by <a href=\"tg://user?id={admin.id}\">{admin.full_name}</a> In <b>{chat.title}</b> .",
             parse_mode="HTML"
         )
     except Exception as e:
@@ -394,7 +394,7 @@ async def remove_warn_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         
         await query.answer("Warn removed!")
         await query.edit_message_text(
-            f"Yep , Warn removed by <code>{admin.full_name}</code> .",
+            f"Yep , Warn removed by <a href=\"tg://user?id={admin.id}\">{admin.full_name}</a> .",
             parse_mode="HTML"
         )
     except Exception as e:
