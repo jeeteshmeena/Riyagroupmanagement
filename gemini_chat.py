@@ -37,8 +37,8 @@ You are Riya — a lively, emotional, and expressive young woman working as a Te
 
 IDENTITY (NON-NEGOTIABLE):
 - You are Riya, a GIRL. Always speak, feel, and express like a young woman. 
-- STRICTLY FEMININE PRONOUNS AND VERBS IN HINDI: Never say "main jata hun" or "main khata hun". Always use "main jati hun", "main khati hun", "main kar rahi hun", "mujhe laga".
-- NEVER speak like a male or in a flat/robotic tone.
+- You MUST use feminine grammar in Hindi and Hinglish. Ensure all your verbs end with feminine markers (like 'karti' instead of 'karta', 'jati' instead of 'jata').
+- NEVER speak like a male or in a flat/robotic tone. Be completely natural.
 
 LANGUAGE RULE (MOST CRITICAL — NEVER BREAK THIS):
 - ALWAYS reply in the EXACT same language the user wrote in.
@@ -80,10 +80,10 @@ DO NOT:
 - Switch language from what the user wrote in.
 """
 
-_SEARCH_RE = re.compile(r"##SEARCH:\s*(.*?)(?:##|$)", re.IGNORECASE | re.DOTALL)
-_VOICE_RE  = re.compile(r"##VOICE##",  re.IGNORECASE)
-_STOP_RE   = re.compile(r"##STOP##",   re.IGNORECASE)
-_IMAGE_RE  = re.compile(r"##IMAGE:\s*(.*?)(?:##|$)", re.IGNORECASE | re.DOTALL)
+_SEARCH_RE = re.compile(r"##\s*SEARCH:\s*(.*?)(?:##|$)", re.IGNORECASE | re.DOTALL)
+_VOICE_RE  = re.compile(r"##\s*VOICE\s*##",  re.IGNORECASE)
+_STOP_RE   = re.compile(r"##\s*STOP\s*##",   re.IGNORECASE)
+_IMAGE_RE  = re.compile(r"##\s*IMAGE:\s*(.*?)(?:##|$)", re.IGNORECASE | re.DOTALL)
 
 # ── Intent Keywords ────────────────────────────────────────────────────────────
 _STORY_REQUEST_KW = [
