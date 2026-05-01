@@ -4776,78 +4776,125 @@ def _get_voice_provider_now(ai_cfg: dict) -> str:
 
 
 def _cfg_aiconfig_panel(caller_id: int) -> tuple:
+    from ai_engine import PROVIDERS, get_ai_config
     ai_cfg   = bot_config.get("ai", {})
-    groq_key = "✅ Set" if ai_cfg.get("groq_key")        else "❌ Not Set"
-    gem_key  = "✅ Set" if ai_cfg.get("gemini_key")      else "❌ Not Set"
     sarv_key = "✅ Set" if ai_cfg.get("sarvam_key")      else "❌ Not Set"
     el_key   = "✅ Set" if ai_cfg.get("elevenlabs_key")  else "❌ Not Set"
     el_voice = ai_cfg.get("elevenlabs_voice_id", "default (Aria)")
     female_v = ai_cfg.get("voice_female", "sarvam:default-anushka")
     tts_mode = ai_cfg.get("tts_mode", "auto")
 
-    try:
-        active_ai = gemini_chat.get_active_provider()
-    except Exception:
-        active_ai = "Unknown"
+    eng_cfg  = get_ai_config()
+    primary  = eng_cfg.get("primary")
+    backup   = eng_cfg.get("backup")
+    pcfgs    = eng_cfg.get("providers", {})
+
+    p_name = PROVIDERS.get(primary, {}).get("name", "None") if primary else "None"
+    b_name = PROVIDERS.get(backup,  {}).get("name", "None") if backup  else "None"
 
     voice_now = _get_voice_provider_now(ai_cfg)
-    voice_labels = {
-        "sarvam":      "🎙 Sarvam AI (bulbul:v2)",
-        "elevenlabs":  "🎤 ElevenLabs (multilingual-v2)",
-        "none":        "❌ No TTS key set"
-    }
-    mode_labels = {"sarvam": "🎙 Sarvam", "elevenlabs": "🎤 ElevenLabs", "auto": "🔄 Auto (time-based)"}
+    mode_labels = {"sarvam": "🎙 Sarvam", "elevenlabs": "🎤 ElevenLabs", "auto": "🔄 Auto"}
+
+    # Build provider status lines
+    prov_lines = ""
+    for pid, info in PROVIDERS.items():
+        pc = pcfgs.get(pid, {})
+        has_key = bool(pc.get("api_key", "").strip())
+        on  = pc.get("enabled", False) and has_key
+        mark = "🟢" if on else "🔴"
+        tag  = " ← PRIMARY" if pid == primary else (" ← BACKUP" if pid == backup else "")
+        prov_lines += f"{mark} <b>{info['name']}</b>{tag}\n"
 
     text = (
         "<b>🤖 AI & Voice Configuration</b>\n"
         f"{_CFG_DIV}\n\n"
-        f"<b>── Chat AI ──</b>\n"
-        f"▪ Active: <code>{active_ai}</code>\n"
-        f"▪ Groq Key:    <code>{groq_key}</code>  <i>(primary, free)</i>\n"
-        f"▪ Gemini Key:  <code>{gem_key}</code>  <i>(fallback)</i>\n\n"
+        f"<b>── Chat AI Providers ──</b>\n"
+        f"<b>Primary:</b> <code>{p_name}</code>\n"
+        f"<b>Backup:</b>  <code>{b_name}</code>\n\n"
+        f"{prov_lines}\n"
         f"<b>── Voice TTS ──</b>\n"
-        f"▪ Sarvam Key:      <code>{sarv_key}</code>\n"
-        f"▪ ElevenLabs Key:  <code>{el_key}</code>\n"
-        f"▪ ElevenLabs Voice: <code>{el_voice}</code>\n"
-        f"▪ Sarvam Speaker:   <code>{female_v.replace('sarvam:default-', '')}</code>\n\n"
-        f"▪ <b>TTS Mode:</b> <code>{mode_labels.get(tts_mode, tts_mode)}</code>\n"
-        f"▪ <b>Active TTS now:</b> {voice_labels.get(voice_now)}\n"
-        f"<i>Auto schedule → Morning/Night: Sarvam | Afternoon/Eve: ElevenLabs</i>\n\n"
-        "<i>Send 'clear' when prompted to remove any key.</i>"
+        f"▪ Sarvam Key:     <code>{sarv_key}</code>\n"
+        f"▪ ElevenLabs Key: <code>{el_key}</code>\n"
+        f"▪ TTS Mode: <code>{mode_labels.get(tts_mode, tts_mode)}</code>\n\n"
+        "<i>Tap a provider to manage its key and toggle ON/OFF.</i>"
     )
-    markup = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("🔑 Groq Key",        callback_data=f"cfg|ai_groqkey||{caller_id}"),
-            InlineKeyboardButton("🔑 Gemini Key",      callback_data=f"cfg|ai_geminikey||{caller_id}"),
-        ],
+
+    # Provider buttons
+    buttons = []
+    for pid, info in PROVIDERS.items():
+        pc  = pcfgs.get(pid, {})
+        has = bool(pc.get("api_key", "").strip())
+        on  = pc.get("enabled", False) and has
+        icon = "🟢" if on else "🔴"
+        buttons.append([InlineKeyboardButton(
+            f"{icon} {info['name']}",
+            callback_data=f"cfg|ai_prov|{pid}|{caller_id}"
+        )])
+
+    buttons += [
         [
             InlineKeyboardButton("🎙 Sarvam Key",      callback_data=f"cfg|ai_sarvamkey||{caller_id}"),
             InlineKeyboardButton("🎤 ElevenLabs Key",  callback_data=f"cfg|ai_elkey||{caller_id}"),
         ],
         [
-            InlineKeyboardButton("🗣 ElevenLabs Voice ID", callback_data=f"cfg|ai_elvoice||{caller_id}"),
-            InlineKeyboardButton("👩 Sarvam Speaker", callback_data=f"cfg|ai_femalevoice||{caller_id}"),
+            InlineKeyboardButton("🗣 ElevenLabs Voice ID",  callback_data=f"cfg|ai_elvoice||{caller_id}"),
+            InlineKeyboardButton("👩 Sarvam Speaker",       callback_data=f"cfg|ai_femalevoice||{caller_id}"),
         ],
         [
-            InlineKeyboardButton("── TTS Mode Switch ──", callback_data=f"cfg|noop||{caller_id}"),
+            InlineKeyboardButton(f"{'✅' if tts_mode=='sarvam' else '◈'} Sarvam Only",
+                                 callback_data=f"cfg|ai_ttsmode|sarvam|{caller_id}"),
+            InlineKeyboardButton(f"{'✅' if tts_mode=='elevenlabs' else '◈'} ElevenLabs",
+                                 callback_data=f"cfg|ai_ttsmode|elevenlabs|{caller_id}"),
+            InlineKeyboardButton(f"{'✅' if tts_mode=='auto' else '◈'} Auto",
+                                 callback_data=f"cfg|ai_ttsmode|auto|{caller_id}"),
+        ],
+        _cfg_nav(caller_id, back="main"),
+    ]
+    return text, InlineKeyboardMarkup(buttons)
+
+
+def _cfg_ai_provider_panel(caller_id: int, pid: str) -> tuple:
+    """Single provider management panel."""
+    from ai_engine import PROVIDERS, get_ai_config
+    info   = PROVIDERS.get(pid, {})
+    eng    = get_ai_config()
+    pcfgs  = eng.get("providers", {})
+    pc     = pcfgs.get(pid, {})
+    has    = bool(pc.get("api_key", "").strip())
+    on     = pc.get("enabled", False) and has
+    model  = pc.get("model", info.get("model", ""))
+    primary = eng.get("primary")
+    backup  = eng.get("backup")
+
+    status = "🟢 Enabled" if on else "🔴 Disabled"
+    key_st = "✅ Key Set" if has else "❌ No Key"
+    is_pr  = "✅ YES" if pid == primary else "❌ No"
+    is_bk  = "✅ YES" if pid == backup  else "❌ No"
+
+    text = (
+        f"<b>🔧 {info.get('name','Provider')} Settings</b>\n{_CFG_DIV}\n\n"
+        f"Status:    <code>{status}</code>\n"
+        f"API Key:   <code>{key_st}</code>\n"
+        f"Model:     <code>{model}</code>\n"
+        f"Primary:   {is_pr}\n"
+        f"Backup:    {is_bk}\n\n"
+        f"<i>Free tier: {'Yes ✅' if info.get('free') else 'Paid 💳'}</i>"
+    )
+
+    buttons = [
+        [InlineKeyboardButton("🔑 Set / Update API Key",  callback_data=f"cfg|ai_setkey|{pid}|{caller_id}")],
+        [
+            InlineKeyboardButton("🟢 Enable"  if not on  else "🔴 Disable",
+                                 callback_data=f"cfg|ai_toggle|{pid}|{caller_id}"),
         ],
         [
-            InlineKeyboardButton(
-                f"{'✅' if tts_mode=='sarvam' else '◈'} Sarvam Only",
-                callback_data=f"cfg|ai_ttsmode|sarvam|{caller_id}"
-            ),
-            InlineKeyboardButton(
-                f"{'✅' if tts_mode=='elevenlabs' else '◈'} ElevenLabs Only",
-                callback_data=f"cfg|ai_ttsmode|elevenlabs|{caller_id}"
-            ),
-            InlineKeyboardButton(
-                f"{'✅' if tts_mode=='auto' else '◈'} Auto",
-                callback_data=f"cfg|ai_ttsmode|auto|{caller_id}"
-            ),
+            InlineKeyboardButton("⭐ Set as Primary", callback_data=f"cfg|ai_setprimary|{pid}|{caller_id}"),
+            InlineKeyboardButton("💾 Set as Backup",  callback_data=f"cfg|ai_setbackup|{pid}|{caller_id}"),
         ],
-        _cfg_nav(caller_id, back="main")
-    ])
-    return text, markup
+        [InlineKeyboardButton("➦ Back", callback_data=f"cfg|aiconfig||{caller_id}"),
+         InlineKeyboardButton("✖ Close", callback_data=f"cfg|close||{caller_id}")],
+    ]
+    return text, InlineKeyboardMarkup(buttons)
 
 
 def _cfg_voice_select_panel(caller_id: int, gender: str) -> tuple:
@@ -5486,6 +5533,77 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
         await query.answer()
         return
 
+    # ── AI: Single provider panel ────────────────────────────────────────────
+    if section == "ai_prov":
+        pid = parts[2]
+        text, markup = _cfg_ai_provider_panel(caller_id, pid)
+        await _edit_cfg(query, text, markup)
+        await query.answer()
+        return
+
+    # ── AI: Set API key for provider ─────────────────────────────────────────
+    if section == "ai_setkey":
+        from ai_engine import PROVIDERS
+        pid  = parts[2]
+        name = PROVIDERS.get(pid, {}).get("name", pid)
+        context.chat_data["ai_setkey_pid"]    = pid
+        context.chat_data["ai_setkey_caller"] = caller_id
+        context.chat_data["config_state"]     = "waiting_ai_key"
+        await query.answer()
+        await query.message.reply_text(
+            f"🔑 <b>Set API Key — {name}</b>\n\n"
+            f"Send me the API key for <b>{name}</b>.\n"
+            f"Send <code>clear</code> to remove the key.",
+            parse_mode="HTML"
+        )
+        return
+
+    # ── AI: Toggle provider ON/OFF ────────────────────────────────────────────
+    if section == "ai_toggle":
+        from ai_engine import toggle_provider, get_ai_config, PROVIDERS
+        pid = parts[2]
+        eng = get_ai_config()
+        pc  = eng.get("providers", {}).get(pid, {})
+        new_state = not (pc.get("enabled", False) and bool(pc.get("api_key", "").strip()))
+        if new_state and not pc.get("api_key", "").strip():
+            await query.answer("⚠️ Set an API key first!", show_alert=True)
+            return
+        toggle_provider(pid, new_state)
+        await query.answer(f"{'🟢 Enabled' if new_state else '🔴 Disabled'} {PROVIDERS.get(pid,{}).get('name', pid)}")
+        text, markup = _cfg_ai_provider_panel(caller_id, pid)
+        await _edit_cfg(query, text, markup)
+        return
+
+    # ── AI: Set Primary ───────────────────────────────────────────────────────
+    if section == "ai_setprimary":
+        from ai_engine import set_primary, get_ai_config, PROVIDERS
+        pid = parts[2]
+        pc  = get_ai_config().get("providers", {}).get(pid, {})
+        if not pc.get("enabled") or not pc.get("api_key", "").strip():
+            await query.answer("⚠️ Enable this provider first!", show_alert=True)
+            return
+        set_primary(pid)
+        name = PROVIDERS.get(pid, {}).get("name", pid)
+        await query.answer(f"⭐ {name} set as Primary")
+        text, markup = _cfg_ai_provider_panel(caller_id, pid)
+        await _edit_cfg(query, text, markup)
+        return
+
+    # ── AI: Set Backup ────────────────────────────────────────────────────────
+    if section == "ai_setbackup":
+        from ai_engine import set_backup, get_ai_config, PROVIDERS
+        pid = parts[2]
+        pc  = get_ai_config().get("providers", {}).get(pid, {})
+        if not pc.get("enabled") or not pc.get("api_key", "").strip():
+            await query.answer("⚠️ Enable this provider first!", show_alert=True)
+            return
+        set_backup(pid)
+        name = PROVIDERS.get(pid, {}).get("name", pid)
+        await query.answer(f"💾 {name} set as Backup")
+        text, markup = _cfg_ai_provider_panel(caller_id, pid)
+        await _edit_cfg(query, text, markup)
+        return
+
     # ── Premium Account ───────────────────────────────────────────────────────
     if section == "premium_account":
         import premium_userbot
@@ -5864,27 +5982,36 @@ async def handle_config_input(update: Update, context: ContextTypes.DEFAULT_TYPE
     # Check if we're waiting for config input
     state = context.chat_data.get("config_state")
     
-    if state in ("waiting_ai_groqkey", "waiting_ai_geminikey", "waiting_ai_sarvamkey",
-                 "waiting_ai_elkey",   "waiting_ai_elvoice"):
+    # ── New multi-provider key handler ───────────────────────────────────────
+    if state == "waiting_ai_key":
+        from ai_engine import set_provider_key, get_active_provider, PROVIDERS
+        pid     = context.chat_data.pop("ai_setkey_pid", None)
+        cal_id  = context.chat_data.pop("ai_setkey_caller", caller_id)
+        val     = text.strip()
+        is_clear = val.lower() == "clear"
+        context.chat_data.pop("config_state", None)
+        if pid:
+            name = PROVIDERS.get(pid, {}).get("name", pid)
+            new_key = "" if is_clear else val
+            set_provider_key(pid, new_key, enabled=bool(new_key))
+            if is_clear:
+                action_text = f"🔴 {name} API Key removed."
+            else:
+                action_text = f"✅ <b>{name}</b> key saved and enabled!"
+            provider_now = get_active_provider()
+            await update.message.reply_text(
+                f"<b>🤖 AI Config Updated</b>\n{action_text}\n\n"
+                f"<b>Active:</b> <code>{provider_now}</code>",
+                parse_mode="HTML"
+            )
+        return
+
+    if state in ("waiting_ai_sarvamkey", "waiting_ai_elkey", "waiting_ai_elvoice"):
         ai_cfg = bot_config.get("ai", {})
         val = text.strip()
         is_clear = val.lower() == "clear"
 
-        if state == "waiting_ai_groqkey":
-            ai_cfg["groq_key"] = "" if is_clear else val
-            bot_config["ai"] = ai_cfg
-            save_config(bot_config)
-            gemini_chat.reinit_groq(ai_cfg["groq_key"])
-            action_text = "Groq API Key cleared." if is_clear else "✅ Groq AI is now active as primary provider!"
-
-        elif state == "waiting_ai_geminikey":
-            ai_cfg["gemini_key"] = "" if is_clear else val
-            bot_config["ai"] = ai_cfg
-            save_config(bot_config)
-            gemini_chat.reinit_gemini(ai_cfg["gemini_key"])
-            action_text = "Gemini API Key cleared." if is_clear else "✅ Gemini key saved (used as fallback)."
-
-        elif state == "waiting_ai_sarvamkey":
+        if state == "waiting_ai_sarvamkey":
             ai_cfg["sarvam_key"] = "" if is_clear else val
             bot_config["ai"] = ai_cfg
             save_config(bot_config)
@@ -5894,7 +6021,7 @@ async def handle_config_input(update: Update, context: ContextTypes.DEFAULT_TYPE
             ai_cfg["elevenlabs_key"] = "" if is_clear else val
             bot_config["ai"] = ai_cfg
             save_config(bot_config)
-            action_text = "ElevenLabs key cleared." if is_clear else "✅ ElevenLabs key saved — ultra-realistic voice active Afternoon/Evening!"
+            action_text = "ElevenLabs key cleared." if is_clear else "✅ ElevenLabs key saved — ultra-realistic voice active!"
 
         elif state == "waiting_ai_elvoice":
             ai_cfg["elevenlabs_voice_id"] = "" if is_clear else val
@@ -5903,10 +6030,17 @@ async def handle_config_input(update: Update, context: ContextTypes.DEFAULT_TYPE
             action_text = "ElevenLabs voice ID reset to default (Aria)." if is_clear else f"✅ ElevenLabs voice set to: <code>{val}</code>"
 
         context.chat_data.pop("config_state", None)
-        provider_now = gemini_chat.get_active_provider()
         await update.message.reply_text(
-            f"<b>🤖 AI Config Updated</b>\n{action_text}\n\n"
-            f"<b>Active chat provider:</b> <code>{provider_now}</code>",
+            f"<b>🔊 Voice Config Updated</b>\n{action_text}",
+            parse_mode="HTML"
+        )
+        return
+
+    # Legacy: keep old waiting_ai_groqkey/geminikey states working gracefully
+    if state in ("waiting_ai_groqkey", "waiting_ai_geminikey"):
+        context.chat_data.pop("config_state", None)
+        await update.message.reply_text(
+            "ℹ️ Groq has been removed. Use <b>◎ AI & Voice → Provider → Set Key</b> to configure providers.",
             parse_mode="HTML"
         )
         return
