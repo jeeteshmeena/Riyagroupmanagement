@@ -229,7 +229,22 @@ def init_all():
         if c:
             _clients[pid] = c
 
-    logger.info(f"[AI] Active providers: {list(_clients.keys())} | Primary: {_ai_config.get('primary')} | Backup: {_ai_config.get('backup')}")
+    # Auto-repair: if primary points to dead/missing provider, fix it
+    primary = _ai_config.get("primary")
+    if primary and primary not in _clients:
+        new_primary = next(iter(_clients), None)
+        _ai_config["primary"] = new_primary
+        _save_ai_config(_ai_config)
+        logger.warning(f"[AI] Primary '{primary}' not available, switched to '{new_primary}'")
+
+    # Auto-repair: if primary is None but we have active clients, set one
+    if not _ai_config.get("primary") and _clients:
+        new_primary = next(iter(_clients))
+        _ai_config["primary"] = new_primary
+        _save_ai_config(_ai_config)
+        logger.info(f"[AI] Auto-set primary to '{new_primary}'")
+
+    logger.info(f"[AI] Clients ready: {list(_clients.keys())} | Primary: {_ai_config.get('primary')} | Backup: {_ai_config.get('backup')}")
 
 # ── API Calls ─────────────────────────────────────────────────────────────────
 async def _call_gemini(client, user_id: int, payload: str) -> str:
@@ -272,8 +287,18 @@ async def _call_provider(pid: str, user_id: int, payload: str) -> Optional[str]:
         return None
 
 async def _get_ai_raw(user_id: int, payload: str) -> str:
+    # Reload config to catch any updates made since last call
+    global _ai_config
+    fresh = _load_ai_config()
+    if fresh and fresh.get("providers"):
+        _ai_config = fresh
+
     primary = _ai_config.get("primary")
     backup  = _ai_config.get("backup")
+
+    if not _clients:
+        logger.error("[AI] No providers initialized! Check API keys and openai package.")
+        return ""
 
     # Try primary
     if primary and primary in _clients:
@@ -289,14 +314,20 @@ async def _get_ai_raw(user_id: int, payload: str) -> str:
             return result
         logger.warning(f"[AI] Backup ({backup}) also failed.")
 
-    # Last resort: try any available
+    # Last resort: try ANY available client
     for pid, client in _clients.items():
         if pid in (primary, backup):
             continue
         result = await _call_provider(pid, user_id, payload)
         if result:
-            logger.info(f"[AI] Fallback used: {pid}")
+            logger.info(f"[AI] Emergency fallback used: {pid}")
             return result
+
+    # All providers tried first one again as final attempt
+    first_pid = next(iter(_clients), None)
+    if first_pid:
+        logger.warning(f"[AI] All failed, final attempt with: {first_pid}")
+        return await _call_provider(first_pid, user_id, payload) or ""
 
     return ""
 
@@ -459,7 +490,8 @@ def get_active_provider() -> str:
     backup  = _ai_config.get("backup")
     p_name  = PROVIDERS.get(primary, {}).get("name", "None") if primary else "None"
     b_name  = PROVIDERS.get(backup,  {}).get("name", "None") if backup  else "None"
-    return f"Primary: {p_name} | Backup: {b_name}"
+    active_list = ", ".join(PROVIDERS.get(p, {}).get("name", p) for p in _clients)
+    return f"Primary: {p_name} | Backup: {b_name} | Ready: [{active_list or 'none'}]"
 
 def set_provider_key(pid: str, api_key: str, enabled: bool = True):
     """Add/update a provider's API key and enabled state."""
@@ -470,8 +502,12 @@ def set_provider_key(pid: str, api_key: str, enabled: bool = True):
     if pid not in cfg["providers"]:
         info = PROVIDERS.get(pid, {})
         cfg["providers"][pid] = {"model": info.get("model", ""), "enabled": False, "api_key": ""}
-    cfg["providers"][pid]["api_key"]  = api_key
-    cfg["providers"][pid]["enabled"]  = enabled
+    cfg["providers"][pid]["api_key"] = api_key
+    cfg["providers"][pid]["enabled"] = enabled
+    # Auto-set as primary if none is set and key is valid
+    if enabled and api_key and not cfg.get("primary"):
+        cfg["primary"] = pid
+        logger.info(f"[AI] Auto-set '{pid}' as primary (was None)")
     _save_ai_config(cfg)
     _ai_config = cfg
     init_all()
