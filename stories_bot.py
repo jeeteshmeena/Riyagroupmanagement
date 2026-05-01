@@ -317,12 +317,9 @@ else:
     MAINTENANCE_MODE = False
     MAINTENANCE_UNTIL = 0.0
 
-# Initialize AI keys from config if available (Groq = primary, Gemini = fallback)
-_ai_cfg = bot_config.get("ai", {})
-if _ai_cfg.get("groq_key"):
-    gemini_chat.reinit_groq(_ai_cfg["groq_key"])
-if _ai_cfg.get("gemini_key"):
-    gemini_chat.reinit_gemini(_ai_cfg["gemini_key"])
+# Initialize AI engine on startup (ai_engine.py handles all providers)
+from ai_engine import init_all as _init_ai_all
+_init_ai_all()
 logger.info(f"Active AI provider on startup: {gemini_chat.get_active_provider()}")
 
 # Global Scan Progress State
@@ -5696,69 +5693,55 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text("🔴 Premium userbot disconnected.", parse_mode="HTML")
         return
 
-    if section.startswith("ai_"):
-        if section == "ai_groqkey":
-            context.chat_data["config_state"] = "waiting_ai_groqkey"
-            text = (
-                "<b>🔑 Set Groq API Key</b>\n\n"
-                "Groq is free! Get your key at: <code>console.groq.com/keys</code>\n\n"
-                "Send your Groq API Key now. To remove it, send <code>clear</code>."
-            )
-            await query.answer()
-            await query.message.reply_text(text, parse_mode="HTML")
-            return
-        elif section == "ai_geminikey":
-            context.chat_data["config_state"] = "waiting_ai_geminikey"
-            text = "<b>🤖 Set Gemini API Key</b>\n\nPlease send your Google Gemini API Key. To remove it, send <code>clear</code>."
-            await query.answer()
-            await query.message.reply_text(text, parse_mode="HTML")
-            return
-        elif section == "ai_sarvamkey":
-            context.chat_data["config_state"] = "waiting_ai_sarvamkey"
-            text = (
-                "<b>🎙 Set Sarvam API Key</b>\n\n"
-                "Get your key at: <code>dashboard.sarvam.ai</code>\n\n"
-                "Send your Sarvam API Key now. To remove it, send <code>clear</code>."
-            )
-            await query.answer()
-            await query.message.reply_text(text, parse_mode="HTML")
-            return
-        elif section == "ai_elkey":
-            context.chat_data["config_state"] = "waiting_ai_elkey"
-            text = (
-                "<b>🎙 Set ElevenLabs API Key</b>\n\n"
-                "Get your free key at: <code>elevenlabs.io</code> → Profile → API Keys\n\n"
-                "ElevenLabs provides ultra-realistic human voice in Hindi + English.\n"
-                "Send your ElevenLabs API Key now. To remove it, send <code>clear</code>."
-            )
-            await query.answer()
-            await query.message.reply_text(text, parse_mode="HTML")
-            return
-        elif section == "ai_elvoice":
-            context.chat_data["config_state"] = "waiting_ai_elvoice"
-            text = (
-                "<b>🗣 Set ElevenLabs Voice ID</b>\n\n"
-                "Browse voices at <code>elevenlabs.io/voice-library</code>\n\n"
-                "<b>Recommended female voices:</b>\n"
-                "▸ Aria (warm) — <code>9BWtsMINqrJLrRacOk9x</code>\n"
-                "▸ Sarah (clear) — <code>EXAVITQu4vr4xnSDxMaL</code>\n"
-                "▸ Charlotte — <code>XB0fDUnXU5powFXDhCwa</code>\n"
-                "▸ Matilda (nurturing) — <code>XrExE9yKIg1WjnnlVkGX</code>\n\n"
-                "Send the Voice ID now (or send <code>clear</code> to use default)."
-            )
-            await query.answer()
-            await query.message.reply_text(text, parse_mode="HTML")
-            return
-        elif section == "ai_malevoice":
-            text, markup = _cfg_voice_select_panel(caller_id, "male")
-            await _edit_cfg(query, text, markup)
-            await query.answer()
-            return
-        elif section == "ai_femalevoice":
-            text, markup = _cfg_voice_select_panel(caller_id, "female")
-            await _edit_cfg(query, text, markup)
-            await query.answer()
-            return
+    # ── AI: Voice TTS key setters ────────────────────────────────────────────
+    if section == "ai_sarvamkey":
+        context.chat_data["config_state"] = "waiting_ai_sarvamkey"
+        await query.answer()
+        await query.message.reply_text(
+            "<b>🎙 Set Sarvam API Key</b>\n\n"
+            "Get your key at: <code>dashboard.sarvam.ai</code>\n"
+            "Send key now, or send <code>clear</code> to remove.",
+            parse_mode="HTML"
+        )
+        return
+
+    if section == "ai_elkey":
+        context.chat_data["config_state"] = "waiting_ai_elkey"
+        await query.answer()
+        await query.message.reply_text(
+            "<b>🎤 Set ElevenLabs API Key</b>\n\n"
+            "Get free key at: <code>elevenlabs.io</code> → Profile → API Keys\n"
+            "Send key now, or send <code>clear</code> to remove.",
+            parse_mode="HTML"
+        )
+        return
+
+    if section == "ai_elvoice":
+        context.chat_data["config_state"] = "waiting_ai_elvoice"
+        await query.answer()
+        await query.message.reply_text(
+            "<b>🗣 Set ElevenLabs Voice ID</b>\n\n"
+            "Browse voices at <code>elevenlabs.io/voice-library</code>\n\n"
+            "<b>Recommended female voices:</b>\n"
+            "▸ Aria (warm) — <code>9BWtsMINqrJLrRacOk9x</code>\n"
+            "▸ Sarah (clear) — <code>EXAVITQu4vr4xnSDxMaL</code>\n"
+            "▸ Matilda — <code>XrExE9yKIg1WjnnlVkGX</code>\n\n"
+            "Send the Voice ID now (or <code>clear</code> for default).",
+            parse_mode="HTML"
+        )
+        return
+
+    if section == "ai_malevoice":
+        text, markup = _cfg_voice_select_panel(caller_id, "male")
+        await _edit_cfg(query, text, markup)
+        await query.answer()
+        return
+
+    if section == "ai_femalevoice":
+        text, markup = _cfg_voice_select_panel(caller_id, "female")
+        await _edit_cfg(query, text, markup)
+        await query.answer()
+        return
 
     if section == "ai_ttsmode":
         mode = parts[2]  # 'sarvam' | 'elevenlabs' | 'auto'
@@ -5986,7 +5969,7 @@ async def handle_config_input(update: Update, context: ContextTypes.DEFAULT_TYPE
     if state == "waiting_ai_key":
         from ai_engine import set_provider_key, get_active_provider, PROVIDERS
         pid     = context.chat_data.pop("ai_setkey_pid", None)
-        cal_id  = context.chat_data.pop("ai_setkey_caller", caller_id)
+        cal_id  = context.chat_data.pop("ai_setkey_caller", 0)  # caller_id not in scope here
         val     = text.strip()
         is_clear = val.lower() == "clear"
         context.chat_data.pop("config_state", None)

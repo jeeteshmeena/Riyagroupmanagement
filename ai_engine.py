@@ -132,10 +132,11 @@ def _save_ai_config(ai_cfg: dict):
         logger.error(f"[AI] save_ai_config: {e}")
 
 def get_ai_config() -> dict:
-    """Returns current AI config (reads from DB if not cached)."""
+    """Always return fresh config — reload from DB on each call."""
     global _ai_config
-    if not _ai_config:
-        _ai_config = _load_ai_config()
+    fresh = _load_ai_config()
+    if fresh:
+        _ai_config = fresh
     return _ai_config
 
 def _default_ai_config() -> dict:
@@ -193,10 +194,24 @@ def _init_openai_compat(api_key: str, base_url: str, name: str):
 def init_all():
     """Initialize all enabled providers from config."""
     global _clients, _ai_config
-    _ai_config = _load_ai_config()
-    if not _ai_config or not _ai_config.get("providers"):
+    fresh = _load_ai_config()
+    if fresh and fresh.get("providers"):
+        _ai_config = fresh
+    elif not _ai_config or not _ai_config.get("providers"):
         _ai_config = _default_ai_config()
         _save_ai_config(_ai_config)
+
+    # Auto-inject GEMINI_API_KEY from env if not in DB
+    gemini_env_key = os.getenv("GEMINI_API_KEY", "").strip()
+    if gemini_env_key:
+        prov = _ai_config.setdefault("providers", {})
+        g = prov.setdefault("gemini", {"model": PROVIDERS["gemini"]["model"], "api_key": "", "enabled": False})
+        if not g.get("api_key"):
+            g["api_key"] = gemini_env_key
+            g["enabled"] = True
+            if not _ai_config.get("primary"):
+                _ai_config["primary"] = "gemini"
+            _save_ai_config(_ai_config)
 
     _clients.clear()
     for pid, info in PROVIDERS.items():
@@ -467,6 +482,7 @@ def set_primary(pid: str):
     cfg["primary"] = pid
     _save_ai_config(cfg)
     _ai_config = cfg
+    init_all()  # reinit so primary takes effect immediately
 
 def set_backup(pid: str):
     global _ai_config
@@ -474,6 +490,7 @@ def set_backup(pid: str):
     cfg["backup"] = pid
     _save_ai_config(cfg)
     _ai_config = cfg
+    init_all()  # reinit so backup takes effect immediately
 
 def toggle_provider(pid: str, enabled: bool):
     global _ai_config
