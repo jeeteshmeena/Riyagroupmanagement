@@ -514,8 +514,6 @@ def toggle_provider(pid: str, enabled: bool):
 def reinit_gemini(key: str):
     set_provider_key("gemini", key, bool(key))
 
-def reinit_groq(key: str):
-    pass  # Groq removed
-
-# ── Startup ───────────────────────────────────────────────────────────────────
-init_all()
+# ── Startup ─────────────────────────────────────────────────────────────
+if __name__ != "__main__":
+    init_all()

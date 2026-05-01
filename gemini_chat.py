@@ -11,12 +11,5 @@ from ai_engine import (
     active_sessions,
     get_active_provider,
     reinit_gemini,
-    reinit_groq,
     SYSTEM_PROMPT as _SYSTEM_PROMPT,
 )
-
-# Legacy aliases
-_SYSTEM_PROMPT = _SYSTEM_PROMPT
-
-def get_ai_status():
-    return get_active_provider()

@@ -6019,14 +6019,7 @@ async def handle_config_input(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return
 
-    # Legacy: keep old waiting_ai_groqkey/geminikey states working gracefully
-    if state in ("waiting_ai_groqkey", "waiting_ai_geminikey"):
-        context.chat_data.pop("config_state", None)
-        await update.message.reply_text(
-            "ℹ️ Groq has been removed. Use <b>◎ AI & Voice → Provider → Set Key</b> to configure providers.",
-            parse_mode="HTML"
-        )
-        return
+
 
     if state in ("waiting_prem_apiid", "waiting_prem_apihash", "waiting_prem_session"):
         p_cfg = bot_config.get("premium_account", {})
@@ -6802,7 +6795,7 @@ async def guide_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "▸ /pb — Create &amp; publish posts\n"
             "▸ Config → 📑 Saved Posts — Re-publish old posts\n\n"
             "<b>◈ AI &amp; Voice</b>\n"
-            "▸ Config → 🤖 AI — Groq / Gemini / Sarvam keys\n"
+            "▸ Config → 🤖 AI — Gemini / Cerebras / Together / OpenRouter / Mistral\n"
             "▸ Voice model selection (male/female)\n\n"
             "<b>◈ Moderation</b>\n"
             "▸ /gban [user_id] — Global ban\n"
