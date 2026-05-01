@@ -75,7 +75,7 @@ PROVIDERS = {
     },
     "cerebras": {
         "name": "Cerebras",
-        "model": "llama-3.3-70b",
+        "model": "llama3.3-70b",
         "type": "openai_compat",
         "base_url": "https://api.cerebras.ai/v1",
         "env_key": "CEREBRAS_API_KEY",
