@@ -75,7 +75,7 @@ PROVIDERS = {
     },
     "cerebras": {
         "name": "Cerebras",
-        "model": "llama3.3-70b",
+        "model": "llama3.1-8b",
         "type": "openai_compat",
         "base_url": "https://api.cerebras.ai/v1",
         "env_key": "CEREBRAS_API_KEY",
@@ -258,7 +258,6 @@ async def _call_gemini(client, user_id: int, payload: str) -> str:
     return resp.text.strip()
 
 async def _call_openai_compat(client, user_id: int, payload: str, model: str) -> str:
-    logger.info(f"[AI_DEBUG] calling model={model!r} base_url={getattr(client, 'base_url', '?')}")
     history = _get_history(user_id)
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages.extend(history)
