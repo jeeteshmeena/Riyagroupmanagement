@@ -275,8 +275,9 @@ async def _call_provider(pid: str, user_id: int, payload: str) -> Optional[str]:
     if not client:
         return None
     info = PROVIDERS[pid]
-    pcfg = _ai_config.get("providers", {}).get(pid, {})
-    model = pcfg.get("model", info["model"])
+    # Always use PROVIDERS dict model as authoritative source
+    # (DB-stored model may be stale/wrong from a previous code version)
+    model = info["model"]
     try:
         if info["type"] == "gemini":
             return await _call_gemini(client, user_id, payload)
