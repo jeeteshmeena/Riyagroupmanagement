@@ -59,7 +59,7 @@ def _has_nsfw_text(text: str) -> bool:
 
 
 def _has_scam_link(text: str) -> bool:
-    """True if any URL pattern matches a scam/porn site."""
+    """True if any URL pattern matches a known scam/porn site."""
     if not text:
         return False
     for pat in _SCAM_LINK_PATTERNS:
@@ -68,23 +68,51 @@ def _has_scam_link(text: str) -> bool:
     return False
 
 
+# Regex to extract ALL URLs from raw text (covers http, https, www, t.me, etc.)
+_URL_RE = re.compile(
+    r"(?i)"
+    r"(?:https?://|ftp://|www\.|t\.me/|@)?"     # optional scheme / prefix
+    r"(?:[a-z0-9\-]+\.)+"                         # domain parts
+    r"(?:com|net|org|io|app|me|ly|xyz|ru|co|in|info|biz|link|site|online|top|club)"
+    r"(?:/[^\s]*)?"                                # optional path
+)
+
+
+def _find_urls_in_text(text: str) -> list:
+    """Return all URLs/domains found in raw text via regex."""
+    if not text:
+        return []
+    return _URL_RE.findall(text)
+
+
 def _has_unauthorized_link(msg) -> bool:
     """
-    True if the message contains a URL / text-link that is NOT sliceurl.app.
-    Normal text without links returns False.
+    True if the message contains ANY URL that is NOT sliceurl.app.
+    Uses BOTH entity parsing AND raw-text regex to catch all cases.
     """
+    full_text = (msg.text or "") + " " + (msg.caption or "")
+
+    # --- Method 1: Telegram entity parsing ---
     ents = (msg.entities or []) + (msg.caption_entities or [])
     for e in ents:
-        if e.type not in (MessageEntityType.URL, MessageEntityType.TEXT_LINK):
-            continue
         if e.type == MessageEntityType.TEXT_LINK:
             url = (e.url or "").lower()
-        else:
+            if ALLOWED_DOMAIN not in url:
+                logger.info(f"[StrictSpam] Blocked entity TEXT_LINK: {url}")
+                return True
+        elif e.type == MessageEntityType.URL:
             text = msg.text or msg.caption or ""
             url = text[e.offset: e.offset + e.length].lower()
+            if ALLOWED_DOMAIN not in url:
+                logger.info(f"[StrictSpam] Blocked entity URL: {url}")
+                return True
 
-        if ALLOWED_DOMAIN not in url:
+    # --- Method 2: Regex scan on raw text (catches non-entity URLs) ---
+    for url in _find_urls_in_text(full_text):
+        if ALLOWED_DOMAIN not in url.lower():
+            logger.info(f"[StrictSpam] Blocked raw URL from regex: {url}")
             return True
+
     return False
 
 
@@ -101,13 +129,13 @@ async def strict_spam_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         msg = update.message
         user = update.effective_user
 
-        # Always skip admins
+        # Skip admins — if check fails, continue (don't abort silently)
         try:
             cm = await context.bot.get_chat_member(chat_id, user.id)
             if cm.status in ("administrator", "creator"):
                 return
-        except Exception:
-            return
+        except Exception as e:
+            logger.warning(f"[StrictSpam] Could not check admin status: {e} — continuing with scan")
 
         # Combined text (message text + caption, e.g. on photos/videos/forwards)
         full_text = (msg.text or "") + " " + (msg.caption or "")
