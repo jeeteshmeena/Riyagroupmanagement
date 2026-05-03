@@ -1,10 +1,14 @@
 """
 plugins/group/spam.py
 ──────────────────────
-Strict spam, link, and media filter.
-Permanently mutes users who send unauthorized links, media, stickers, or forwards.
-Only 'sliceurl.app' is allowed as an external link.
+Strict content filter:
+- Scans ALL messages (including forwards, stickers, media) for NSFW keywords in text/caption
+- Blocks any external link that is NOT from sliceurl.app
+- On violation: delete message + permanently mute + tag user with report
+
+Normal forwards, stickers, and media WITHOUT inappropriate content are fully allowed.
 """
+import re
 import logging
 from telegram import Update, ChatPermissions
 from telegram.constants import MessageEntityType
@@ -14,8 +18,79 @@ logger = logging.getLogger(__name__)
 
 ALLOWED_DOMAIN = "sliceurl.app"
 
+# ── Expanded NSFW / Scam keyword list ────────────────────────────────────────
+_NSFW_KEYWORDS = [
+    # English sexual
+    "porn", "porno", "xxx", "nude", "nudes", "naked", "sex ", "sexy", "boob",
+    "boobs", "tit", "tits", "dick", "cock", "pussy", "vagina", "penis", "orgasm",
+    "masturbat", "erotic", "onlyfans", "nsfw", "hentai", "loli", "18+",
+    "adult content", "bdsm", "blowjob", "cumshot", "creampie", "hardcore",
+    "slutty", "slut", "whore", "bitch", "ass hole", "asshole", "fuck",
+    "fucking", "fucked", "milf", "threesome", "gangbang", "dildo", "vibrator",
+    # German sexual (common spam language as shown in screenshot)
+    "muschi", "spritz", "nacktes", "loch", "umkl", "filmt", "spanner",
+    # Hindi sexual
+    "chudai", "lund", "chut", "gaand", "randi", "madarchod", "bhosdi",
+    "harami", "lauda",
+    # Scam indicators
+    "earn money fast", "click here now", "free gift", "you won", "winner",
+    "verify your account", "account suspended", "login here",
+]
+
+# ── Known scam/porn site patterns ────────────────────────────────────────────
+_SCAM_LINK_PATTERNS = [
+    r"pornhub\.com", r"xnxx\.com", r"xvideos\.com", r"redtube\.com",
+    r"xhamster\.com", r"youporn\.com", r"spankbang\.com", r"onlyfans\.com",
+    r"stripchat\.com", r"chaturbate\.com",
+    r"t\.me/\+",            # Private Telegram invite links (scam/spam vector)
+    r"telegra\.ph/",        # Often used for scam landing pages
+    r"bit\.ly/", r"tinyurl\.com", r"short\.link",  # Link shorteners hiding scams
+]
+
+
+def _has_nsfw_text(text: str) -> bool:
+    if not text:
+        return False
+    t = text.lower()
+    for kw in _NSFW_KEYWORDS:
+        if kw in t:
+            return True
+    return False
+
+
+def _has_scam_link(text: str) -> bool:
+    """True if any URL pattern matches a scam/porn site."""
+    if not text:
+        return False
+    for pat in _SCAM_LINK_PATTERNS:
+        if re.search(pat, text, re.IGNORECASE):
+            return True
+    return False
+
+
+def _has_unauthorized_link(msg) -> bool:
+    """
+    True if the message contains a URL / text-link that is NOT sliceurl.app.
+    Normal text without links returns False.
+    """
+    ents = (msg.entities or []) + (msg.caption_entities or [])
+    for e in ents:
+        if e.type not in (MessageEntityType.URL, MessageEntityType.TEXT_LINK):
+            continue
+        if e.type == MessageEntityType.TEXT_LINK:
+            url = (e.url or "").lower()
+        else:
+            text = msg.text or msg.caption or ""
+            url = text[e.offset: e.offset + e.length].lower()
+
+        if ALLOWED_DOMAIN not in url:
+            return True
+    return False
+
+
+# ── Guard handler ─────────────────────────────────────────────────────────────
 async def strict_spam_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Strictly delete and mute for forwards, stickers, media, and unauthorized links."""
+    """Delete + permanently mute for NSFW content or unauthorized links."""
     try:
         if not update.message or not update.effective_chat:
             return
@@ -34,76 +109,59 @@ async def strict_spam_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         except Exception:
             return
 
+        # Combined text (message text + caption, e.g. on photos/videos/forwards)
+        full_text = (msg.text or "") + " " + (msg.caption or "")
+
         violation = None
 
-        # 1. Forwards
-        if hasattr(msg, "forward_origin") and msg.forward_origin:
-            violation = "Forwarded messages"
-        elif getattr(msg, "forward_date", None):
-            violation = "Forwarded messages"
+        # 1. NSFW keywords in text or caption
+        if _has_nsfw_text(full_text):
+            violation = "🔞 NSFW / Inappropriate Content"
 
-        # 2. Media & Stickers (including "porn videos" and "stickers")
+        # 2. Scam/porn site links (even if ALLOWED_DOMAIN check passes)
+        if not violation and _has_scam_link(full_text):
+            violation = "🔗 Scam / Porn Site Link"
+
+        # 3. Any external link that is NOT sliceurl.app
+        if not violation and _has_unauthorized_link(msg):
+            violation = f"🔗 Unauthorized External Link\n<i>(Only <code>{ALLOWED_DOMAIN}</code> links are allowed)</i>"
+
         if not violation:
-            if msg.sticker:
-                violation = "Stickers"
-            elif msg.video or msg.document or msg.animation or msg.photo or msg.video_note:
-                violation = "Media/Videos"
+            return
 
-        # 3. Links (only sliceurl.app allowed)
-        if not violation:
-            ents = msg.entities or []
-            cents = msg.caption_entities or []
-            all_ents = ents + cents
-            
-            has_link = False
-            for e in all_ents:
-                if e.type in (MessageEntityType.URL, MessageEntityType.TEXT_LINK):
-                    url_text = ""
-                    if e.type == MessageEntityType.TEXT_LINK:
-                        url_text = e.url or ""
-                    else:
-                        # Extract the URL from the text
-                        text = msg.text or msg.caption or ""
-                        url_text = text[e.offset : e.offset + e.length]
-                    
-                    if url_text and ALLOWED_DOMAIN not in url_text.lower():
-                        has_link = True
-                        break
-            if has_link:
-                violation = f"External links (only {ALLOWED_DOMAIN} is allowed)"
+        # ── Take action ───────────────────────────────────────────────────────
 
-        if violation:
-            # Delete message
-            try:
-                await msg.delete()
-            except Exception:
-                pass
-            
-            # Permanently mute user
-            try:
-                await context.bot.restrict_chat_member(
-                    chat_id, user.id,
-                    permissions=ChatPermissions(can_send_messages=False)
-                )
-            except Exception as e:
-                logger.warning(f"[StrictSpam] Mute failed: {e}")
+        # Delete the offending message
+        try:
+            await msg.delete()
+        except Exception:
+            pass
 
-            # Notify and tag user, reporting their ID
-            try:
-                alert_text = (
-                    f"🚫 <b>Violation Detected!</b>\n"
+        # Permanently mute the user
+        try:
+            await context.bot.restrict_chat_member(
+                chat_id, user.id,
+                permissions=ChatPermissions(can_send_messages=False)
+            )
+        except Exception as e:
+            logger.warning(f"[StrictSpam] Mute failed: {e}")
+
+        # Send a tagged warning in the group
+        try:
+            await context.bot.send_message(
+                chat_id,
+                text=(
+                    f"🚨 <b>Violation Detected!</b>\n\n"
                     f"👤 User: <a href='tg://user?id={user.id}'>{user.first_name}</a>\n"
                     f"🆔 ID: <code>{user.id}</code>\n\n"
-                    f"⚠️ <b>{violation}</b> are strictly prohibited here.\n"
-                    f"🔇 <i>You have been permanently muted.</i>"
-                )
-                await context.bot.send_message(
-                    chat_id,
-                    text=alert_text,
-                    parse_mode="HTML"
-                )
-            except Exception:
-                pass
+                    f"⚠️ <b>Reason:</b> {violation}\n\n"
+                    f"🔇 <b>Action:</b> Message deleted and user permanently muted.\n"
+                    f"<i>Contact an admin if this was a mistake.</i>"
+                ),
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
 
     except Exception as e:
         logger.warning(f"[StrictSpam] Error: {e}")
