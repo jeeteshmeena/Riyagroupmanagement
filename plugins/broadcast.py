@@ -51,7 +51,12 @@ async def broadcast_wait_handler(update: Update, context: ContextTypes.DEFAULT_T
 
     for cid in chats:
         try:
-            await msg.copy(chat_id=int(cid))
+            if msg.forward_origin or msg.reply_markup:
+                # If it's a forwarded message or has inline buttons, forward it to preserve them
+                await context.bot.forward_message(chat_id=int(cid), from_chat_id=msg.chat_id, message_id=msg.message_id)
+            else:
+                # For normal text/media, copy is fine
+                await msg.copy(chat_id=int(cid))
             success += 1
             await asyncio.sleep(0.05)   # flood control
         except Exception:
