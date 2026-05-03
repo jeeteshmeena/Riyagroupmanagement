@@ -153,22 +153,18 @@ async def strict_spam_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             await context.bot.send_message(
                 chat_id,
                 text=(
-                    f"╔══════════════════════╗\n"
-                    f"║   ⚡ SECURITY ALERT   ║\n"
-                    f"╚══════════════════════╝\n\n"
-                    f"  ◈ <b>User :</b> {mention}\n"
-                    f"  ◈ <b>ID    :</b> <code>{user.id}</code>\n\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"  ▸ <b>Violation</b>\n"
-                    f"  {violation}\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                    f"  ✗  Message instantly deleted\n"
-                    f"  ⊘  User permanently muted\n\n"
-                    f"<i>Contact admin if this was a mistake.</i>"
+                    f"<b>» Security Alert</b>\n"
+                    f"<code>──────────────────</code>\n"
+                    f"<b>User  »</b> {mention}\n"
+                    f"<b>ID     »</b> <code>{user.id}</code>\n"
+                    f"<code>──────────────────</code>\n"
+                    f"<b>Reason »</b> {violation}\n"
+                    f"<code>──────────────────</code>\n"
+                    f"<i>Message deleted · User muted</i>"
                 ),
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("✉ Contact Admin", url="https://t.me/ItsNewtonPlanet")
+                    InlineKeyboardButton("Contact Admin", url="https://t.me/ItsNewtonPlanet")
                 ]])
             )
         except Exception:
