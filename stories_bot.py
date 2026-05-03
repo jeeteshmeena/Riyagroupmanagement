@@ -1087,19 +1087,35 @@ def _menu_new(caller_id: int) -> tuple:
 def _menu_saved(caller_id: int) -> tuple:
     user_id_str = str(caller_id)
     favs = favorites_db.get(user_id_str, [])
-    if len(favs) > 0:
-        body = "\n".join([f"♥ <code>{clean_story(s)}</code>" for s in favs[:15]])
-        if len(favs) > 15:
-            body += f"\n<i>…and {len(favs) - 15} more.</i>"
+
+    if favs:
+        text = (
+            "<b>♥ My Favourites</b>\n"
+            "<i>✧ Tap a title to open the story.</i>\n"
+            f"{_DIVIDER}\n\n"
+            f"<i>{len(favs)} saved {'story' if len(favs)==1 else 'stories'}</i>"
+        )
+        # Each saved story becomes a clickable button
+        story_rows = []
+        for s in favs[:20]:
+            label = clean_story(s)[:55]          # keep label short
+            cb    = f"srch|{s}"
+            if len(cb) > 64:
+                cb = f"srch|{s[:60]}"            # trim if too long
+            story_rows.append([InlineKeyboardButton(f"♥ {label}", callback_data=cb)])
+        if len(favs) > 20:
+            story_rows.append([InlineKeyboardButton(f"…and {len(favs)-20} more", callback_data="noop")])
+        story_rows.append(_nav_row(caller_id, back="home"))
+        markup = InlineKeyboardMarkup(story_rows)
     else:
-        body = "<i>♡ No favourites yet.\n➔ Tap ★ on any search result to save it.</i>"
-    text = (
-        "<b>♥ My Favourites</b>\n"
-        "<i>✧ Your personal saved stories.</i>\n"
-        f"{_DIVIDER}\n\n"
-        f"{body}"
-    )
-    markup = InlineKeyboardMarkup([_nav_row(caller_id, back="home")])
+        text = (
+            "<b>♥ My Favourites</b>\n"
+            "<i>✧ Your personal saved stories.</i>\n"
+            f"{_DIVIDER}\n\n"
+            "<i>♡ No favourites yet.\n➔ Tap ★ on any search result to save it.</i>"
+        )
+        markup = InlineKeyboardMarkup([_nav_row(caller_id, back="home")])
+
     return text, markup
 
 
