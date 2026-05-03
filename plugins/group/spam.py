@@ -160,7 +160,7 @@ async def strict_spam_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                     f"<code>──────────────────</code>\n"
                     f"<b>Reason »</b> {violation}\n"
                     f"<code>──────────────────</code>\n"
-                    f"<i>Message deleted · User muted</i>"
+                    f"<i>Message deleted · User muted\nIf this was a mistake, contact admin via button below.</i>"
                 ),
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([[
