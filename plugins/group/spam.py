@@ -32,20 +32,18 @@ _URL_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Also catch bare domains like "elevenlabs.io" (no scheme)
-_BARE_DOMAIN_RE = re.compile(
-    r"(?<![/@\w])"                   # not part of an email or longer word
-    r"(?:[a-z0-9](?:[a-z0-9\-]*[a-z0-9])?\.)"  # sub/domain
-    r"(?:com|net|org|io|app|me|ly|xyz|ru|co|uk|in|info|biz|link|site|online|top|club|ai)"
-    r"(?:/[^\s]*)?",
-    re.IGNORECASE,
-)
-
-
-def _extract_all_urls(text: str) -> list[str]:
-    urls = _URL_RE.findall(text)
-    urls += _BARE_DOMAIN_RE.findall(text)
-    return urls
+def _extract_all_urls(text: str) -> list:
+    """Extract ALL URLs from raw text — with or without scheme."""
+    if not text:
+        return []
+    # Single pattern, no capturing groups → always returns list of strings
+    return re.findall(
+        r"(?:https?://|ftp://|www\.)\S+"   # URLs with scheme or www
+        r"|"
+        r"\b[a-z0-9][a-z0-9\-]*\.[a-z]{2,}(?:/\S*)?",  # bare domain.tld
+        text,
+        re.IGNORECASE,
+    )
 
 
 def _is_nsfw(text: str) -> bool:
