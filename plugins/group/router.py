@@ -93,6 +93,8 @@ def register_group_handlers(app: Application) -> None:
 
         # ── Message guards (groups only, non-commands) ─────────────────────────
         _grp_msg = filters.ChatType.GROUPS & ~filters.COMMAND
+        from .spam import strict_spam_guard
+        app.add_handler(MessageHandler(_grp_msg, strict_spam_guard), group=20)
         app.add_handler(MessageHandler(_grp_msg, nsfw_guard),     group=21)
         app.add_handler(MessageHandler(_grp_msg, locks_guard),    group=22)
         app.add_handler(MessageHandler(_grp_msg, filters_guard),  group=23)
