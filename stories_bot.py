@@ -1095,16 +1095,12 @@ def _menu_saved(caller_id: int) -> tuple:
             f"{_DIVIDER}\n\n"
             f"<i>{len(favs)} saved {'story' if len(favs)==1 else 'stories'}</i>"
         )
-        # Each saved story becomes a clickable button
+        # Use index-based callback: sv|caller_id|index → always within 64-byte limit
         story_rows = []
-        for s in favs[:20]:
-            label = clean_story(s)[:55]          # keep label short
-            cb    = f"srch|{s}"
-            if len(cb) > 64:
-                cb = f"srch|{s[:60]}"            # trim if too long
+        for idx, s in enumerate(favs):
+            label = clean_story(s)[:50]
+            cb    = f"sv|{caller_id}|{idx}"   # max ~30 chars — well within Telegram limit
             story_rows.append([InlineKeyboardButton(f"♥ {label}", callback_data=cb)])
-        if len(favs) > 20:
-            story_rows.append([InlineKeyboardButton(f"…and {len(favs)-20} more", callback_data="noop")])
         story_rows.append(_nav_row(caller_id, back="home"))
         markup = InlineKeyboardMarkup(story_rows)
     else:
@@ -3564,6 +3560,29 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             asyncio.create_task(_del_later())
 
         await query.answer()
+        return
+
+    # ── Saved-story index button: sv|caller_id|index ────────────────────────
+    if query.data.startswith("sv|"):
+        parts = query.data.split("|")
+        try:
+            caller_id = int(parts[1])
+            idx       = int(parts[2])
+        except (IndexError, ValueError):
+            await query.answer("Invalid button.", show_alert=True)
+            return
+        favs = favorites_db.get(str(caller_id), [])
+        if idx < 0 or idx >= len(favs):
+            await query.answer("Story no longer in your list.", show_alert=True)
+            return
+        story_key = favs[idx]
+        result = get_story(story_key)
+        if not result:
+            await query.answer("Story not found in database.", show_alert=True)
+            return
+        # Reuse the same display logic as srch| by routing there
+        query.data = f"srch|{story_key}"
+        await buttons(update, context)
         return
 
     if query.data == "noop":
