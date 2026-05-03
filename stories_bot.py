@@ -7600,16 +7600,17 @@ async def gban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             success_names.append(cid_str)
             
-    success_bullet = "\n  • ".join(success_names)
-    if success_bullet:
-        success_bullet = "\n  • " + success_bullet
+    success_text = ""
+    if success_names:
+        bullets = "\n".join(f"• {name}" for name in success_names)
+        success_text = f"\n<blockquote expandable>{bullets}</blockquote>"
 
     reason_text = f"\n<b>Reason:</b> {reason_str}" if reason_str else ""
     report = (
         f"<b>🚫 Global Ban Report</b>\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"<b>Target:</b> <code>{target_user_id}</code> {('@' + target_user_name) if target_user_name else ''}{reason_text}\n\n"
-        f"<b>✅ Successfully Banned in ({len(success)}):</b>{success_bullet}\n\n"
+        f"<b>✅ Successfully Banned in ({len(success)}):</b>{success_text}\n\n"
         f"<b>⚪ Not Present / Already Banned:</b> {len(already_banned_or_not_present)} chats\n"
         f"<b>❌ Failed (No Admin Rights):</b> {len(failed)} chats\n"
         f"━━━━━━━━━━━━━━━━━━\n"
