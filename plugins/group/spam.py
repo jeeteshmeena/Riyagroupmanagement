@@ -148,24 +148,28 @@ async def strict_spam_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
         # Send a tagged warning in the group
         try:
+            from telegram import InlineKeyboardMarkup, InlineKeyboardButton
             mention = f"<a href='tg://user?id={user.id}'>{user.first_name}</a>"
             await context.bot.send_message(
                 chat_id,
                 text=(
                     f"╔══════════════════════╗\n"
-                    f"║  🚨 <b>SECURITY ALERT</b>  ║\n"
+                    f"║   ⚡ SECURITY ALERT   ║\n"
                     f"╚══════════════════════╝\n\n"
-                    f"  👤 <b>User :</b> {mention}\n"
-                    f"  🆔 <b>ID    :</b> <code>{user.id}</code>\n\n"
+                    f"  ◈ <b>User :</b> {mention}\n"
+                    f"  ◈ <b>ID    :</b> <code>{user.id}</code>\n\n"
                     f"━━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"  ⚠️ <b>Violation</b>\n"
+                    f"  ▸ <b>Violation</b>\n"
                     f"  {violation}\n"
                     f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                    f"  🗑 Message instantly deleted\n"
-                    f"  🔇 User permanently muted\n\n"
-                    f"<i>Admins can unmute if needed.</i>"
+                    f"  ✗  Message instantly deleted\n"
+                    f"  ⊘  User permanently muted\n\n"
+                    f"<i>Contact admin if this was a mistake.</i>"
                 ),
-                parse_mode="HTML"
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("✉ Contact Admin", url="https://t.me/ItsNewtonPlanet")
+                ]])
             )
         except Exception:
             pass
