@@ -105,32 +105,37 @@ def get_client():
 
 async def send_premium_reaction(chat_id: int, message_id: int, emoji_id: str) -> bool:
     """
-    Send a premium custom emoji reaction using the userbot.
-    emoji_id: document ID string from CUSTOM_EMOJI_MAP
+    Send a reaction using the premium userbot.
+    emoji_id: ignored here — we use the emoji string passed via react_with_emoji()
+    Use react_with_emoji() for full control.
+    """
+    return await react_with_emoji(chat_id, message_id, "❤️")
+
+
+async def react_with_emoji(chat_id: int, message_id: int, emoji: str,
+                            big: bool = True) -> bool:
+    """
+    Send a standard emoji reaction via the premium userbot.
+    Premium account gives the full-screen 'big' animation automatically.
+    This NEVER fails with document ID errors since it uses ReactionEmoji, not ReactionCustomEmoji.
     """
     if not is_connected():
         return False
     try:
         from telethon.tl.functions.messages import SendReactionRequest
-        from telethon.tl.types import ReactionCustomEmoji
+        from telethon.tl.types import ReactionEmoji
         await _userbot_client(SendReactionRequest(
             peer=chat_id,
             msg_id=message_id,
-            reaction=[ReactionCustomEmoji(document_id=int(emoji_id))]
+            reaction=[ReactionEmoji(emoticon=emoji)],
+            big=big,           # full-screen animation (premium perk)
         ))
-        logger.debug(f"[Premium] Custom emoji reaction sent → msg {message_id}")
+        logger.debug(f"[Premium] Emoji reaction '{emoji}' → msg {message_id} ✅")
         return True
     except Exception as e:
-        logger.warning(f"[Premium] Reaction failed: {e}")
+        logger.warning(f"[Premium] React failed: {e}")
         return False
 
-
-async def react_with_mood(chat_id: int, message_id: int, mood: str) -> bool:
-    """Send a mood-matched custom emoji reaction."""
-    emoji_id = CUSTOM_EMOJI_MAP.get(mood)
-    if not emoji_id:
-        return False
-    return await send_premium_reaction(chat_id, message_id, emoji_id)
 
 
 # ── Premium Sticker Sending ────────────────────────────────────────────────────

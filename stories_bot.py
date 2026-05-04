@@ -6538,58 +6538,20 @@ def _is_thanks_msg(text: str) -> bool:
 async def _try_react(bot, chat_id: int, message_id: int, emoji: str, big: bool = False):
     """Send a Telegram reaction on a message.
     Priority:
-      1. Premium userbot → custom emoji reaction (animated, premium-quality)
-      2. Bot ReactionTypeCustomEmoji (works without premium for public emoji)
-      3. Bot ReactionTypeEmoji (standard fallback)
+      1. Premium userbot → ReactionEmoji with big=True (full-screen animation, premium perk)
+      2. Bot ReactionTypeEmoji (standard fallback)
     """
-    # ── 1. Premium userbot path ───────────────────────────────────────────────
+    # ── 1. Premium userbot — always uses big animation ─────────────────────────
     try:
         import premium_userbot
         if premium_userbot.is_connected():
-            # Map standard emoji → closest mood → custom emoji ID
-            _EMOJI_MOOD = {
-                "🥰": "heart",  "❤": "heart",   "❤‍🔥": "fire",
-                "🎉": "sparkle","🤩": "star",    "🔥": "fire",
-                "💯": "ok",     "🕊": "wave",    "💘": "heart",
-                "😘": "smile",  "😇": "smile",   "🤗": "wave",
-                "🤓": "think",  "😐": "think",   "🤡": "laugh",
-                "🤨": "think",  "💅": "cool",    "🤪": "laugh",
-                "🤔": "think",  "🤣": "laugh",   "🥱": "think",
-                "🤝": "wave",   "🤷": "think",   "💔": "sad",
-                "😢": "sad",    "😭": "sad",      "😱": "wow",
-                "😨": "sad",    "🙈": "laugh",   "😔": "sad",
-            }
-            mood = _EMOJI_MOOD.get(emoji, "star")
-            emoji_id = premium_userbot.get_emoji_id(mood)
-            if emoji_id:
-                ok = await premium_userbot.send_premium_reaction(chat_id, message_id, emoji_id)
-                if ok:
-                    return
+            ok = await premium_userbot.react_with_emoji(chat_id, message_id, emoji, big=True)
+            if ok:
+                return
     except Exception as _pe:
         logger.debug("Premium reaction attempt failed: %s", _pe)
 
-    # ── 2. Bot ReactionTypeCustomEmoji (public custom emoji, no premium needed) ─
-    try:
-        from telegram import ReactionTypeCustomEmoji
-        # Use a safe public custom emoji ID (Telegram's own animated emoji)
-        _CUSTOM_EMOJI_FALLBACK = {
-            "🥰": "5368324170671202286", "❤": "5368324170671202286",
-            "🔥": "5373141891321699086", "🎉": "5471952986970267163",
-            "🤩": "5440539497383087970", "😘": "5449626952930406343",
-        }
-        ceid = _CUSTOM_EMOJI_FALLBACK.get(emoji)
-        if ceid:
-            await bot.set_message_reaction(
-                chat_id=chat_id,
-                message_id=message_id,
-                reaction=[ReactionTypeCustomEmoji(custom_emoji_id=ceid)],
-                is_big=big,
-            )
-            return
-    except Exception:
-        pass
-
-    # ── 3. Standard emoji fallback ────────────────────────────────────────────
+    # ── 2. Standard bot reaction (fallback) ───────────────────────────────────
     try:
         from telegram import ReactionTypeEmoji
         await bot.set_message_reaction(
@@ -6600,6 +6562,7 @@ async def _try_react(bot, chat_id: int, message_id: int, emoji: str, big: bool =
         )
     except Exception as _re:
         logger.debug("Reaction failed: %s", _re)
+
 
 
 
