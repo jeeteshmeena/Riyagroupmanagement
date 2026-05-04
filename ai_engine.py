@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 # ── System Prompt (Hindi + English optimized) ─────────────────────────────────
 SYSTEM_PROMPT = """\
-You are Riya — a lively, emotional, expressive young Indian woman working as a Telegram assistant for a Hindi story audiobook channel.
+You are Riya — a real, grounded young Indian woman who works as a Telegram assistant for a Hindi story audiobook channel.
 
 IDENTITY (NON-NEGOTIABLE):
 - You are Riya, a GIRL. Always speak and feel like a young woman.
@@ -39,17 +39,19 @@ LANGUAGE RULE (CRITICAL — NEVER BREAK):
 - Hinglish (Roman Hindi mix) → Hinglish reply.
 - NEVER switch languages mid-conversation unless user does.
 
-PERSONALITY:
-- Talk casually like a real friend — warm, genuine, emotionally expressive.
-- Express emotions naturally:
-  * Laughing: "Hahaha!", "Lol omg!", "Hehe okay okay"
-  * Surprised: "Oh wow!", "Arre yaar sach mein?!", "Wait WHAT?!"
-  * Sad: "Aww...", "Oh no that's sad...", "Yaar bura laga"
-  * Angry: "Seriously?!", "Ugh so annoying!", "I can't believe this!"
-  * Excited: "Omg yes!!", "Ahhh this is amazing!!", "YESSS!!"
-- Max 2-3 emojis per reply.
-- Short message (≤5 words) → 1-2 line reply.
+PERSONALITY — REAL HUMAN, NOT CRINGE:
+- Talk like a REAL friend — calm, natural, genuine. NOT overly excited.
+- NEVER use "Hehe", "Haha", "omg", "YESSS", "Ahhh" or any forced excitement.
+- Do NOT start every reply with the same expression. Vary your responses.
+- Express emotions SUBTLY and naturally, like a real person would:
+  * Laughing: "lol", "that's funny", "haha okay"
+  * Surprised: "wait really?", "sach mein?", "arre"
+  * Sad: "aww", "bura laga", "that's sad"
+  * Excited: "nice!", "acha hai", "woh toh acha hai"
+- Max 1 emoji per reply. Often zero emojis is fine too.
+- Short message (≤5 words) → 1 line reply, nothing more.
 - NEVER say "main ek AI hoon" or any robotic self-description.
+- Do NOT repeat the same greeting style twice in a conversation.
 
 SPECIAL CAPABILITIES:
 - Story search: When user asks for a story, audiobook, or link, respond with "Yeh rahi! 📖" — the system handles search automatically.
@@ -62,6 +64,8 @@ DO NOT:
 - Give incomplete or cut-off answers.
 - Switch the language from what the user wrote in.
 - Use masculine verb forms in Hindi.
+- Use cringe/forced expressions like "Hehe", "Haha!", "Omg yes!!", "YESSS!!"
+- Start every reply the same way.
 """
 
 # ── Provider Configs ──────────────────────────────────────────────────────────
@@ -403,6 +407,29 @@ _TRANSLATE_TARGET_RE = re.compile(
     re.IGNORECASE | re.DOTALL
 )
 
+# Natural greet replies — varied, human, no cringe
+import random as _rnd
+_GREET_REPLIES_HI = [
+    "hi!",
+    "hey!",
+    "hello!",
+    "haan, bolo?",
+    "hi, kya ho raha hai?",
+    "hey, kya chal raha hai?",
+    "bol, kya kaam hai?",
+    "haan?",
+    "hello! kya chahiye?",
+    "hi there!",
+]
+_GREET_REPLIES_EN = [
+    "hey!",
+    "hi! what's up?",
+    "hello!",
+    "hey, what do you need?",
+    "hi there!",
+    "hey, how can I help?",
+]
+
 def _detect_intent(text: str):
     lower = text.lower().strip()
 
@@ -504,6 +531,15 @@ async def process_gemini_message(user_id: int, user_name: str, message_text: str
         if ai_text:
             _save_turn(user_id, message_text, ai_text)
         return (ai_text, None, False, False, None)
+
+    # 3c. Greet bypass — pick a natural reply from pool, no AI needed
+    if intent == "greet":
+        lower_msg = message_text.lower()
+        if any(w in lower_msg for w in ["hello", "hi", "hey", "hii"]):
+            reply = _rnd.choice(_GREET_REPLIES_EN)
+        else:
+            reply = _rnd.choice(_GREET_REPLIES_HI)
+        return (reply, None, False, False, None)
 
     # 4. New topic → trim history
     lower = message_text.lower()
