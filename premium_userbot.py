@@ -116,25 +116,38 @@ async def react_with_emoji(chat_id: int, message_id: int, emoji: str,
                             big: bool = True) -> bool:
     """
     Send a standard emoji reaction via the premium userbot.
-    Premium account gives the full-screen 'big' animation automatically.
-    This NEVER fails with document ID errors since it uses ReactionEmoji, not ReactionCustomEmoji.
+    Premium account gives the full-screen 'big' animation.
+    Returns False (silently) if userbot is not in that chat or message is invalid.
     """
     if not is_connected():
         return False
     try:
         from telethon.tl.functions.messages import SendReactionRequest
         from telethon.tl.types import ReactionEmoji
+
+        # Resolve peer — userbot must be a member of the chat
+        peer = await _userbot_client.get_entity(int(chat_id))
+
         await _userbot_client(SendReactionRequest(
-            peer=chat_id,
+            peer=peer,
             msg_id=message_id,
             reaction=[ReactionEmoji(emoticon=emoji)],
-            big=big,           # full-screen animation (premium perk)
+            big=big,
         ))
-        logger.debug(f"[Premium] Emoji reaction '{emoji}' → msg {message_id} ✅")
+        logger.debug(f"[Premium] ✅ Big reaction '{emoji}' on msg {message_id}")
         return True
+
     except Exception as e:
-        logger.warning(f"[Premium] React failed: {e}")
+        err = str(e).lower()
+        # These are expected when userbot is not in the chat — silent fallback
+        if any(k in err for k in ("invalid", "forbidden", "not found",
+                                   "peer", "access", "can't", "cannot",
+                                   "user not participant")):
+            logger.debug(f"[Premium] Reaction skipped (not in chat / invalid msg): {e}")
+        else:
+            logger.debug(f"[Premium] Reaction failed: {e}")
         return False
+
 
 
 
