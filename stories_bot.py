@@ -6606,7 +6606,8 @@ async def _handle_no_or_thanks(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if context.chat_data and context.chat_data.get("config_state"):
+    if (context.chat_data and context.chat_data.get("config_state")) or \
+       (context.user_data and context.user_data.get("bc_add_waiting")):
         return await handle_config_input(update, context)
 
     # ── Riya AI Conversation Hook ─────────────────────────────────────────────
