@@ -47,6 +47,7 @@ FAVORITES_FILE = _data_path("favorites_db.json")
 STATS_FILE = _data_path("stats_db.json")
 SUBS_FILE = _data_path("subs_db.json")
 FORMATS_FILE = _data_path("learned_formats.json")
+STORY_CHANNELS_FILE = _data_path("story_channels.json")
 
 _DB_CACHE = None
 _DB_MTIME = None
@@ -438,3 +439,12 @@ def load_saved_posts():
 
 def save_saved_posts(data):
     _save_json(SAVED_POSTS_FILE, data)
+
+# --- Story Broadcast Channels (Ongoing / Completed) ---
+def load_story_channels() -> dict:
+    """Returns {"ongoing": [...], "completed": [...]} with channel IDs/usernames."""
+    return _load_json(STORY_CHANNELS_FILE, {"ongoing": [], "completed": []})
+
+def save_story_channels(data: dict):
+    _save_json(STORY_CHANNELS_FILE, data)
+

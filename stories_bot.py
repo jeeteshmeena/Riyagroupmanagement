@@ -240,6 +240,7 @@ from database import (
     load_subs, save_subs,
     load_learned_formats, save_learned_formats,
     load_voting_db, save_voting_db,
+    load_story_channels, save_story_channels,
 )
 from format_learner import learn_format, build_preview, build_test_result, extract_with_template
 from external_check import verify_story_external
@@ -305,6 +306,7 @@ active_link_votes = {}  # vote_id -> {'story_key', 'chat_id', 'message_id', 'vot
 bot_config = load_config()
 stats_db = load_stats()  # {"searches": {}, "users": {}, "trending": {}}
 favorites_db = load_favorites()  # { user_id_str: [story_key1, ...] }
+story_channels_db = load_story_channels()  # { "ongoing": [...], "completed": [...] }
 subs_db = load_subs()  # [ user_id1_str, ... ]
 learned_formats_db = load_learned_formats()  # { str(channel_id): [template_dict, ...] }
 
@@ -5174,16 +5176,107 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("broadcast_selected", None)
 
         total = len(chat_languages)
+        ong_count  = len(story_channels_db.get("ongoing", []))
+        comp_count = len(story_channels_db.get("completed", []))
         markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🌐 All Channels / Groups",       callback_data=f"cfg|bc_all||{caller_id}")],
-            [InlineKeyboardButton("✅ Select Specific Channels",     callback_data=f"cfg|bc_page|0|{caller_id}")],
-            [InlineKeyboardButton("✖ Cancel",                       callback_data=f"cfg|main||{caller_id}")],
+            [InlineKeyboardButton("🌐 All Channels / Groups",          callback_data=f"cfg|bc_all||{caller_id}")],
+            [InlineKeyboardButton(f"▶ Ongoing  ({ong_count} channels)", callback_data=f"cfg|bc_cat|ongoing|{caller_id}")],
+            [InlineKeyboardButton(f"✔ Completed ({comp_count} channels)", callback_data=f"cfg|bc_cat|completed|{caller_id}")],
+            [InlineKeyboardButton("✅ Select Specific Channels",        callback_data=f"cfg|bc_page|0|{caller_id}")],
+            [InlineKeyboardButton("⚙ Manage Ongoing",                  callback_data=f"cfg|bc_manage|ongoing|{caller_id}"),
+             InlineKeyboardButton("⚙ Manage Completed",                callback_data=f"cfg|bc_manage|completed|{caller_id}")],
+            [InlineKeyboardButton("✖ Cancel",                          callback_data=f"cfg|main||{caller_id}")],
         ])
         await query.edit_message_text(
             f"📢 <b>Broadcast</b>\n<i>Total chats available: <b>{total}</b></i>\n\nChoose where to send:",
             parse_mode="HTML", reply_markup=markup
         )
         return
+
+    # ── Broadcast to Ongoing / Completed category ─────────────────────────────
+    if section == "bc_cat":
+        cat = parts[2]  # "ongoing" or "completed"
+        channels = story_channels_db.get(cat, [])
+        if not channels:
+            await query.answer(f"⚠️ No channels saved under '{cat}'. Add them via Manage.", show_alert=True)
+            return
+        context.user_data["broadcast_selected"] = set(str(c) for c in channels)
+        from plugins.broadcast import GLOBAL_BROADCAST_WAITING
+        GLOBAL_BROADCAST_WAITING.add(user.id)
+        label = "Ongoing" if cat == "ongoing" else "Completed"
+        markup = InlineKeyboardMarkup([[InlineKeyboardButton("✖ Cancel", callback_data=f"cfg|broadcast||{caller_id}")]])
+        await query.edit_message_text(
+            f"📢 <b>{label} Broadcast</b>\n\n"
+            f"Send me the post — it will go to <b>{len(channels)} {label.lower()} channel(s)</b>.\n\n"
+            f"<i>Supports: Photo, Video, GIF, File, Text, Forwarded posts with buttons.</i>",
+            parse_mode="HTML", reply_markup=markup
+        )
+        return
+
+    # ── Manage Ongoing / Completed channels ───────────────────────────────────
+    if section == "bc_manage":
+        cat = parts[2]  # "ongoing" or "completed"
+        channels = story_channels_db.get(cat, [])
+        label = "Ongoing" if cat == "ongoing" else "Completed"
+        rows = []
+        for i, ch in enumerate(channels):
+            rows.append([InlineKeyboardButton(
+                f"✖ {str(ch)}",
+                callback_data=f"cfg|bc_del|{cat}|{i}|{caller_id}"
+            )])
+        rows.append([InlineKeyboardButton(f"➕ Add Channels to {label}", callback_data=f"cfg|bc_add|{cat}|{caller_id}")])
+        rows.append([InlineKeyboardButton("« Back", callback_data=f"cfg|broadcast||{caller_id}")])
+        empty_note = "\n<i>No channels yet. Tap ➕ to add.</i>" if not channels else ""
+        await query.edit_message_text(
+            f"⚙ <b>Manage {label} Channels</b>\n"
+            f"<i>Tap ✖ on a channel to remove it.{empty_note}</i>",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(rows)
+        )
+        return
+
+    # ── Delete a channel from Ongoing / Completed ─────────────────────────────
+    if section == "bc_del":
+        cat = parts[2]    # "ongoing" or "completed"
+        try:
+            idx = int(parts[3])
+        except (IndexError, ValueError):
+            await query.answer("Invalid index.", show_alert=True)
+            return
+        channels = story_channels_db.get(cat, [])
+        if 0 <= idx < len(channels):
+            removed = channels.pop(idx)
+            story_channels_db[cat] = channels
+            save_story_channels(story_channels_db)
+            await query.answer(f"✖ Removed: {removed}")
+        # Refresh manage panel
+        query.data = f"cfg|bc_manage|{cat}|{caller_id}"
+        await _handle_config_callback(query, context)
+        return
+
+    # ── Add channels input: wait for admin message ────────────────────────────
+    if section == "bc_add":
+        cat = parts[2]   # "ongoing" or "completed"
+        label = "Ongoing" if cat == "ongoing" else "Completed"
+        context.user_data["bc_add_cat"] = cat
+        context.user_data["bc_add_caller"] = caller_id
+        # Mark admin as waiting for channel input
+        from plugins.broadcast import GLOBAL_BROADCAST_WAITING
+        context.user_data["bc_add_waiting"] = True
+        GLOBAL_BROADCAST_WAITING.discard(user.id)   # not a broadcast wait — use separate flag
+        markup = InlineKeyboardMarkup([[InlineKeyboardButton("✖ Cancel", callback_data=f"cfg|bc_manage|{cat}|{caller_id}")]])
+        await query.edit_message_text(
+            f"➕ <b>Add {label} Channels</b>\n\n"
+            f"Send channel IDs / usernames — one per line, or comma-separated.\n\n"
+            f"<b>Accepted formats:</b>\n"
+            f"• <code>-1001234567890</code>  (channel ID)\n"
+            f"• <code>@channelname</code>  (username)\n"
+            f"• <code>-1001234567890:123</code>  (group topic)\n\n"
+            f"<i>You can paste multiple at once.</i>",
+            parse_mode="HTML", reply_markup=markup
+        )
+        return
+
 
     # ── Broadcast: All channels ──────────────────────────────────────────────
     if section == "bc_all":
@@ -5996,9 +6089,60 @@ async def handle_config_input(update: Update, context: ContextTypes.DEFAULT_TYPE
     chat_id = update.effective_chat.id
     lang = get_chat_lang(chat_id)
     text = update.message.text.strip()
-    
+
+    # ── Channel-add input for Ongoing / Completed broadcast ───────────────────
+    if context.user_data.get("bc_add_waiting"):
+        context.user_data.pop("bc_add_waiting", None)
+        cat       = context.user_data.pop("bc_add_cat", "ongoing")
+        caller_id = context.user_data.pop("bc_add_caller", update.effective_user.id)
+        label     = "Ongoing" if cat == "ongoing" else "Completed"
+
+        # Parse input: split on newlines, commas, or spaces
+        import re as _re
+        raw = _re.split(r"[\n,]+", text)
+        parsed = []
+        for item in raw:
+            item = item.strip()
+            if not item:
+                continue
+            # Accept numeric IDs, @usernames, and id:thread formats
+            if _re.match(r"^-?\d+(:\d+)?$", item) or item.startswith("@"):
+                parsed.append(item)
+
+        if not parsed:
+            await update.message.reply_text(
+                "⚠️ No valid channel IDs/usernames found.\n"
+                "Use format: <code>-1001234567890</code> or <code>@username</code>",
+                parse_mode="HTML"
+            )
+            return
+
+        # Merge into db (no duplicates)
+        existing = story_channels_db.get(cat, [])
+        added = []
+        skipped = []
+        for ch in parsed:
+            if ch not in existing:
+                existing.append(ch)
+                added.append(ch)
+            else:
+                skipped.append(ch)
+        story_channels_db[cat] = existing
+        save_story_channels(story_channels_db)
+
+        added_txt   = "\n".join(f"  ✅ <code>{c}</code>" for c in added)   or "  <i>none</i>"
+        skipped_txt = "\n".join(f"  ⏭ <code>{c}</code>" for c in skipped) or "  <i>none</i>"
+        await update.message.reply_text(
+            f"<b>➕ {label} Channels Updated</b>\n\n"
+            f"<b>Added ({len(added)}):</b>\n{added_txt}\n\n"
+            f"<b>Already existed ({len(skipped)}):</b>\n{skipped_txt}",
+            parse_mode="HTML"
+        )
+        return
+
     # Check if we're waiting for config input
     state = context.chat_data.get("config_state")
+
     
     # ── New multi-provider key handler ───────────────────────────────────────
     if state == "waiting_ai_key":
