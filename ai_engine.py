@@ -382,13 +382,43 @@ _NEW_TOPIC = [
     "by the way", "alag topic", "ek aur cheez", "naya sawaal",
     "alag baat", "kuch aur", "btw",
 ]
-_SEARCH_RE = re.compile(r"##\s*SEARCH:\s*(.*?)(?:##|$)", re.IGNORECASE | re.DOTALL)
-_VOICE_RE  = re.compile(r"##\s*VOICE\s*##",  re.IGNORECASE)
-_STOP_RE   = re.compile(r"##\s*STOP\s*##",   re.IGNORECASE)
-_IMAGE_RE  = re.compile(r"##\s*IMAGE:\s*(.*?)(?:##|$)", re.IGNORECASE | re.DOTALL)
+_SEARCH_RE   = re.compile(r"##\s*SEARCH:\s*(.*?)(?:##|$)", re.IGNORECASE | re.DOTALL)
+_VOICE_RE    = re.compile(r"##\s*VOICE\s*##",  re.IGNORECASE)
+_STOP_RE     = re.compile(r"##\s*STOP\s*##",   re.IGNORECASE)
+_IMAGE_RE    = re.compile(r"##\s*IMAGE:\s*(.*?)(?:##|$)", re.IGNORECASE | re.DOTALL)
+
+# Regex to extract exact text for voice: "voice mein yah bolo: [text]" or "bolo \"[text]\""
+_VOICE_EXACT_RE = re.compile(
+    r'(?:voice\s*(?:mein|me|note|message)?\s*(?:yah|ye|yeh|isko|sirf|bas)?\s*(?:bolo|bol|kaho|keh|sunao))'
+    r'\s*[:\-–]?\s*["\u201c]?(.+?)["\u201d]?\s*$',
+    re.IGNORECASE | re.DOTALL
+)
+# Regex for translate: "translate this: [text]" or "isko [lang] mein translate karo"
+_TRANSLATE_RE = re.compile(
+    r'(?:translate|anuvad|anuwad)',
+    re.IGNORECASE
+)
+_TRANSLATE_TARGET_RE = re.compile(
+    r'(?:translate|anuvad|anuwad)\s+(?:this|yah|ye|isko|kar)?\s*[:\-–]?\s*(.+)',
+    re.IGNORECASE | re.DOTALL
+)
 
 def _detect_intent(text: str):
     lower = text.lower().strip()
+
+    # ── Voice exact: "voice mein yah bolo: [text]" ─────────────────────────────
+    vm = _VOICE_EXACT_RE.search(lower)
+    if vm:
+        extracted = vm.group(1).strip().strip('"\u201c\u201d\u2018\u2019').strip()
+        if extracted:
+            return "voice_exact", extracted
+
+    # ── Translate intent ────────────────────────────────────────────────────────
+    if _TRANSLATE_RE.search(lower):
+        tm = _TRANSLATE_TARGET_RE.search(text)  # use original text for case
+        extracted = tm.group(1).strip() if tm else ""
+        return "translate", extracted or text
+
     if any(kw in lower for kw in _VOICE_KW):
         return "voice", None
     for kw in _STORY_KW:
@@ -444,6 +474,37 @@ async def process_gemini_message(user_id: int, user_name: str, message_text: str
     if intent == "story" and rule_story:
         return ("Yeh rahi! 📖", rule_story, False, False, None)
 
+    # 3a. Voice exact — bypass AI, speak ONLY the given text
+    if intent == "voice_exact" and rule_story:  # rule_story holds extracted text here
+        return (rule_story, None, True, False, None)
+
+    # 3b. Translate intent — strict instruction to AI
+    if intent == "translate":
+        text_to_translate = rule_story or message_text  # rule_story = extracted text
+        # Detect target language from message
+        lower_msg = message_text.lower()
+        if "hindi" in lower_msg or "devanagari" in lower_msg or "devanagri" in lower_msg:
+            target_lang = "Hindi (Devanagari script only, no Roman)"
+        elif "english" in lower_msg or "angrezi" in lower_msg:
+            target_lang = "English"
+        elif "hinglish" in lower_msg:
+            target_lang = "Hinglish (Roman Hindi)"
+        else:
+            target_lang = "Hindi"  # default
+        strict_payload = (
+            f"Translate the following text to {target_lang}.\n"
+            f"RULES: Output ONLY the translated text. No explanations. No extra sentences. "
+            f"No greetings. No 'Here is the translation'. Just the translation.\n\n"
+            f"Text to translate:\n{text_to_translate}"
+        )
+        raw = await _get_ai_raw(user_id, strict_payload)
+        ai_text = raw.strip() if raw else "Translation failed, try again."
+        # Strip any accidental ##markers##
+        ai_text, _, _, _, _ = parse_ai_reply(ai_text)
+        if ai_text:
+            _save_turn(user_id, message_text, ai_text)
+        return (ai_text, None, False, False, None)
+
     # 4. New topic → trim history
     lower = message_text.lower()
     if any(sig in lower for sig in _NEW_TOPIC):
@@ -459,7 +520,7 @@ async def process_gemini_message(user_id: int, user_name: str, message_text: str
     elif is_guide:
         sys_note = "[INSTRUCTION: Write a FULL structured guide covering: story search, /request, /saved, /new, /subscribe, voice notes. Use clear formatting.]"
     elif is_voice:
-        sys_note = "[INSTRUCTION: VOICE NOTE — provide only the exact spoken words. Start directly. Natural filler words ok. Max 2 sentences. No meta-text.]"
+        sys_note = "[INSTRUCTION: VOICE NOTE — provide ONLY the spoken words the user asked for. Do NOT add extra sentences, greetings, or commentary. Speak naturally.]"
     elif words <= 5:
         sys_note = "[INSTRUCTION: Very short message. Reply in max 1-2 casual lines.]"
     else:
