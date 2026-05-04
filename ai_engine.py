@@ -34,7 +34,7 @@ IDENTITY (NON-NEGOTIABLE):
 
 LANGUAGE MATCHING RULE (CRITICAL — NEVER BREAK):
 - You MUST reply in EXACTLY the same language and script that the user wrote in.
-- Pure English input → 100% English reply only. NO Hindi words at all. DO NOT use words like "Yaar", "Arre", "Na", "Chalo" if the user is speaking pure English.
+- Pure English input → 100% English reply only. NO Hindi words at all. DO NOT use words like "Yaar", "Arre", "Na", "Chalo", "Bhai" if the user is speaking pure English.
 - Pure Hindi (Devanagari) input → 100% Hindi (Devanagari) reply only.
 - Hinglish (Roman Hindi mix) → Hinglish reply.
 - Any other language input (e.g., Bengali, Spanish) → Reply accurately in that exact language.
@@ -52,13 +52,13 @@ PERSONALITY — REAL HUMAN:
 - DO NOT be overly formal, overly defensive, or overly sweet. Be grounded.
 
 SPECIAL CAPABILITIES:
-- Story search: When user asks for a story, audiobook, or link, respond with "Yeh rahi! 📖" (in Hinglish) or "Here it is! 📖" (in English) — the system handles search automatically.
+- Story search: If a user asks for a story, audiobook, or link, you MUST append ##SEARCH: story_name## at the very end of your reply. NEVER hallucinate or make up story details or authors. Just append the search tag.
 - Voice notes: If you want to send a voice note, append ##VOICE## at the end.
 - Images: If user asks for a photo/image, append ##IMAGE: detailed english visual description## at the very end.
 
 DO NOT:
 - Say "main ek AI hoon", "I'm an assistant", or any variation.
-- Give incomplete or cut-off answers.
+- Make up story details or authors.
 - Switch the language from what the user wrote in.
 - Use masculine verb forms in Hindi.
 - Use cringe/forced expressions.
@@ -362,7 +362,8 @@ _STORY_KW = [
     "wala link", "wali link", "story do", "story chahiye", "story dhundho",
     "episode do", "part do", "padna hai", "padhna hai", "dhundh do", "find karo",
     "sunna chahta", "sunna chahti", "khoj do", "kahani do", "story bhejo",
-    "audiobook", "audio book",
+    "audiobook", "audio book", "give me", "find", "search", "looking for",
+    "link of", "link for", "story of", "want to listen", "want to read"
 ]
 _VOICE_KW = [
     "voice note", "voice mein bolo", "voice me bolo", "voice mein", "voice me",
@@ -495,7 +496,11 @@ async def process_gemini_message(user_id: int, user_name: str, message_text: str
 
     # 3. Story route — bypass AI
     if intent == "story" and rule_story:
-        return ("Yeh rahi! 📖", rule_story, False, False, None)
+        lower_msg = message_text.lower()
+        if "english" in lower_msg or not any(hw in lower_msg for hw in ["hai", "karo", "do", "bhejo", "chahiye"]):
+            return ("Here it is! 📖", rule_story, False, False, None)
+        else:
+            return ("Yeh rahi! 📖", rule_story, False, False, None)
 
     # 3a. Voice exact — bypass AI, speak ONLY the given text
     if intent == "voice_exact" and rule_story:  # rule_story holds extracted text here
@@ -569,7 +574,15 @@ async def process_gemini_message(user_id: int, user_name: str, message_text: str
     if ai_text:
         _save_turn(user_id, f"{user_name}: {message_text}", ai_text)
 
-    ai_search = None   # AI never triggers story search directly
+    # Allow AI to trigger search if it detected a story request that our simple regex missed
+    if ai_search and not ai_text:
+        # If AI only returned a search tag but no text, give a default
+        lower_msg = message_text.lower()
+        if "english" in lower_msg or not any(hw in lower_msg for hw in ["hai", "karo", "do", "bhejo", "chahiye"]):
+            ai_text = "Here it is! 📖"
+        else:
+            ai_text = "Yeh rahi! 📖"
+
     if is_voice:
         ai_voice = True
 
