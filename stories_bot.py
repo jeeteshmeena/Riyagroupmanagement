@@ -6536,22 +6536,10 @@ def _is_thanks_msg(text: str) -> bool:
 
 
 async def _try_react(bot, chat_id: int, message_id: int, emoji: str, big: bool = False):
-    """Send a Telegram reaction on a message.
-    Priority:
-      1. Premium userbot → ReactionEmoji with big=True (full-screen animation, premium perk)
-      2. Bot ReactionTypeEmoji (standard fallback)
+    """Send a reaction using the bot's own account (ReactionTypeEmoji).
+    The bot reacts as itself — clean and expected behavior.
+    Premium userbot is NOT used for reactions (would show personal account reacting).
     """
-    # ── 1. Premium userbot — always uses big animation ─────────────────────────
-    try:
-        import premium_userbot
-        if premium_userbot.is_connected():
-            ok = await premium_userbot.react_with_emoji(chat_id, message_id, emoji, big=True)
-            if ok:
-                return
-    except Exception as _pe:
-        logger.debug("Premium reaction attempt failed: %s", _pe)
-
-    # ── 2. Standard bot reaction (fallback) ───────────────────────────────────
     try:
         from telegram import ReactionTypeEmoji
         await bot.set_message_reaction(
@@ -6562,6 +6550,7 @@ async def _try_react(bot, chat_id: int, message_id: int, emoji: str, big: bool =
         )
     except Exception as _re:
         logger.debug("Reaction failed: %s", _re)
+
 
 
 
