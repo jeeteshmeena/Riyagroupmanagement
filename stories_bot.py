@@ -3052,10 +3052,10 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lnw_data = f"lnw|{story_key}"
     if len(lnw_data) > 64: lnw_data = "lnw|toolong"
     
-    keyboard.append([
-        InlineKeyboardButton("Favourites", callback_data=fav_data),
-        InlineKeyboardButton("Link Broken?", callback_data=lnw_data)
-    ])
+    action_row = [InlineKeyboardButton("Favourites", callback_data=fav_data)]
+    if not result.get("is_paid"):
+        action_row.append(InlineKeyboardButton("Link Broken?", callback_data=lnw_data))
+    keyboard.append(action_row)
     keyboard.append([InlineKeyboardButton("🗑️ Delete", callback_data="delete")])
 
     photo = result.get("photo") or result.get("image")
@@ -3498,12 +3498,14 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if len(lnw_data) > 64: lnw_data = "lnw|toolong"
 
         open_btn_text = "Buy Now" if result.get("is_paid") else "Open Story"
+        
+        action_row = [InlineKeyboardButton("Favourites", callback_data=fav_data)]
+        if not result.get("is_paid"):
+            action_row.append(InlineKeyboardButton("Link Broken?", callback_data=lnw_data))
+
         keyboard = [
             [InlineKeyboardButton(open_btn_text, url=result["link"])],
-            [
-                InlineKeyboardButton("Favourites", callback_data=fav_data),
-                InlineKeyboardButton("Link Broken?", callback_data=lnw_data),
-            ],
+            action_row,
             [InlineKeyboardButton("🗑️ Delete", callback_data="delete")],
         ]
 
