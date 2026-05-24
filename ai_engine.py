@@ -653,6 +653,68 @@ def toggle_provider(pid: str, enabled: bool):
     _ai_config = cfg
     init_all()
 
+async def classify_content_with_gemini(text: str = None, photo_bytes: bytes = None) -> str:
+    """
+    Analyzes text or image bytes using the configured Gemini API key.
+    Returns: 'SPAM', 'NSFW', or 'CLEAN'.
+    """
+    cfg = get_ai_config()
+    gemini_cfg = cfg.get("providers", {}).get("gemini", {})
+    api_key = gemini_cfg.get("api_key", "").strip()
+    if not api_key:
+        import os
+        api_key = os.getenv("GEMINI_API_KEY", "").strip()
+
+    if not api_key:
+        logger.warning("[AI-Moderator] Gemini API Key not found for content classification!")
+        return "CLEAN"
+
+    try:
+        import google.generativeai as genai
+        genai.configure(api_key=api_key)
+
+        mod_sys_prompt = (
+            "You are a strict, precise content moderator for a Telegram group.\n"
+            "Analyze the user's message text or image content.\n"
+            "Respond with exactly one word: 'SPAM', 'NSFW', or 'CLEAN'.\n"
+            "Do not output any other text, markdown, explanation, or punctuation.\n\n"
+            "Definitions:\n"
+            "- SPAM: Any advertisements, promotional text, links (especially invite links, shorteners), selling/buying services, or cryptocurrency scams.\n"
+            "- NSFW: Pornographic, highly suggestive, explicit sexual content, nudity, or extreme vulgarity.\n"
+            "- CLEAN: Safe, normal friendly conversation, greeting, or legitimate user query."
+        )
+
+        model_name = gemini_cfg.get("model", "gemini-2.0-flash")
+        mod_model = genai.GenerativeModel(
+            model_name=model_name,
+            system_instruction=mod_sys_prompt
+        )
+
+        if photo_bytes:
+            contents = []
+            if text:
+                contents.append(text)
+            contents.append({'data': photo_bytes, 'mime_type': 'image/jpeg'})
+            resp = await asyncio.to_thread(mod_model.generate_content, contents)
+        else:
+            if not text or not text.strip():
+                return "CLEAN"
+            resp = await asyncio.to_thread(mod_model.generate_content, text.strip())
+
+        result = resp.text.strip().upper()
+        
+        # Exact matching logic to avoid minor variation failures
+        if "SPAM" in result:
+            return "SPAM"
+        elif "NSFW" in result:
+            return "NSFW"
+        else:
+            return "CLEAN"
+
+    except Exception as e:
+        logger.error(f"[AI-Moderator] Gemini classification failed: {e}", exc_info=True)
+        return "CLEAN"  # Safe default on error
+
 # ── Reinit shims (backward compat for stories_bot.py) ────────────────────────
 def reinit_gemini(key: str):
     set_provider_key("gemini", key, bool(key))

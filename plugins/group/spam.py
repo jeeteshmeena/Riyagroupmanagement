@@ -139,5 +139,21 @@ async def strict_spam_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 )
                 return
 
+        # ── Check 3: AI Smart Moderation (Gemini-powered) ─────────────────────
+        words_count = len(full_text.strip().split())
+        # To optimize and avoid API overhead, we only scan messages containing 4 or more words
+        if words_count >= 4:
+            from ai_engine import classify_content_with_gemini
+            ai_result = await classify_content_with_gemini(text=full_text)
+            
+            if ai_result == "SPAM":
+                logger.info(f"[StrictSpam] AI SPAM from {user.id}: {full_text[:60]}")
+                await _take_action(context, chat_id, user, msg, "AI Moderation Guard: Spam/Advertisement detected")
+                return
+            elif ai_result == "NSFW":
+                logger.info(f"[StrictSpam] AI NSFW from {user.id}: {full_text[:60]}")
+                await _take_action(context, chat_id, user, msg, "AI Moderation Guard: Inappropriate/NSFW text detected")
+                return
+
     except Exception as e:
         logger.error(f"[StrictSpam] Unhandled error: {e}", exc_info=True)

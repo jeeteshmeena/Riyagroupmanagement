@@ -47,7 +47,6 @@ def _is_nsfw(text: str) -> bool:
     return False
 
 
-# ── Guard handler ─────────────────────────────────────────────────────────────
 async def nsfw_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Scan every group message for NSFW content."""
     try:
@@ -73,7 +72,53 @@ async def nsfw_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             return
 
         text = update.message.text or update.message.caption or ""
-        if not text or not _is_nsfw(text):
+        
+        # ── 1. Fast static check (for text keywords/links) ─────────────────────
+        is_violation = False
+        reason = "NSFW / Inappropriate Content"
+        
+        if text and _is_nsfw(text):
+            is_violation = True
+            
+        # ── 2. AI Multimodal check (for media or suspicious text) ─────────────
+        if not is_violation:
+            photo_bytes = None
+            
+            # Extract photo
+            if update.message.photo:
+                try:
+                    tg_file = await update.message.photo[-1].get_file()
+                    photo_bytes = bytes(await tg_file.download_as_bytearray())
+                except Exception as e:
+                    logger.warning(f"[GCP-NSFW] Photo download failed: {e}")
+            
+            # Extract static sticker
+            elif update.message.sticker and not update.message.sticker.is_animated:
+                try:
+                    tg_file = await update.message.sticker.get_file()
+                    photo_bytes = bytes(await tg_file.download_as_bytearray())
+                except Exception as e:
+                    logger.warning(f"[GCP-NSFW] Sticker download failed: {e}")
+            
+            # Extract GIF / animation thumbnail
+            elif update.message.animation and update.message.animation.thumbnail:
+                try:
+                    tg_file = await update.message.animation.thumbnail.get_file()
+                    photo_bytes = bytes(await tg_file.download_as_bytearray())
+                except Exception as e:
+                    logger.warning(f"[GCP-NSFW] Animation thumbnail download failed: {e}")
+
+            if text or photo_bytes:
+                from ai_engine import classify_content_with_gemini
+                ai_result = await classify_content_with_gemini(text=text, photo_bytes=photo_bytes)
+                if ai_result == "NSFW":
+                    is_violation = True
+                    reason = "AI Guard: NSFW/Explicit content detected"
+                elif ai_result == "SPAM":
+                    is_violation = True
+                    reason = "AI Guard: Spam/Advertisement detected"
+
+        if not is_violation:
             return
 
         # Always delete the offending message first
@@ -94,7 +139,7 @@ async def nsfw_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
         await send_log(
             context, chat_id,
-            f"🚫 NSFW from {user.first_name} ({user.id}). Warn {count}/{limit}",
+            f"🚫 {reason} from {user.first_name} ({user.id}). Warn {count}/{limit}",
         )
 
         if count >= limit:
@@ -104,11 +149,11 @@ async def nsfw_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
                 reset_warns(chat_id, user.id)
                 await context.bot.send_message(
                     chat_id,
-                    f"🔨 <b>{user.first_name}</b> banned for repeated NSFW violations.",
+                    f"🔨 <b>{user.first_name}</b> banned for repeated violations ({reason}).",
                     parse_mode="HTML",
                 )
                 await send_log(context, chat_id,
-                               f"🔨 NSFW auto-ban: {user.first_name} ({user.id})")
+                               f"🔨 Auto-ban: {user.first_name} ({user.id}) due to repeated violations")
             except Exception as ex:
                 logger.warning(f"[GCP-NSFW] ban failed: {ex}")
 
@@ -121,7 +166,7 @@ async def nsfw_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
                 )
                 await context.bot.send_message(
                     chat_id,
-                    f"🔇 <b>{user.first_name}</b> muted for NSFW content. "
+                    f"🔇 <b>{user.first_name}</b> muted for {reason}. "
                     f"({count}/{limit} warnings)",
                     parse_mode="HTML",
                 )
@@ -132,7 +177,7 @@ async def nsfw_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             try:
                 await context.bot.send_message(
                     chat_id,
-                    f"⚠️ <b>{user.first_name}</b>, NSFW content is NOT allowed here. "
+                    f"⚠️ <b>{user.first_name}</b>, {reason} is NOT allowed here. "
                     f"Warning {count}/{limit}.",
                     parse_mode="HTML",
                 )

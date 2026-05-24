@@ -95,15 +95,55 @@ async def new_member_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         w = get_welcome(chat_id)
         msgs = w.get("messages", [])
-        if not msgs:
-            return
-
-        msg = random.choice(msgs) if w.get("random", False) else msgs[0]
 
         for member in new_members:
             if member.is_bot:
                 continue
-            await _send_welcome_msg(context, chat_id, msg, member, reply_to=update.message.message_id)
+
+            # ── PROFILE / USERNAME GUARD ──────────────────────────────────────
+            # Check Display Name / Username for links, ads, and explicit words
+            name_text = " ".join(filter(None, [member.first_name, member.last_name, member.username]))
+            
+            # Common spam patterns and adult keywords
+            spam_indicators = [
+                r"t\.me/\+", r"t\.me/joinchat", r"bit\.ly", r"sliceurl", r"tinyurl", 
+                r"earn", r"money", r"crypto", r"free", r"porn", r"sex", r"xxx", r"nude",
+                r"chudai", r"randi", r"\+18", r"🔞"
+            ]
+            import re
+            is_spam_name = False
+            for pat in spam_indicators:
+                if re.search(pat, name_text.lower()):
+                    is_spam_name = True
+                    break
+            
+            if is_spam_name:
+                try:
+                    # Ban instantly
+                    await context.bot.ban_chat_member(chat_id, member.id)
+                    # Delete the join service message
+                    try:
+                        await update.message.delete()
+                    except Exception:
+                        pass
+                    # Log / Send alert
+                    await context.bot.send_message(
+                        chat_id,
+                        f"🛡️ <b>Profile Guard Alert</b>\n"
+                        f"<code>──────────────────</code>\n"
+                        f"<b>Banned User  »</b> {member.full_name} (<code>{member.id}</code>)\n"
+                        f"<b>Reason        »</b> Spam/NSFW pattern in profile name.\n"
+                        f"<code>──────────────────</code>",
+                        parse_mode="HTML"
+                    )
+                    continue
+                except Exception as ex:
+                    logger.warning(f"[ProfileGuard] Failed to ban {member.id}: {ex}")
+            # ── END PROFILE GUARD ─────────────────────────────────────────────
+
+            if msgs:
+                msg = random.choice(msgs) if w.get("random", False) else msgs[0]
+                await _send_welcome_msg(context, chat_id, msg, member, reply_to=update.message.message_id)
     except Exception as e:
         logger.warning(f"[GCP-Welcome] new_member_handler: {e}")
 
