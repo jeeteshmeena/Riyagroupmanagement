@@ -68,7 +68,7 @@ DO NOT:
 PROVIDERS = {
     "gemini": {
         "name": "Google Gemini",
-        "model": "gemini-2.0-flash",
+        "model": "gemini-1.5-flash",
         "type": "gemini",
         "env_key": "GEMINI_API_KEY",
         "free": True,
@@ -684,7 +684,7 @@ async def classify_content_with_gemini(text: str = None, photo_bytes: bytes = No
             "- CLEAN: Safe, normal friendly conversation, greeting, or legitimate user query."
         )
 
-        model_name = gemini_cfg.get("model", "gemini-2.0-flash")
+        model_name = gemini_cfg.get("model", "gemini-1.5-flash")
         mod_model = genai.GenerativeModel(
             model_name=model_name,
             system_instruction=mod_sys_prompt
