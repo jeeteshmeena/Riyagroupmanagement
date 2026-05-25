@@ -839,7 +839,7 @@ async def handle_backup_link(update: Update, context: ContextTypes.DEFAULT_TYPE)
             data["backup_link"] = "https://t.me/+z0RjNWMAK8syNDFl"
         else:
             # Default to default backup channel link for Hindi
-            data["backup_link"] = DEFAULT_STORY_LINK
+            data["backup_link"] = "https://t.me/SLBackupTG"
             
         # Transition after backup link
         if fmt == "light_pro":
