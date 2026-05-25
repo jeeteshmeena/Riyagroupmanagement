@@ -1232,12 +1232,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     
     if context.args and context.args[0] == "request":
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📝 Start Request Form / फ़ॉर्म शुरू करें", callback_data="formreq_start_form")]
-        ])
+        kb = ReplyKeyboardMarkup([
+            ["✦ sᴛᴀʀᴛ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ ✦"]
+        ], resize_keyboard=True, one_time_keyboard=True)
         await update.message.reply_text(
-            "📝 <b>Story Request Form</b>\n\n"
-            "Welcome! Click the button below to start filling out your story request form / "
+            "✦ <b>sᴛᴏʀʏ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ</b>\n\n"
+            "ᴡᴇʟᴄᴏᴍᴇ! ᴄʟɪᴄᴋ ᴛʜᴇ ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ ᴛᴏ sᴛᴀʀᴛ ꜰɪʟʟɪɴɢ ᴏᴜᴛ ʏᴏᴜʀ sᴛᴏʀʏ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ / "
             "आपका स्वागत है! अपनी स्टोरी रिक्वेस्ट फ़ॉर्म भरने के लिए नीचे दिए गए बटन पर क्लिक करें:",
             parse_mode="HTML",
             reply_markup=kb
@@ -2184,11 +2184,11 @@ async def start_request_form(update: Update, context: ContextTypes.DEFAULT_TYPE)
         bot_user = context.bot.username
         form_url = f"https://t.me/{bot_user}?start=request"
         tutorial_kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📝 Request via Form / फ़ॉर्म द्वारा रिक्वेस्ट करें", url=form_url)]
+            [InlineKeyboardButton("» ʀᴇqᴜᴇsᴛ ᴠɪᴀ ꜰᴏʀᴍ / फ़ॉर्म द्वारा रिक्वेस्ट करें", url=form_url)]
         ])
         text = (
-            "<b>✮ Request via Form</b>\n\n"
-            "Form requests are only available in private chat! Please click the button below to start the interactive form in PM."
+            "<b>✦ ʀᴇqᴜᴇsᴛ ᴠɪᴀ ꜰᴏʀᴍ</b>\n\n"
+            "ꜰᴏʀᴍ ʀᴇqᴜᴇsᴛs ᴀʀᴇ ᴏɴʟʏ ᴀᴠɪʟᴀʙʟᴇ ɪɴ ᴘʀɪᴠᴀᴛᴇ ᴄʜᴀᴛ! ᴘʟᴇᴀsᴇ ᴄʟɪᴄᴋ ᴛʜᴇ ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ ᴛᴏ sᴛᴀʀᴛ ᴛʜᴇ ɪɴᴛᴇʀᴀᴄᴛɪᴠᴇ ꜰᴏʀᴍ ɪɴ ᴘᴍ."
         )
         await chat.send_message(text=text, parse_mode="HTML", reply_markup=tutorial_kb)
         return ConversationHandler.END
@@ -2197,10 +2197,10 @@ async def start_request_form(update: Update, context: ContextTypes.DEFAULT_TYPE)
     context.user_data["req_data"] = {}
     
     text = (
-        "📝 <b>Story Request Form</b>\n"
+        "★ <b>sᴛᴏʀʏ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ</b>\n"
         "<code>──────────────────</code>\n"
-        "Step 1: Please type the correct **Story Name** / स्टोरी का सही नाम टाइप करें:\n\n"
-        "<i>(You can type /cancel anytime to exit)</i>"
+        "sᴛᴇᴘ 1: ᴘʟᴇᴀsᴇ ᴛʏᴘᴇ ᴛʜᴇ ᴄᴏʀʀᴇᴄᴛ <b>sᴛᴏʀʏ ɴᴀᴍᴇ</b> / स्टोरी का सही नाम टाइप करें:\n\n"
+        "<i>(ʏᴏᴜ ᴄᴀɴ ᴛʏᴘᴇ ᴄᴀɴᴄᴇʟ ᴀɴʏᴛɪᴍᴇ ᴛᴏ ᴇxɪᴛ)</i>"
     )
     await update.effective_chat.send_message(
         text=text, 
@@ -2212,130 +2212,182 @@ async def start_request_form(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def handle_req_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name_input = update.message.text.strip()
     if len(name_input) < 2:
-        await update.message.reply_text("⚠️ Story name too short! Please enter a valid story name:")
+        await update.message.reply_text("✧ sᴛᴏʀʏ ɴᴀᴍᴇ ᴛᴏᴏ sʜᴏʀᴛ! ᴘʟᴇᴀsᴇ ᴇɴᴛᴇʀ ᴀ ᴠᴀʟɪᴅ sᴛᴏʀʏ ɴᴀᴍᴇ:")
         return REQ_NAME
         
     context.user_data["req_data"]["name"] = name_input
     
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("Pocket FM", callback_data="formreq_plat|Pocket FM"),
-         InlineKeyboardButton("Kuku FM", callback_data="formreq_plat|Kuku FM")],
-        [InlineKeyboardButton("Kuku TV", callback_data="formreq_plat|Kuku TV"),
-         InlineKeyboardButton("Eight FM", callback_data="formreq_plat|Eight FM")],
-        [InlineKeyboardButton("Headfone", callback_data="formreq_plat|Headfone"),
-         InlineKeyboardButton("Pratilipi FM", callback_data="formreq_plat|Pratilipi FM")],
-        [InlineKeyboardButton("✏️ Custom / अन्य", callback_data="formreq_plat|custom")],
-        [InlineKeyboardButton("❌ Cancel / रद्द करें", callback_data="formreq_cancel")]
-    ])
+    kb = ReplyKeyboardMarkup([
+        ["ᴘᴏᴄᴋᴇᴛ ꜰᴍ", "ᴋᴜᴋᴜ ꜰᴍ"],
+        ["ᴋᴜᴋᴜ ᴛᴠ", "ᴇɪɢʜᴛ ꜰᴍ"],
+        ["ʜᴇᴀᴅꜰᴏɴᴇ", "ᴘʀᴀᴛɪʟɪᴘɪ ꜰᴍ"],
+        ["ᴄᴜꜱᴛᴏᴍ"],
+        ["ᴄᴀɴᴄᴇʟ"]
+    ], resize_keyboard=True, one_time_keyboard=True)
     
     text = (
-        "📝 <b>Story Request Form</b>\n"
+        "★ <b>sᴛᴏʀʏ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ</b>\n"
         "<code>──────────────────</code>\n"
-        f"<b>Story Name:</b> {html.escape(name_input)}\n\n"
-        "Step 2: Select the **Platform** / प्लेटफॉर्म का चयन करें:"
+        f"▪ <b>sᴛᴏʀʏ ɴᴀᴍᴇ:</b> {html.escape(name_input)}\n\n"
+        "sᴛᴇᴘ 2: sᴇʟᴇᴄᴛ ᴛʜᴇ <b>ᴘʟᴀᴛꜰᴏʀᴍ</b> / प्लेटफॉर्म का चयन करें:"
     )
     await update.message.reply_text(text=text, parse_mode="HTML", reply_markup=kb)
     return REQ_PLATFORM
 
 async def handle_req_platform(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
+    text = update.message.text.strip().lower()
     
-    choice = query.data.split("|")[1]
+    if text in ("cancel", "ᴄᴀɴᴄᴇʟ"):
+        return await cancel_req_form(update, context)
+        
+    platform_map = {
+        "ᴘᴏᴄᴋᴇᴛ ꜰᴍ": "Pocket FM",
+        "pocket fm": "Pocket FM",
+        "ᴋᴜᴋᴜ ꜰᴍ": "Kuku FM",
+        "kuku fm": "Kuku FM",
+        "ᴋᴜᴋᴜ ᴛᴠ": "Kuku TV",
+        "kuku tv": "Kuku TV",
+        "ᴇɪɢʜᴛ ꜰᴍ": "Eight FM",
+        "eight fm": "Eight FM",
+        "ʜᴇᴀᴅꜰᴏɴᴇ": "Headfone",
+        "headfone": "Headfone",
+        "ᴘʀᴀᴛɪʟɪᴘɪ ꜰᴍ": "Pratilipi FM",
+        "pratilipi fm": "Pratilipi FM"
+    }
     
-    if choice == "custom":
-        await query.message.edit_text(
-            "📝 <b>Story Request Form</b>\n"
+    if text in ("custom", "ᴄᴜꜱᴛᴏᴍ"):
+        await update.message.reply_text(
+            "★ <b>sᴛᴏʀʏ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ</b>\n"
             "<code>──────────────────</code>\n"
-            "Step 2: Please type the **Platform Name** manually / प्लेटफॉर्म का नाम टाइप करें:",
-            parse_mode="HTML"
+            "sᴛᴇᴘ 2: ᴘʟᴇᴀsᴇ ᴛʏᴘᴇ ᴛʜᴇ <b>ᴘʟᴀᴛꜰᴏʀᴍ ɴᴀᴍᴇ</b> ᴍᴀɴᴜᴀʟʟʏ / प्लेटफॉर्म का नाम टाइप करें:",
+            parse_mode="HTML",
+            reply_markup=ReplyKeyboardRemove()
         )
         return REQ_CUST_PLAT
         
-    context.user_data["req_data"]["platform"] = choice
+    matched_plat = None
+    for k, v in platform_map.items():
+        if text == k:
+            matched_plat = v
+            break
+            
+    if not matched_plat:
+        matched_plat = update.message.text.strip()
+        
+    context.user_data["req_data"]["platform"] = matched_plat
     
-    text = (
-        "📝 <b>Story Request Form</b>\n"
+    prompt_text = (
+        "★ <b>sᴛᴏʀʏ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ</b>\n"
         "<code>──────────────────</code>\n"
-        f"<b>Platform:</b> {choice}\n\n"
-        "Step 3: Please upload the **Story Image** (Mandatory) / स्टोरी का पोस्टर अपलोड करें (अनिवार्य):\n\n"
-        "<i>(Send it as a standard Photo, not a document)</i>"
+        f"▪ <b>ᴘʟᴀᴛꜰᴏʀᴍ:</b> {matched_plat}\n\n"
+        "sᴛᴇᴘ 3: ᴘʟᴇᴀsᴇ ᴜᴘʟᴏᴀᴅ ᴛʜᴇ <b>sᴛᴏʀʏ ɪᴍᴀɢᴇ</b> (ᴍᴀɴᴅᴀᴛᴏʀʏ) / स्टोरी का पोस्टर अपलोड करें (अनिवार्य):\n\n"
+        "<i>(sᴇɴᴅ ɪᴛ ᴀs ᴀ sᴛᴀɴᴅᴀʀᴅ ᴘʜᴏᴛᴏ, ɴᴏᴛ ᴀ ᴅᴏᴄᴜᴍᴇɴᴛ)</i>"
     )
-    await query.message.edit_text(text=text, parse_mode="HTML")
+    await update.message.reply_text(text=prompt_text, parse_mode="HTML", reply_markup=ReplyKeyboardRemove())
     return REQ_IMAGE
 
 async def handle_req_cust_platform(update: Update, context: ContextTypes.DEFAULT_TYPE):
     plat_input = update.message.text.strip()
+    if plat_input.lower() in ("cancel", "ᴄᴀɴᴄᴇʟ"):
+        return await cancel_req_form(update, context)
+        
     if len(plat_input) < 2:
-        await update.message.reply_text("⚠️ Platform name too short! Please enter a valid platform:")
+        await update.message.reply_text("✧ ᴘʟᴀᴛꜰᴏʀᴍ ɴᴀᴍᴇ ᴛᴏᴏ sʜᴏʀᴛ! ᴘʟᴇᴀsᴇ ᴇɴᴛᴇʀ ᴀ ᴠᴀʟɪᴅ ᴘʟᴀᴛꜰᴏʀᴍ:")
         return REQ_CUST_PLAT
         
     context.user_data["req_data"]["platform"] = plat_input
     
-    text = (
-        "📝 <b>Story Request Form</b>\n"
+    prompt_text = (
+        "★ <b>sᴛᴏʀʏ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ</b>\n"
         "<code>──────────────────</code>\n"
-        f"<b>Platform:</b> {html.escape(plat_input)}\n\n"
-        "Step 3: Please upload the **Story Image** (Mandatory) / स्टोरी का पोस्टर अपलोड करें (अनिवार्य):\n\n"
-        "<i>(Send it as a standard Photo, not a document)</i>"
+        f"▪ <b>ᴘʟᴀᴛꜰᴏʀᴍ:</b> {html.escape(plat_input)}\n\n"
+        "sᴛᴇᴘ 3: ᴘʟᴇᴀsᴇ ᴜᴘʟᴏᴀᴅ ᴛʜᴇ <b>sᴛᴏʀʏ ɪᴍᴀɢᴇ</b> (ᴍᴀɴᴅᴀᴛᴏʀʏ) / स्टोरी का पोस्टर अपलोड करें (अनिवार्य):\n\n"
+        "<i>(sᴇɴᴅ ɪᴛ ᴀs ᴀ sᴛᴀɴᴅᴀʀᴅ ᴘʜᴏᴛᴏ, ɴᴏᴛ ᴀ ᴅᴏᴄᴜᴍᴇɴᴛ)</i>"
     )
-    await update.message.reply_text(text=text, parse_mode="HTML")
+    await update.message.reply_text(text=prompt_text, parse_mode="HTML", reply_markup=ReplyKeyboardRemove())
     return REQ_IMAGE
 
 async def handle_req_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text:
+        text = update.message.text.strip().lower()
+        if text in ("cancel", "ᴄᴀɴᴄᴇʟ"):
+            return await cancel_req_form(update, context)
+            
     if not update.message.photo:
         await update.message.reply_text(
-            "⚠️ Story image is **mandatory**!\n"
-            "Please upload/send a story poster photo to continue:"
+            "✧ sᴛᴏʀʏ ɪᴍᴀɢᴇ ɪs ᴍᴀɴᴅᴀᴛᴏʀʏ!\n"
+            "ᴘʟᴇᴀsᴇ ᴜᴘʟᴏᴀᴅ/sᴇɴᴅ ᴀ sᴛᴏʀʏ ᴘᴏsᴛᴇʀ ᴘʜᴏᴛᴏ ᴛᴏ ᴄᴏɴᴛɪɴᴜᴇ:"
         )
         return REQ_IMAGE
         
     context.user_data["req_data"]["photo_id"] = update.message.photo[-1].file_id
     
-    kb = ReplyKeyboardMarkup([["/skip"]], resize_keyboard=True, one_time_keyboard=True)
+    kb = ReplyKeyboardMarkup([["sᴋɪᴘ"], ["ᴄᴀɴᴄᴇʟ"]], resize_keyboard=True, one_time_keyboard=True)
     text = (
-        "📝 <b>Story Request Form</b>\n"
+        "★ <b>sᴛᴏʀʏ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ</b>\n"
         "<code>──────────────────</code>\n"
-        "✅ Image saved successfully!\n\n"
-        "Step 4: Please paste the **Story Link** (Optional, or click /skip if not available) / स्टोरी का लिंक भेजें (वैकल्पिक, या छोड़ने के लिए /skip पर क्लिक करें):"
+        "▫ ɪᴍᴀɢᴇ sᴀᴠᴇᴅ sᴜᴄᴄᴇssꜰᴜʟʟʏ!\n\n"
+        "sᴛᴇᴘ 4: ᴘʟᴇᴀsᴇ ᴘᴀsᴛᴇ ᴛʜᴇ <b>sᴛᴏʀʏ ʟɪɴᴋ</b> (ᴏᴘᴛɪᴏɴᴀʟ, ᴏʀ ᴄʟɪᴄᴋ sᴋɪᴘ ɪꜰ ɴᴏᴛ ᴀᴠᴀɪʟᴀʙʟᴇ) / स्टोरी का लिंक भेजें (वैकल्पिक, या छोड़ने के लिए sᴋɪᴘ पर क्लिक करें):"
     )
     await update.message.reply_text(text=text, parse_mode="HTML", reply_markup=kb)
     return REQ_LINK
 
 async def handle_req_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     link_input = update.message.text.strip()
-    if link_input == "/skip":
+    link_input_lower = link_input.lower()
+    
+    if link_input_lower in ("cancel", "ᴄᴀɴᴄᴇʟ"):
+        return await cancel_req_form(update, context)
+        
+    if link_input_lower in ("skip", "sᴋɪᴘ", "/skip"):
         context.user_data["req_data"]["link"] = ""
     else:
         context.user_data["req_data"]["link"] = link_input
         
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("Completed / पूरा हो गया", callback_data="formreq_status|Completed")],
-        [InlineKeyboardButton("Ongoing / चालू है", callback_data="formreq_status|Ongoing")],
-        [InlineKeyboardButton("❌ Cancel / रद्द करें", callback_data="formreq_cancel")]
-    ])
+    kb = ReplyKeyboardMarkup([
+        ["ᴄᴏᴍᴘʟᴇᴛᴇᴅ", "ᴏɴɢᴏɪɴɢ"],
+        ["ᴄᴀɴᴄᴇʟ"]
+    ], resize_keyboard=True, one_time_keyboard=True)
     
     text = (
-        "📝 <b>Story Request Form</b>\n"
+        "★ <b>sᴛᴏʀʏ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ</b>\n"
         "<code>──────────────────</code>\n"
-        "Step 5: Select the **Story Status** / स्टोरी का स्टेटस चुनें:"
+        "sᴛᴇᴘ 5: sᴇʟᴇᴄᴛ ᴛʜᴇ <b>sᴛᴏʀʏ sᴛᴀᴛᴜs</b> / स्टोरी का स्टेटस चुनें:"
     )
     await update.message.reply_text(text=text, parse_mode="HTML", reply_markup=kb)
     return REQ_STATUS
 
 async def handle_req_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
+    text = update.message.text.strip().lower()
     
-    choice = query.data.split("|")[1]
-    context.user_data["req_data"]["status"] = choice
+    if text in ("cancel", "ᴄᴀɴᴄᴇʟ"):
+        return await cancel_req_form(update, context)
+        
+    status_map = {
+        "completed": "Completed",
+        "completed / पूरा हो गया": "Completed",
+        "ᴄᴏᴍᴘʟᴇᴛᴇᴅ": "Completed",
+        "ongoing": "Ongoing",
+        "ongoing / चालू है": "Ongoing",
+        "ᴏɴɢᴏɪɴɢ": "Ongoing"
+    }
+    
+    status = status_map.get(text)
+    if not status:
+        kb = ReplyKeyboardMarkup([
+            ["ᴄᴏᴍᴘʟᴇᴛᴇᴅ", "ᴏɴɢᴏɪɴɢ"],
+            ["ᴄᴀɴᴄᴇʟ"]
+        ], resize_keyboard=True, one_time_keyboard=True)
+        await update.message.reply_text("✧ ᴘʟᴇᴀsᴇ sᴇʟᴇᴄᴛ ᴜsɪɴɢ ᴛʜᴇ ʙᴜᴛᴛᴏɴs:", reply_markup=kb)
+        return REQ_STATUS
+        
+    context.user_data["req_data"]["status"] = status
     
     data = context.user_data["req_data"]
     story_name = data.get("name")
     platform = data.get("platform")
     photo_id = data.get("photo_id")
     link = data.get("link", "")
-    status = data.get("status")
     
     user = update.effective_user
     mention = user.mention_html()
@@ -2347,14 +2399,13 @@ async def handle_req_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if existing:
         ex_link = existing.get("link", "")
         if ex_link:
-            await query.message.delete()
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
                 text=(
                     f"<b>{mention}</b>\n\n"
-                    f"<b>☆ Already in Database / पहले से उपलब्ध है</b>\n"
-                    f"<i>This story is already in our database!</i>\n\n"
-                    f"<b>Link:</b> <tg-spoiler>{ex_link}</tg-spoiler>"
+                    f"<b>☆ ᴀʟʀᴇᴀᴅʏ ɪɴ ᴅᴀᴛᴀʙᴀsᴇ / पहले से उपलब्ध है</b>\n"
+                    f"<i>ᴛʜɪs sᴛᴏʀʏ ɪs ᴀʟʀᴇᴀᴅʏ ɪɴ ᴏᴜʀ ᴅᴀᴛᴀʙᴀsᴇ!</i>\n\n"
+                    f"<b>ʟɪɴᴋ:</b> <tg-spoiler>{ex_link}</tg-spoiler>"
                 ),
                 parse_mode="HTML",
                 reply_markup=ReplyKeyboardRemove()
@@ -2368,13 +2419,12 @@ async def handle_req_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         request_db[story][chat_id] = set()
 
     if user.id in request_db[story][chat_id]:
-        await query.message.delete()
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text=(
                 f"<b>{mention}</b>\n\n"
-                f"<i>◌ You have already requested <b>{story}</b>.\n"
-                f"Please avoid duplicate requests!</i>"
+                f"<i>◌ ʏᴏᴜ ʜᴀᴠᴇ ᴀʟʀᴇᴀᴅʏ ʀᴇqᴜᴇsᴛᴇᴅ <b>{story}</b>.\n"
+                f"ᴘʟᴇᴀsᴇ ᴀᴠᴏɪᴅ ᴅᴜᴘʟɪᴄᴀᴛᴇ ʀᴇqᴜᴇsᴛs!</i>"
             ),
             parse_mode="HTML",
             reply_markup=ReplyKeyboardRemove()
@@ -2410,27 +2460,27 @@ async def handle_req_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     safe_story = story[:40]
     kb = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("✖ REJECT", callback_data=f"req_rej|{user.id}|{safe_story}"),
-            InlineKeyboardButton("◌ WARN", callback_data=f"req_warn|{user.id}|{safe_story}")
+            InlineKeyboardButton("✖ ʀᴇᴊᴇᴄᴛ", callback_data=f"req_rej|{user.id}|{safe_story}"),
+            InlineKeyboardButton("◌ ᴡᴀʀɴ", callback_data=f"req_warn|{user.id}|{safe_story}")
         ]
     ])
     
-    platform_line = f"\n▪ <b>Platform:</b> {html.escape(platform)}"
-    link_line = f"\n▪ <b>Link:</b> {html.escape(link)}" if link else "\n▪ <b>Link:</b> None"
-    status_line = f"\n▪ <b>Status:</b> {status}"
+    platform_line = f"\n▪ <b>ᴘʟᴀᴛꜰᴏʀᴍ:</b> {html.escape(platform)}"
+    link_line = f"\n▪ <b>ʟɪɴᴋ:</b> {html.escape(link)}" if link else "\n▪ <b>ʟɪɴᴋ:</b> None"
+    status_line = f"\n▪ <b>sᴛᴀᴛᴜs:</b> {status}"
     
     sent_req = await context.bot.send_photo(
         chat_id=REQUEST_GROUP,
         photo=photo_id,
         caption=(
-            f"✶ <b>Story Request (Form)</b>\n"
+            f"✶ <b>sᴛᴏʀʏ ʀᴇqᴜᴇsᴛ (ꜰᴏʀᴍ)</b>\n"
             f"<code>──────────────────</code>\n"
-            f"▪ <b>Name:</b> {html.escape(story)}\n"
-            f"▪ <b>User:</b> <a href='tg://user?id={user.id}'>{full_name}</a> ({username})"
+            f"▪ <b>ɴᴀᴍᴇ:</b> {html.escape(story)}\n"
+            f"▪ <b>ᴜsᴇʀ:</b> <a href='tg://user?id={user.id}'>{full_name}</a> ({username})"
             f"{platform_line}"
             f"{status_line}"
             f"{link_line}\n"
-            f"▪ <b>Total Requests:</b> {count}\n"
+            f"▪ <b>ᴛᴏᴛᴀʟ ʀᴇqᴜᴇsᴛs:</b> {count}\n"
             f"<code>──────────────────</code>"
         ),
         parse_mode="HTML",
@@ -2450,25 +2500,26 @@ async def handle_req_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             text += f"➔ आपके साथ {count - 1} और लोगों ने भी इसे रिक्वेस्ट किया है।"
     else:
-        text = f"<b>✦ Your request for <i>{html.escape(story_name)}</i> has been submitted!</b>\n\n"
-        if count == 1:
-            text += "➔ We will try our best to provide this story.\n➔ It will be uploaded as soon as we find it."
-        else:
-            text += f"➔ You and {count - 1} others also requested this."
+        text = (
+            f"<b>✦ ʏᴏᴜʀ ʀᴇqᴜᴇsᴛ ꜰᴏʀ <i>{html.escape(story_name)}</i> ʜᴀs ʙᴇᴇɴ sᴜʙᴍɪᴛᴛᴇᴅ!</b>\n\n"
+            f"➔ ᴡᴇ ᴡɪʟʟ ᴛʀʏ ᴏᴜʀ ʙᴇsᴛ ᴛᴏ ᴘʀᴏᴠɪᴅᴇ ᴛʜɪs sᴛᴏʀʏ.\n"
+            f"➔ ɪᴛ ᴡɪʟʟ ʙᴇ ᴜᴘʟᴏᴀᴅᴇᴅ ᴀs sᴏᴏɴ ᴀs ᴡᴇ ꜰɪɴᴅ ɪᴛ."
+        )
+        if count > 1:
+            text += f"\n➔ ʏᴏᴜ ᴀɴᴅ {count - 1} ᴏᴛʜᴇʀs ᴀʟsᴏ ʀᴇqᴜᴇsᴛᴇᴅ ᴛʜɪs."
             
     queue_len = len(voting_queue)
     if lang == "hi":
         if queue_len < VOTING_SIZE_FOR_POLL:
-            text += f"\n\n<b>📊 वोटिंग कतार:</b> <code>{queue_len}/{VOTING_SIZE_FOR_POLL}</code> स्टोरीज़\n<i>(कम्युनिटी वोटिंग शुरू होने के लिए {VOTING_SIZE_FOR_POLL} अलग-अलग स्टोरीज़ चाहिए।)</i>"
+            text += f"\n\n<b>◌ वोटिंग कतार:</b> <code>{queue_len}/{VOTING_SIZE_FOR_POLL}</code> स्टोरीज़\n<i>(कम्युनिटी वोटिंग शुरू होने के लिए {VOTING_SIZE_FOR_POLL} अलग-अलग स्टोरीज़ चाहिए।)</i>"
         else:
-            text += f"\n\n<b>🎉 वोटिंग कतार फुल हो गई है!</b>\n<i>जल्द ही रिक्वेस्ट चैनल में एक नया पोल शुरू होगा।</i>"
+            text += f"\n\n<b>✦ वोटिंग कतार फुल हो गई है!</b>\n<i>जल्द ही रिक्वेस्ट चैनल में एक नया पोल शुरू होगा।</i>"
     else:
         if queue_len < VOTING_SIZE_FOR_POLL:
-            text += f"\n\n<b>📊 Voting Queue:</b> <code>{queue_len}/{VOTING_SIZE_FOR_POLL}</code> Stories\n<i>(A poll will start once {VOTING_SIZE_FOR_POLL} unique stories are requested.)</i>"
+            text += f"\n\n<b>◌ ᴠᴏᴛɪɴɢ qᴜᴇᴜᴇ:</b> <code>{queue_len}/{VOTING_SIZE_FOR_POLL}</code> sᴛᴏʀɪᴇs\n<i>(ᴀ ᴘᴏʟʟ ᴡɪʟʟ sᴛᴀʀᴛ ᴏɴᴄᴇ {VOTING_SIZE_FOR_POLL} ᴜɴɪqᴜᴇ sᴛᴏʀɪᴇs ᴀʀᴇ ʀᴇqᴜᴇsᴛᴇᴅ.)</i>"
         else:
-            text += f"\n\n<b>🎉 Voting Queue is full!</b>\n<i>A new poll will start shortly in the request channel.</i>"
+            text += f"\n\n<b>✦ ᴠᴏᴛɪɴɢ qᴜᴇᴜᴇ ɪs ꜰᴜʟʟ!</b>\n<i>ᴀ ɴᴇᴡ ᴘᴏʟʟ ᴡɪʟʟ sᴛᴀʀᴛ sʜᴏʀᴛʟʏ ɪɴ ᴛʜᴇ ʀᴇqᴜᴇsᴛ ᴄʜᴀɴɴᴇʟ.</i>"
             
-    await query.message.delete()
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=text,
@@ -2481,19 +2532,11 @@ async def handle_req_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cancel_req_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop("req_data", None)
-    if update.callback_query:
-        await update.callback_query.answer()
-        await update.callback_query.message.delete()
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="❌ Request form cancelled / रद्द कर दिया गया है।",
-            reply_markup=ReplyKeyboardRemove()
-        )
-    else:
-        await update.effective_message.reply_text(
-            "❌ Request form cancelled / रद्द कर दिया गया है।",
-            reply_markup=ReplyKeyboardRemove()
-        )
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text="✦ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ ᴄᴀɴᴄᴇʟʟᴇᴅ / रद्द कर दिया गया है।",
+        reply_markup=ReplyKeyboardRemove()
+    )
     return ConversationHandler.END
 
 # ── Request Form Conversation Handler ──────────────────────────────────────────
@@ -2502,26 +2545,22 @@ request_form_handler = ConversationHandler(
     entry_points=[
         CommandHandler("request", request_story),
         CallbackQueryHandler(start_request_form, pattern=r"^formreq_start_form$"),
+        MessageHandler(filters.Regex(r"^✦ sᴛᴀʀᴛ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ ✦$"), start_request_form),
     ],
     states={
         REQ_NAME:      [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_req_name)],
-        REQ_PLATFORM:  [
-            CallbackQueryHandler(handle_req_platform, pattern=r"^formreq_plat\|"),
-            CallbackQueryHandler(cancel_req_form, pattern=r"^formreq_cancel$")
-        ],
+        REQ_PLATFORM:  [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_req_platform)],
         REQ_CUST_PLAT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_req_cust_platform)],
-        REQ_IMAGE:     [MessageHandler(filters.PHOTO, handle_req_image)],
-        REQ_LINK:      [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, handle_req_link),
-            CommandHandler("skip", handle_req_link),
+        REQ_IMAGE:     [
+            MessageHandler(filters.PHOTO, handle_req_image),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, handle_req_image)
         ],
-        REQ_STATUS:    [
-            CallbackQueryHandler(handle_req_status, pattern=r"^formreq_status\|"),
-            CallbackQueryHandler(cancel_req_form, pattern=r"^formreq_cancel$")
-        ]
+        REQ_LINK:      [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_req_link)],
+        REQ_STATUS:    [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_req_status)]
     },
     fallbacks=[
         CommandHandler("cancel", cancel_req_form),
+        MessageHandler(filters.Regex(r"^(?i)(cancel|ᴄᴀɴᴄᴇʟ)$"), cancel_req_form),
         CommandHandler("request", request_story),
     ],
     per_message=False,
@@ -2558,8 +2597,8 @@ async def request_story(update: Update, context: ContextTypes.DEFAULT_TYPE):
         form_url = f"https://t.me/{bot_user}?start=request"
         lang = get_chat_lang(chat.id)
         tutorial_kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📝 Request via Form / फ़ॉर्म द्वारा रिक्वेस्ट करें", url=form_url)],
-            [InlineKeyboardButton("How to use the bot", url="https://t.me/StoriesLinkopningguide")]
+            [InlineKeyboardButton("» ʀᴇqᴜᴇsᴛ ᴠɪᴀ ꜰᴏʀᴍ / फ़ॉर्म द्वारा रिक्वेस्ट करें", url=form_url)],
+            [InlineKeyboardButton("» ʜᴏᴡ ᴛᴏ ᴜsᴇ ᴛʜᴇ ʙᴏᴛ", url="https://t.me/StoriesLinkopningguide")]
         ])
 
         if lang == "hi":
@@ -2572,11 +2611,11 @@ async def request_story(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         else:
             warn_text = (
-                "<b>✮ Please provide the Story name and Platform</b>\n\n"
-                "<i>➔ Examples:</i>\n"
+                "<b>✮ ᴘʟᴇᴀsᴇ ᴘʀᴏᴠɪᴅᴇ ᴛʜᴇ sᴛᴏʀʏ ɴᴀᴍᴇ ᴀɴᴅ ᴘʟᴀᴛꜰᴏʀᴍ</b>\n\n"
+                "<i>➔ ᴇxᴀᴍᴘʟᴇs:</i>\n"
                 "▪ <code>/request Vashikaran</code>\n"
                 "▪ <code>/request Saaya Mastar/Pratilipi</code>\n\n"
-                "<b>Or click the button below to request via the interactive form in Private Chat!</b>"
+                "<b>ᴏʀ ᴄʟɪᴄᴋ ᴛʜᴇ ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ ᴛᴏ ʀᴇqᴜᴇsᴛ ᴠɪᴀ ᴛʜᴇ ɪɴᴛᴇʀᴀᴄᴛɪᴠᴇ ꜰᴏʀᴍ ɪɴ ᴘʀɪᴠᴀᴛᴇ ᴄʜᴀᴛ!</b>"
             )
 
         warn_msg = await update.effective_chat.send_message(warn_text, parse_mode="HTML", reply_markup=tutorial_kb)
