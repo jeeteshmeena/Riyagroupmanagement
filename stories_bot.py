@@ -2539,37 +2539,6 @@ async def cancel_req_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return ConversationHandler.END
 
-# ── Request Form Conversation Handler ──────────────────────────────────────────
-request_form_handler = ConversationHandler(
-    allow_reentry=True,
-    entry_points=[
-        CommandHandler("request", request_story),
-        CallbackQueryHandler(start_request_form, pattern=r"^formreq_start_form$"),
-        MessageHandler(filters.Regex(r"^✦ sᴛᴀʀᴛ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ ✦$"), start_request_form),
-    ],
-    states={
-        REQ_NAME:      [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_req_name)],
-        REQ_PLATFORM:  [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_req_platform)],
-        REQ_CUST_PLAT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_req_cust_platform)],
-        REQ_IMAGE:     [
-            MessageHandler(filters.PHOTO, handle_req_image),
-            MessageHandler(filters.TEXT & ~filters.COMMAND, handle_req_image)
-        ],
-        REQ_LINK:      [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_req_link)],
-        REQ_STATUS:    [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_req_status)]
-    },
-    fallbacks=[
-        CommandHandler("cancel", cancel_req_form),
-        MessageHandler(filters.Regex(r"^(?i)(cancel|ᴄᴀɴᴄᴇʟ)$"), cancel_req_form),
-        CommandHandler("request", request_story),
-    ],
-    per_message=False,
-)
-
-# -----------------------
-# request story
-# -----------------------
-
 async def request_story(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if await _enforce_cooldown(update, context):
         return
@@ -2911,6 +2880,33 @@ Please avoid sending duplicate requests.</i>
         context,
         f"REQUEST | user_id={user.id} username={user.username} story={story}"
     )
+
+# ── Request Form Conversation Handler ──────────────────────────────────────────
+request_form_handler = ConversationHandler(
+    allow_reentry=True,
+    entry_points=[
+        CommandHandler("request", request_story),
+        CallbackQueryHandler(start_request_form, pattern=r"^formreq_start_form$"),
+        MessageHandler(filters.Regex(r"^✦ sᴛᴀʀᴛ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ ✦$"), start_request_form),
+    ],
+    states={
+        REQ_NAME:      [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_req_name)],
+        REQ_PLATFORM:  [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_req_platform)],
+        REQ_CUST_PLAT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_req_cust_platform)],
+        REQ_IMAGE:     [
+            MessageHandler(filters.PHOTO, handle_req_image),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, handle_req_image)
+        ],
+        REQ_LINK:      [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_req_link)],
+        REQ_STATUS:    [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_req_status)]
+    },
+    fallbacks=[
+        CommandHandler("cancel", cancel_req_form),
+        MessageHandler(filters.Regex(r"^(?i)(cancel|ᴄᴀɴᴄᴇʟ)$"), cancel_req_form),
+        CommandHandler("request", request_story),
+    ],
+    per_message=False,
+)
 
 
 # ---------------------------------------------------------------------------
