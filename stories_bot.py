@@ -177,7 +177,9 @@ from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     InlineQueryResultArticle,
-    InputTextMessageContent
+    InputTextMessageContent,
+    ReplyKeyboardMarkup,
+    ReplyKeyboardRemove
 )
 
 from telegram.ext import (
