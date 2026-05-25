@@ -1134,19 +1134,22 @@ async def _do_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         if post_mode == "edit":
             p = previews[0]
+            button = get_light_kb(data) if data.get("format") == "light" else (
+                get_light_pro_kb(data) if data.get("format") == "light_pro" else None
+            )
             try:
                 if photo_ids:
                     item = photo_ids[0]
                     media = (InputMediaDocument(media=item["id"], caption=p, parse_mode="HTML")
                              if item["type"] == "doc"
                              else InputMediaPhoto(media=item["id"], caption=p, parse_mode="HTML"))
-                    await asyncio.wait_for(context.bot.edit_message_media(chat_id=edit_chat, message_id=edit_msg, media=media), timeout=15)
+                    await asyncio.wait_for(context.bot.edit_message_media(chat_id=edit_chat, message_id=edit_msg, media=media, reply_markup=button), timeout=15)
                 else:
                     try:
-                        await asyncio.wait_for(context.bot.edit_message_text(chat_id=edit_chat, message_id=edit_msg, text=p, parse_mode="HTML", disable_web_page_preview=True), timeout=15)
+                        await asyncio.wait_for(context.bot.edit_message_text(chat_id=edit_chat, message_id=edit_msg, text=p, parse_mode="HTML", disable_web_page_preview=True, reply_markup=button), timeout=15)
                     except Exception as ex2:
                         if "Message is not modified" not in str(ex2):
-                            await asyncio.wait_for(context.bot.edit_message_caption(chat_id=edit_chat, message_id=edit_msg, caption=p, parse_mode="HTML"), timeout=15)
+                            await asyncio.wait_for(context.bot.edit_message_caption(chat_id=edit_chat, message_id=edit_msg, caption=p, parse_mode="HTML", reply_markup=button), timeout=15)
                 sent_msg_id = edit_msg
                 last_chat_id = edit_chat
                 success = True
@@ -1305,7 +1308,10 @@ post_builder_handler = ConversationHandler(
         ],
         STATE_PLATFORM:  [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_platform)],
         STATE_GENRE:     [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_genre)],
-        STATE_LINK:      [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_link)],
+        STATE_LINK:      [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, handle_link),
+            CommandHandler("skip", handle_link),
+        ],
         STATE_BACKUP_LINK:[MessageHandler(filters.TEXT & ~filters.COMMAND, handle_backup_link)],
         STATE_EPISODES:  [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_episodes)],
         STATE_STATUS:    [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_status)],
