@@ -838,8 +838,8 @@ async def handle_backup_link(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if text == "English":
             data["backup_link"] = "https://t.me/+z0RjNWMAK8syNDFl"
         else:
-            # Default to same as main link for Hindi
-            data["backup_link"] = data.get("link", "")
+            # Default to default backup channel link for Hindi
+            data["backup_link"] = DEFAULT_STORY_LINK
             
         # Transition after backup link
         if fmt == "light_pro":
