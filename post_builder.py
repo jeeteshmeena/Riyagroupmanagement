@@ -816,14 +816,9 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Route after link
     fmt = data.get("format", "1")
     if fmt in ("light", "light_pro"):
-        # Auto-set the backup link without asking
-        data["backup_link"] = "https://t.me/SLBackupTG"
-        # Light Pro goes straight to Episodes
-        if fmt == "light_pro":
-            await update.effective_message.reply_text("» Current episode count (e.g. 12):", reply_markup=ReplyKeyboardRemove())
-            return STATE_EPISODES
-        # Light goes straight to status
-        return await _go_to_dest(update, context)
+        kb = _kb([["Hindi", "English"], ["/cancel"]])
+        await update.effective_message.reply_text("¤ Select Story Language:", reply_markup=kb)
+        return STATE_BACKUP_LINK
 
     if fmt == "post":
         return await _go_to_status(update, context)
@@ -837,11 +832,27 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_backup_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     data = context.user_data["pb_data"]
+    fmt = data.get("format")
+
+    if fmt in ("light", "light_pro"):
+        if text == "English":
+            data["backup_link"] = "https://t.me/+z0RjNWMAK8syNDFl"
+        else:
+            # Default to same as main link for Hindi
+            data["backup_link"] = data.get("link", "")
+            
+        # Transition after backup link
+        if fmt == "light_pro":
+            await update.effective_message.reply_text("» Current episode count (e.g. 12):", reply_markup=ReplyKeyboardRemove())
+            return STATE_EPISODES
+        return await _go_to_dest(update, context)
+
+    # Standard non-light flow
     if text in ("Same as Play", "/skip", ""):
         data["backup_link"] = data.get("link", "")  # fall back to main link
     else:
         data["backup_link"] = text
-    # Light Pro: ask for episode count
+    # Light Pro: ask for episode count (fallback just in case)
     if data.get("format") == "light_pro":
         await update.effective_message.reply_text("» Current episode count (e.g. 12):", reply_markup=ReplyKeyboardRemove())
         return STATE_EPISODES
