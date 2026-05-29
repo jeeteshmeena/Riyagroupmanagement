@@ -172,6 +172,21 @@ import random
 import html
 from datetime import datetime, timedelta, timezone
 
+def to_small_caps(text: str) -> str:
+    if not text:
+        return ""
+    mapping = {
+        'a': 'ᴀ', 'b': 'ʙ', 'c': 'ᴄ', 'd': 'ᴅ', 'e': 'ᴇ', 'f': 'ꜰ', 'g': 'ɢ', 'h': 'ʜ',
+        'i': 'ɪ', 'j': 'ᴊ', 'k': 'ᴋ', 'l': 'ʟ', 'm': 'ᴍ', 'n': 'ɴ', 'o': 'ᴏ', 'p': 'ᴘ',
+        'q': 'Q', 'r': 'ʀ', 's': 'ꜱ', 't': 'ᴛ', 'u': 'ᴜ', 'v': 'ᴠ', 'w': 'ᴡ', 'x': 'x',
+        'y': 'ʏ', 'z': 'ᴢ',
+        'A': 'ᴀ', 'B': 'ʙ', 'C': 'ᴄ', 'D': 'ᴅ', 'E': 'ᴇ', 'F': 'ꜰ', 'G': 'ɢ', 'H': 'ʜ',
+        'I': 'ɪ', 'J': 'ᴊ', 'K': 'ᴋ', 'L': 'ʟ', 'M': 'ᴍ', 'N': 'ɴ', 'O': 'ᴏ', 'P': 'ᴘ',
+        'Q': 'Q', 'R': 'ʀ', 'S': 'ꜱ', 'T': 'ᴛ', 'U': 'ᴜ', 'V': 'ᴠ', 'W': 'ᴡ', 'X': 'x',
+        'Y': 'ʏ', 'Z': 'ᴢ'
+    }
+    return "".join(mapping.get(c, c) for c in text)
+
 from telegram import (
     Update,
     InlineKeyboardButton,
@@ -2230,7 +2245,7 @@ async def handle_req_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "★ <b>sᴛᴏʀʏ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ</b>\n"
         "<code>──────────────────</code>\n"
-        f"▪ <b>sᴛᴏʀʏ ɴᴀᴍᴇ:</b> {html.escape(name_input)}\n\n"
+        f"▪ <b>sᴛᴏʀʏ ɴᴀᴍᴇ:</b> <b>{html.escape(to_small_caps(name_input))}</b>\n\n"
         "sᴛᴇᴘ 2: sᴇʟᴇᴄᴛ ᴛʜᴇ <b>ᴘʟᴀᴛꜰᴏʀᴍ</b> / प्लेटफॉर्म का चयन करें:"
     )
     await update.message.reply_text(text=text, parse_mode="HTML", reply_markup=kb)
@@ -2281,7 +2296,7 @@ async def handle_req_platform(update: Update, context: ContextTypes.DEFAULT_TYPE
     prompt_text = (
         "★ <b>sᴛᴏʀʏ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ</b>\n"
         "<code>──────────────────</code>\n"
-        f"▪ <b>ᴘʟᴀᴛꜰᴏʀᴍ:</b> {matched_plat}\n\n"
+        f"▪ <b>ᴘʟᴀᴛꜰᴏʀᴍ:</b> <b>{to_small_caps(matched_plat)}</b>\n\n"
         "sᴛᴇᴘ 3: ᴘʟᴇᴀsᴇ ᴜᴘʟᴏᴀᴅ ᴛʜᴇ <b>sᴛᴏʀʏ ɪᴍᴀɢᴇ</b> (ᴍᴀɴᴅᴀᴛᴏʀʏ) / स्टोरी का पोस्टर अपलोड करें (अनिवार्य):\n\n"
         "<i>(sᴇɴᴅ ɪᴛ ᴀs ᴀ sᴛᴀɴᴅᴀʀᴅ ᴘʜᴏᴛᴏ, ɴᴏᴛ ᴀ ᴅᴏᴄᴜᴍᴇɴᴛ)</i>"
     )
@@ -2302,10 +2317,10 @@ async def handle_req_cust_platform(update: Update, context: ContextTypes.DEFAULT
     prompt_text = (
         "★ <b>sᴛᴏʀʏ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ</b>\n"
         "<code>──────────────────</code>\n"
-        f"▪ <b>ᴘʟᴀᴛꜰᴏʀᴍ:</b> {html.escape(plat_input)}\n\n"
-        "sᴛᴇᴘ 3: ᴘʟᴇᴀsᴇ ᴜᴘʟᴏᴀᴅ ᴛʜᴇ <b>sᴛᴏʀʏ ɪᴍᴀɢᴇ</b> (ᴍᴀɴᴅᴀᴛᴏʀʏ) / स्टोरी का पोस्टर अपलोड करें (अनिवार्य):\n\n"
+        f"▪ <b>ᴘʟᴀᴛꜰᴏʀᴍ:</b> <b>{html.escape(to_small_caps(plat_input))}</b>\n\n"
+        "sᴛᴇᴘ 3: ᴘʟᴇᴀsᴇ ᴜᴘʟᴏᴀ─ᴅ ᴛʜᴇ <b>sᴛᴏʀʏ ɪᴍᴀɢᴇ</b> (ᴍᴀɴᴅᴀᴛᴏʀʏ) / स्टोरी का पोस्टर अपलोड करें (अनिवार्य):\n\n"
         "<i>(sᴇɴᴅ ɪᴛ ᴀs ᴀ sᴛᴀɴᴅᴀʀᴅ ᴘʜᴏᴛᴏ, ɴᴏᴛ ᴀ ᴅᴏᴄᴜᴍᴇɴᴛ)</i>"
-    )
+    ).replace("ᴜᴘʟᴏᴀ─ᴅ", "ᴜᴘʟᴏᴀᴅ")
     await update.message.reply_text(text=prompt_text, parse_mode="HTML", reply_markup=ReplyKeyboardRemove())
     return REQ_IMAGE
 
@@ -2467,9 +2482,9 @@ async def handle_req_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ])
     
-    platform_line = f"\n▪ <b>ᴘʟᴀᴛꜰᴏʀᴍ:</b> {html.escape(platform)}"
-    link_line = f"\n▪ <b>ʟɪɴᴋ:</b> {html.escape(link)}" if link else "\n▪ <b>ʟɪɴᴋ:</b> None"
-    status_line = f"\n▪ <b>sᴛᴀᴛᴜs:</b> {status}"
+    platform_line = f"\n▪ <b>ᴘʟᴀᴛꜰᴏʀᴍ:</b> <b>{html.escape(to_small_caps(platform))}</b>"
+    link_line = f"\n▪ <b>ʟɪɴᴋ:</b> {html.escape(link)}" if link else f"\n▪ <b>ʟɪɴᴋ:</b> {to_small_caps('None')}"
+    status_line = f"\n▪ <b>sᴛᴀᴛᴜs:</b> <b>{to_small_caps(status)}</b>"
     
     sent_req = await context.bot.send_photo(
         chat_id=REQUEST_GROUP,
@@ -2477,12 +2492,12 @@ async def handle_req_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         caption=(
             f"✶ <b>sᴛᴏʀʏ ʀᴇqᴜᴇsᴛ (ꜰᴏʀᴍ)</b>\n"
             f"<code>──────────────────</code>\n"
-            f"▪ <b>ɴᴀᴍᴇ:</b> {html.escape(story)}\n"
-            f"▪ <b>ᴜsᴇʀ:</b> <a href='tg://user?id={user.id}'>{full_name}</a> ({username})"
-            f"{platform_line}"
+            f"▪ <b>ɴᴀᴍᴇ:</b> <b>{html.escape(to_small_caps(story_name))}</b>\n"
+            f"▪ <b>ᴜsᴇʀ:</b> <a href='tg://user?id={user.id}'>{to_small_caps(full_name)}</a> ({to_small_caps(username) if username else to_small_caps('No username')})"
             f"{status_line}"
+            f"{platform_line}"
             f"{link_line}\n"
-            f"▪ <b>ᴛᴏᴛᴀʟ ʀᴇqᴜᴇsᴛs:</b> {count}\n"
+            f"▪ <b>ᴛᴏᴛᴀʟ ʀᴇqᴜᴇsᴛs:</b> <b>{count}</b>\n"
             f"<code>──────────────────</code>"
         ),
         parse_mode="HTML",
@@ -2496,19 +2511,19 @@ async def handle_req_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     lang = get_chat_lang(update.effective_chat.id)
     if lang == "hi":
-        text = f"<b>✦ आपकी <i>{html.escape(story_name)}</i> की रिक्वेस्ट सबमिट हो गई है!</b>\n\n"
+        text = f"<b>✦ आपकी <i>{html.escape(to_small_caps(story_name))}</i> की रिक्वेस्ट सबमिट हो गई है!</b>\n\n"
         if count == 1:
             text += "➔ हम इसे उपलब्ध कराने की पूरी कोशिश करेंगे।\n➔ जैसे ही मिलेगी, जल्द अपलोड कर दी जाएगी।"
         else:
             text += f"➔ आपके साथ {count - 1} और लोगों ने भी इसे रिक्वेस्ट किया है।"
     else:
         text = (
-            f"<b>✦ ʏᴏᴜʀ ʀᴇqᴜᴇsᴛ ꜰᴏʀ <i>{html.escape(story_name)}</i> ʜᴀs ʙᴇᴇɴ sᴜʙᴍɪᴛᴛᴇᴅ!</b>\n\n"
+            f"<b>✦ ʏᴏᴜʀ ʀᴇqᴜᴇsᴛ ꜰᴏʀ <i>{html.escape(to_small_caps(story_name))}</i> ʜᴀs ʙᴇᴇɴ sᴜʙᴍɪᴛᴛᴇ─ᴅ!</b>\n\n"
             f"➔ ᴡᴇ ᴡɪʟʟ ᴛʀʏ ᴏᴜʀ ʙᴇsᴛ ᴛᴏ ᴘʀᴏᴠɪᴅᴇ ᴛʜɪs sᴛᴏʀʏ.\n"
-            f"➔ ɪᴛ ᴡɪʟʟ ʙᴇ ᴜᴘʟᴏᴀᴅᴇᴅ ᴀs sᴏᴏɴ ᴀs ᴡᴇ ꜰɪɴᴅ ɪᴛ."
-        )
+            f"➔ ɪᴛ ᴡɪʟʟ ʙᴇ ᴜᴘʟᴏᴀ─ᴅⲧᴅ ᴀs sᴏᴏɴ ᴀs ᴡᴇ ꜰɪɴ─ᴅ ɪᴛ."
+        ).replace("sᴜʙᴍɪᴛᴛᴇ─ᴅ", "sᴜʙᴍɪᴛᴛᴇᴅ").replace("ᴜᴘʟᴏᴀ─ᴅⲧᴅ", "ᴜᴘʟᴏᴀᴅᴇᴅ").replace("ꜰɪɴ─ᴅ", "ꜰɪɴᴅ")
         if count > 1:
-            text += f"\n➔ ʏᴏᴜ ᴀɴᴅ {count - 1} ᴏᴛʜᴇʀs ᴀʟsᴏ ʀᴇqᴜᴇsᴛᴇᴅ ᴛʜɪs."
+            text += f"\n➔ ʏᴏᴜ ᴀɴ─ᴅ {count - 1} ᴏᴛʜᴇʀs ᴀʟsᴏ ʀᴇqᴜᴇsᴛᴇ─ᴅ ᴛʜɪs.".replace("ᴀɴ─ᴅ", "ᴀɴᴅ").replace("ʀᴇqᴜᴇsᴛᴇ─ᴅ", "ʀᴇqᴜᴇsᴛᴇᴅ")
             
     queue_len = len(voting_queue)
     if lang == "hi":
@@ -8130,9 +8145,52 @@ async def check_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await wait_msg.edit_text(text="<b>☆ Verification Failed</b>\n\n✧ Check command encountered an error.\n➤ Try again later", parse_mode="HTML")
 
 async def auto_channel_react(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Automatically reacts to new posts in channels."""
+    """Automatically reacts to new posts in channels and indexes them live."""
     if not update.channel_post:
         return
+        
+    # ── Live Channel Indexing Hook ──
+    try:
+        from database import load_config, add_story
+        from parser import parse_story
+        
+        chat_id = update.effective_chat.id
+        bot_config = load_config()
+        
+        # Build list of all configured sources
+        sources = []
+        from config import CHANNEL_ID
+        if CHANNEL_ID:
+            sources.append(str(CHANNEL_ID))
+            sources.append(int(CHANNEL_ID))
+        for cid in bot_config.get("sources", []):
+            if cid:
+                sources.append(str(cid).strip())
+                try:
+                    sources.append(int(cid))
+                except ValueError:
+                    pass
+                    
+        if chat_id in sources:
+            logger.info(f"[Live Indexing] Processing new channel post from chat {chat_id}")
+            msg = update.channel_post
+            # Telethon-compatible message ID
+            if not hasattr(msg, "id"):
+                msg.id = msg.message_id
+                
+            story = parse_story(msg)
+            if story:
+                # Direct bot photo file ID assignment
+                if msg.photo:
+                    story["photo"] = msg.photo[-1].file_id
+                
+                add_story(story)
+                logger.info(f"[Live Indexing] Automatically indexed story: {story.get('text')} (link: {story.get('link')})")
+            else:
+                logger.debug(f"[Live Indexing] Channel post did not match any story format.")
+    except Exception as ie:
+        logger.error(f"[Live Indexing] Error during automatic indexing: {ie}", exc_info=True)
+    # ──────────────────────────────
         
     import random
     emojis = ["👍", "❤️", "🔥", "🎉", "🤩", "🙏", "👏", "⚡", "✨", "💯", "💖", "🥰", "🫡"]
