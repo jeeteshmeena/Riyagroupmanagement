@@ -317,7 +317,8 @@ def _get_ad_detail_panel(ad_id: str, caller_id: int) -> tuple:
 # ── Callback Handler for Ads Control ────────────────────────────────────────────
 async def handle_ads_callbacks(query, context: ContextTypes.DEFAULT_TYPE, parts, caller_id):
     """Route all callback queries starting with cfg|ads_"""
-    action = parts[2] if len(parts) > 2 else ""
+    action = parts[1].split("_", 1)[1] if (len(parts) > 1 and "_" in parts[1]) else ""
+    ad_id = parts[2] if len(parts) > 2 else ""
     user = query.from_user
     
     from stories_bot import is_admin
@@ -337,12 +338,10 @@ async def handle_ads_callbacks(query, context: ContextTypes.DEFAULT_TYPE, parts,
         await _safe_edit(text, markup)
         
     elif action == "view":
-        ad_id = parts[3] if len(parts) > 3 else ""
         text, markup = _get_ad_detail_panel(ad_id, caller_id)
         await _safe_edit(text, markup)
         
     elif action == "toggle":
-        ad_id = parts[3] if len(parts) > 3 else ""
         db = load_ads_db()
         if ad_id in db:
             ad = db[ad_id]
@@ -353,7 +352,6 @@ async def handle_ads_callbacks(query, context: ContextTypes.DEFAULT_TYPE, parts,
         await _safe_edit(text, markup)
         
     elif action == "now":
-        ad_id = parts[3] if len(parts) > 3 else ""
         db = load_ads_db()
         if ad_id in db:
             ad = db[ad_id]
@@ -366,7 +364,6 @@ async def handle_ads_callbacks(query, context: ContextTypes.DEFAULT_TYPE, parts,
         await _safe_edit(text, markup)
         
     elif action == "del":
-        ad_id = parts[3] if len(parts) > 3 else ""
         db = load_ads_db()
         if ad_id in db:
             ad = db.pop(ad_id)
