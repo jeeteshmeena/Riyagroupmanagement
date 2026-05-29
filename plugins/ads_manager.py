@@ -325,14 +325,21 @@ async def handle_ads_callbacks(query, context: ContextTypes.DEFAULT_TYPE, parts,
         await query.answer("⛔ Admin only.", show_alert=True)
         return
         
+    async def _safe_edit(text, markup=None):
+        try:
+            await query.edit_message_text(text, parse_mode="HTML", reply_markup=markup)
+        except Exception as e:
+            if "Message is not modified" not in str(e):
+                _log.warning(f"Error editing message: {e}")
+
     if action == "main" or not action:
         text, markup = _get_ads_main_panel(caller_id)
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=markup)
+        await _safe_edit(text, markup)
         
     elif action == "view":
         ad_id = parts[3] if len(parts) > 3 else ""
         text, markup = _get_ad_detail_panel(ad_id, caller_id)
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=markup)
+        await _safe_edit(text, markup)
         
     elif action == "toggle":
         ad_id = parts[3] if len(parts) > 3 else ""
@@ -343,7 +350,7 @@ async def handle_ads_callbacks(query, context: ContextTypes.DEFAULT_TYPE, parts,
             save_ads_db(db)
             await query.answer(f"Status changed to {ad['status'].upper()} ✅")
         text, markup = _get_ad_detail_panel(ad_id, caller_id)
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=markup)
+        await _safe_edit(text, markup)
         
     elif action == "now":
         ad_id = parts[3] if len(parts) > 3 else ""
@@ -356,7 +363,7 @@ async def handle_ads_callbacks(query, context: ContextTypes.DEFAULT_TYPE, parts,
             save_ads_db(db)
             await query.answer("🚀 Triggered! Will broadcast in the next background check.")
         text, markup = _get_ad_detail_panel(ad_id, caller_id)
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=markup)
+        await _safe_edit(text, markup)
         
     elif action == "del":
         ad_id = parts[3] if len(parts) > 3 else ""
@@ -373,7 +380,7 @@ async def handle_ads_callbacks(query, context: ContextTypes.DEFAULT_TYPE, parts,
             save_ads_db(db)
             await query.answer("🗑 Ad deleted and active posts removed.")
         text, markup = _get_ads_main_panel(caller_id)
-        await query.edit_message_text(text, parse_mode="HTML", reply_markup=markup)
+        await _safe_edit(text, markup)
         
     elif action == "cnew":
         await query.answer()
