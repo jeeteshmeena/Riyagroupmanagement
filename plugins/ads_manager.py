@@ -606,7 +606,7 @@ def get_ads_creator_handler():
         states={
             AD_NAME:        [MessageHandler(filters.TEXT & ~filters.COMMAND, ad_name)],
             AD_TARGETS:     [MessageHandler(filters.TEXT & ~filters.COMMAND, ad_targets)],
-            AD_CONTENT:     [MessageHandler((filters.TEXT | filters.PHOTO | filters.VIDEO | filters.AUDIO | filters.Document | filters.VOICE) & ~filters.COMMAND, ad_content)],
+            AD_CONTENT:     [MessageHandler((filters.TEXT | filters.PHOTO | filters.VIDEO | filters.AUDIO | filters.Document.ALL | filters.VOICE) & ~filters.COMMAND, ad_content)],
             AD_DELETE_TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ad_delete_time)],
             AD_FREQ_TYPE:   [MessageHandler(filters.TEXT & ~filters.COMMAND, ad_freq_type)],
             AD_FREQ_VAL:    [MessageHandler(filters.TEXT & ~filters.COMMAND, ad_freq_val)],
