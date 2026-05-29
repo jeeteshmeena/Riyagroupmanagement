@@ -448,3 +448,16 @@ def load_story_channels() -> dict:
 def save_story_channels(data: dict):
     _save_json(STORY_CHANNELS_FILE, data)
 
+
+# --- Automated Ads DB (SL Auto-Ads System) ---
+ADS_FILE = _data_path("ads_db.json")
+
+def load_ads_db() -> dict:
+    """Returns all scheduled/automated ads configurations."""
+    return _load_json(ADS_FILE, {})
+
+def save_ads_db(data: dict):
+    """Saves all scheduled/automated ads configurations."""
+    _save_json(ADS_FILE, data)
+
+

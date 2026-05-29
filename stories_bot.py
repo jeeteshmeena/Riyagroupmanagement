@@ -5591,6 +5591,11 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("⛔ Only the admin who opened this menu can close it.", show_alert=True)
         return
 
+    if section.startswith("ads_"):
+        from plugins.ads_manager import handle_ads_callbacks
+        await handle_ads_callbacks(query, context, parts, caller_id)
+        return
+
     if section == "broadcast":
         # Clear any previous broadcast state
         try:
@@ -5610,6 +5615,7 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("✅ Select Specific Channels",        callback_data=f"cfg|bc_page|0|{caller_id}")],
             [InlineKeyboardButton("⚙ Manage Ongoing",                  callback_data=f"cfg|bc_manage|ongoing|{caller_id}"),
              InlineKeyboardButton("⚙ Manage Completed",                callback_data=f"cfg|bc_manage|completed|{caller_id}")],
+            [InlineKeyboardButton("🎫 Ads Automation Manager",          callback_data=f"cfg|ads_main||{caller_id}")],
             [InlineKeyboardButton("✖ Cancel",                          callback_data=f"cfg|main||{caller_id}")],
         ])
         await query.edit_message_text(
@@ -8335,6 +8341,8 @@ def start_bot():
         asyncio.create_task(start_link_checker())
         asyncio.create_task(poll_timeout_manager(application))
         asyncio.create_task(schedule_loop_task(application))
+        from plugins.ads_manager import auto_ads_loop_task
+        asyncio.create_task(auto_ads_loop_task(application))
 
         # ── Premium userbot auto-connect ──────────────────────────────────────
         p_cfg = bot_config.get("premium_account", {})
@@ -8423,6 +8431,8 @@ def start_bot():
     
     # PB Hook
     app.add_handler(post_builder_handler)
+    from plugins.ads_manager import get_ads_creator_handler
+    app.add_handler(get_ads_creator_handler())
     
     from plugins.broadcast import broadcast_wait_handler, broadcast_filter_instance
     app.add_handler(
