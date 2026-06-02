@@ -170,7 +170,12 @@ async def scan_channel(channel_id, bot=None, log_channel=None, progress_cb=None,
         API_HASH
     )
 
-    await client.start()
+    await client.connect()
+    if not await client.is_user_authorized():
+        raise ValueError(
+            "SESSION_STRING is invalid or has expired. "
+            "Please generate a new session string using generate_session.py and update it in your .env file on the VPS."
+        )
 
     # Load the learned formats fresh each scan
     learned = load_learned_formats()

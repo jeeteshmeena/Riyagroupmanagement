@@ -70,7 +70,12 @@ async def connect_userbot(session_str: str, api_id: int, api_hash: str) -> bool:
             system_version="Linux",
             app_version="1.0",
         )
-        await _userbot_client.start()
+        await _userbot_client.connect()
+        if not await _userbot_client.is_user_authorized():
+            raise ValueError(
+                "SESSION_STRING is invalid or has expired. "
+                "Please generate a new session string using generate_session.py and update it."
+            )
         me = await _userbot_client.get_me()
         _is_connected = True
         logger.info(f"[Premium] Userbot connected as: {me.first_name} (@{me.username}) — Premium: {me.premium}")

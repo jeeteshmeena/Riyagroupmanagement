@@ -42,7 +42,12 @@ class BackgroundLinkChecker:
             retry_delay=5
         )
         
-        await self.client.start()
+        await self.client.connect()
+        if not await self.client.is_user_authorized():
+            raise ValueError(
+                "SESSION_STRING is invalid or has expired. "
+                "Please generate a new session string using generate_session.py and update it in your .env file on the VPS."
+            )
         
         # Populate entity cache for StringSession
         try:
