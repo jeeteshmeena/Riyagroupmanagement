@@ -1949,8 +1949,10 @@ async def scan(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 continue
 
         # Cleanup once using union of all keys
-        if all_keys:
+        if all_keys and not scan_errors:
             remove_stories_not_in(all_keys)
+        elif scan_errors:
+            logger.warning("Skipping DB cleanup because some channels failed to scan.")
 
         # de-duplicate names preserving order
         seen_names = set()
@@ -2204,8 +2206,8 @@ async def start_request_form(update: Update, context: ContextTypes.DEFAULT_TYPE)
             [InlineKeyboardButton("» ʀᴇqᴜᴇsᴛ ᴠɪᴀ ꜰᴏʀᴍ / फ़ॉर्म द्वारा रिक्वेस्ट करें", url=form_url)]
         ])
         text = (
-            "<b>✦ ʀᴇqᴜᴇsᴛ ᴠɪᴀ ꜰᴏʀᴍ</b>\n\n"
-            "ꜰᴏʀᴍ ʀᴇqᴜᴇsᴛs ᴀʀᴇ ᴏɴʟʏ ᴀᴠɪʟᴀʙʟᴇ ɪɴ ᴘʀɪᴠᴀᴛᴇ ᴄʜᴀᴛ! ᴘʟᴇᴀsᴇ ᴄʟɪᴄᴋ ᴛʜᴇ ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ ᴛᴏ sᴛᴀʀᴛ ᴛʜᴇ ɪɴᴛᴇʀᴀᴄᴛɪᴠᴇ ꜰᴏʀᴍ ɪɴ ᴘᴍ."
+            "<b>ʀᴇǫᴜᴇsᴛ ᴠɪᴀ ꜰᴏʀᴍ</b>\n\n"
+            "ꜰᴏʀᴍ ʀᴇǫᴜᴇsᴛs ᴀʀᴇ ᴏɴʟʏ ᴀᴠᴀɪʟᴀʙʟᴇ ɪɴ ᴘʀɪᴠᴀᴛᴇ ᴄʜᴀᴛ! ᴘʟᴇᴀsᴇ ᴄʟɪᴄᴋ ᴛʜᴇ ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ ᴛᴏ sᴛᴀʀᴛ ᴛʜᴇ ɪɴᴛᴇʀᴀᴄᴛɪᴠᴇ ꜰᴏʀᴍ ɪɴ ᴘᴍ."
         )
         await chat.send_message(text=text, parse_mode="HTML", reply_markup=tutorial_kb)
         return ConversationHandler.END
@@ -2214,9 +2216,9 @@ async def start_request_form(update: Update, context: ContextTypes.DEFAULT_TYPE)
     context.user_data["req_data"] = {}
     
     text = (
-        "★ <b>sᴛᴏʀʏ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ</b>\n"
+        "<b>sᴛᴏʀʏ ʀᴇǫᴜᴇsᴛ ꜰᴏʀᴍ</b>\n"
         "<code>──────────────────</code>\n"
-        "sᴛᴇᴘ 1: ᴘʟᴇᴀsᴇ ᴛʏᴘᴇ ᴛʜᴇ ᴄᴏʀʀᴇᴄᴛ <b>sᴛᴏʀʏ ɴᴀᴍᴇ</b> / स्टोरी का सही नाम टाइप करें:\n\n"
+        "sᴛᴇᴘ 1: ᴘʟᴇᴀsᴇ ᴛʏᴘᴇ ᴛʜᴇ ᴄᴏʀʀᴇᴄᴛ <b>sᴛᴏʀʏ ɴᴀᴍᴇ</b>:\n\n"
         "<i>(ʏᴏᴜ ᴄᴀɴ ᴛʏᴘᴇ ᴄᴀɴᴄᴇʟ ᴀɴʏᴛɪᴍᴇ ᴛᴏ ᴇxɪᴛ)</i>"
     )
     await update.effective_chat.send_message(
@@ -2243,10 +2245,10 @@ async def handle_req_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ], resize_keyboard=True, one_time_keyboard=True)
     
     text = (
-        "★ <b>sᴛᴏʀʏ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ</b>\n"
+        "<b>sᴛᴏʀʏ ʀᴇǫᴜᴇsᴛ ꜰᴏʀᴍ</b>\n"
         "<code>──────────────────</code>\n"
-        f"▪ <b>sᴛᴏʀʏ ɴᴀᴍᴇ:</b> <b>{html.escape(to_small_caps(name_input))}</b>\n\n"
-        "sᴛᴇᴘ 2: sᴇʟᴇᴄᴛ ᴛʜᴇ <b>ᴘʟᴀᴛꜰᴏʀᴍ</b> / प्लेटफॉर्म का चयन करें:"
+        f"<b>sᴛᴏʀʏ ɴᴀᴍᴇ:</b> <b>{html.escape(to_small_caps(name_input))}</b>\n\n"
+        "sᴛᴇᴘ 2: sᴇʟᴇᴄᴛ ᴛʜᴇ <b>ᴘʟᴀᴛꜰᴏʀᴍ</b>:"
     )
     await update.message.reply_text(text=text, parse_mode="HTML", reply_markup=kb)
     return REQ_PLATFORM
@@ -2274,9 +2276,9 @@ async def handle_req_platform(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     if text in ("custom", "ᴄᴜꜱᴛᴏᴍ"):
         await update.message.reply_text(
-            "★ <b>sᴛᴏʀʏ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ</b>\n"
+            "<b>sᴛᴏʀʏ ʀᴇǫᴜᴇsᴛ ꜰᴏʀᴍ</b>\n"
             "<code>──────────────────</code>\n"
-            "sᴛᴇᴘ 2: ᴘʟᴇᴀsᴇ ᴛʏᴘᴇ ᴛʜᴇ <b>ᴘʟᴀᴛꜰᴏʀᴍ ɴᴀᴍᴇ</b> ᴍᴀɴᴜᴀʟʟʏ / प्लेटफॉर्म का नाम टाइप करें:",
+            "sᴛᴇᴘ 2: ᴘʟᴇᴀsᴇ ᴛʏᴘᴇ ᴛʜᴇ <b>ᴘʟᴀᴛꜰᴏʀᴍ ɴᴀᴍᴇ</b> ᴍᴀɴᴜᴀʟʟʏ:",
             parse_mode="HTML",
             reply_markup=ReplyKeyboardRemove()
         )
@@ -2294,10 +2296,10 @@ async def handle_req_platform(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data["req_data"]["platform"] = matched_plat
     
     prompt_text = (
-        "★ <b>sᴛᴏʀʏ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ</b>\n"
+        "<b>sᴛᴏʀʏ ʀᴇǫᴜᴇsᴛ ꜰᴏʀᴍ</b>\n"
         "<code>──────────────────</code>\n"
-        f"▪ <b>ᴘʟᴀᴛꜰᴏʀᴍ:</b> <b>{to_small_caps(matched_plat)}</b>\n\n"
-        "sᴛᴇᴘ 3: ᴘʟᴇᴀsᴇ ᴜᴘʟᴏᴀᴅ ᴛʜᴇ <b>sᴛᴏʀʏ ɪᴍᴀɢᴇ</b> (ᴍᴀɴᴅᴀᴛᴏʀʏ) / स्टोरी का पोस्टर अपलोड करें (अनिवार्य):\n\n"
+        f"<b>ᴘʟᴀᴛꜰᴏʀᴍ:</b> <b>{to_small_caps(matched_plat)}</b>\n\n"
+        "sᴛᴇᴘ 3: ᴘʟᴇᴀsᴇ ᴜᴘʟᴏᴀᴅ ᴛʜᴇ <b>sᴛᴏʀʏ ɪᴍᴀɢᴇ</b> (ᴍᴀɴᴅᴀᴛᴏʀʏ):\n\n"
         "<i>(sᴇɴᴅ ɪᴛ ᴀs ᴀ sᴛᴀɴᴅᴀʀᴅ ᴘʜᴏᴛᴏ, ɴᴏᴛ ᴀ ᴅᴏᴄᴜᴍᴇɴᴛ)</i>"
     )
     await update.message.reply_text(text=prompt_text, parse_mode="HTML", reply_markup=ReplyKeyboardRemove())
@@ -2315,12 +2317,12 @@ async def handle_req_cust_platform(update: Update, context: ContextTypes.DEFAULT
     context.user_data["req_data"]["platform"] = plat_input
     
     prompt_text = (
-        "★ <b>sᴛᴏʀʏ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ</b>\n"
+        "<b>sᴛᴏʀʏ ʀᴇǫᴜᴇsᴛ ꜰᴏʀᴍ</b>\n"
         "<code>──────────────────</code>\n"
-        f"▪ <b>ᴘʟᴀᴛꜰᴏʀᴍ:</b> <b>{html.escape(to_small_caps(plat_input))}</b>\n\n"
-        "sᴛᴇᴘ 3: ᴘʟᴇᴀsᴇ ᴜᴘʟᴏᴀ─ᴅ ᴛʜᴇ <b>sᴛᴏʀʏ ɪᴍᴀɢᴇ</b> (ᴍᴀɴᴅᴀᴛᴏʀʏ) / स्टोरी का पोस्टर अपलोड करें (अनिवार्य):\n\n"
+        f"<b>ᴘʟᴀᴛꜰᴏʀᴍ:</b> <b>{html.escape(to_small_caps(plat_input))}</b>\n\n"
+        "sᴛᴇᴘ 3: ᴘʟᴇᴀsᴇ ᴜᴘʟᴏᴀᴅ ᴛʜᴇ <b>sᴛᴏʀʏ ɪᴍᴀɢᴇ</b> (ᴍᴀɴᴅᴀᴛᴏʀʏ):\n\n"
         "<i>(sᴇɴᴅ ɪᴛ ᴀs ᴀ sᴛᴀɴᴅᴀʀᴅ ᴘʜᴏᴛᴏ, ɴᴏᴛ ᴀ ᴅᴏᴄᴜᴍᴇɴᴛ)</i>"
-    ).replace("ᴜᴘʟᴏᴀ─ᴅ", "ᴜᴘʟᴏᴀᴅ")
+    )
     await update.message.reply_text(text=prompt_text, parse_mode="HTML", reply_markup=ReplyKeyboardRemove())
     return REQ_IMAGE
 
@@ -2341,10 +2343,11 @@ async def handle_req_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     kb = ReplyKeyboardMarkup([["sᴋɪᴘ"], ["ᴄᴀɴᴄᴇʟ"]], resize_keyboard=True, one_time_keyboard=True)
     text = (
-        "★ <b>sᴛᴏʀʏ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ</b>\n"
+        "<b>sᴛᴏʀʏ ʀᴇǫᴜᴇsᴛ ꜰᴏʀᴍ</b>\n"
         "<code>──────────────────</code>\n"
-        "▫ ɪᴍᴀɢᴇ sᴀᴠᴇᴅ sᴜᴄᴄᴇssꜰᴜʟʟʏ!\n\n"
-        "sᴛᴇᴘ 4: ᴘʟᴇᴀsᴇ ᴘᴀsᴛᴇ ᴛʜᴇ <b>sᴛᴏʀʏ ʟɪɴᴋ</b> (ᴏᴘᴛɪᴏɴᴀʟ, ᴏʀ ᴄʟɪᴄᴋ sᴋɪᴘ ɪꜰ ɴᴏᴛ ᴀᴠᴀɪʟᴀʙʟᴇ) / स्टोरी का लिंक भेजें (वैकल्पिक, या छोड़ने के लिए sᴋɪᴘ पर क्लिक करें):"
+        "ɪᴍᴀɢᴇ sᴀᴠᴇᴅ sᴜᴄᴄᴇssꜰᴜʟʟʏ!\n\n"
+        "sᴛᴇᴘ 4: ᴘʟᴇᴀsᴇ ᴘᴀsᴛᴇ ᴛʜᴇ <b>sᴛᴏʀʏ ʟɪɴᴋ</b>:\n\n"
+        "<i>(ᴏᴘᴛɪᴏɴᴀʟ, ᴏʀ ᴄʟɪᴄᴋ sᴋɪᴘ ɪꜰ ɴᴏᴛ ᴀᴠᴀɪʟᴀʙʟᴇ)</i>"
     )
     await update.message.reply_text(text=text, parse_mode="HTML", reply_markup=kb)
     return REQ_LINK
@@ -2367,9 +2370,9 @@ async def handle_req_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ], resize_keyboard=True, one_time_keyboard=True)
     
     text = (
-        "★ <b>sᴛᴏʀʏ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ</b>\n"
+        "<b>sᴛᴏʀʏ ʀᴇǫᴜᴇsᴛ ꜰᴏʀᴍ</b>\n"
         "<code>──────────────────</code>\n"
-        "sᴛᴇᴘ 5: sᴇʟᴇᴄᴛ ᴛʜᴇ <b>sᴛᴏʀʏ sᴛᴀᴛᴜs</b> / स्टोरी का स्टेटस चुनें:"
+        "sᴛᴇᴘ 5: sᴇʟᴇᴄᴛ ᴛʜᴇ <b>sᴛᴏʀʏ sᴛᴀᴛᴜs</b>:"
     )
     await update.message.reply_text(text=text, parse_mode="HTML", reply_markup=kb)
     return REQ_STATUS
@@ -2482,22 +2485,22 @@ async def handle_req_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ])
     
-    platform_line = f"\n▪ <b>ᴘʟᴀᴛꜰᴏʀᴍ:</b> <b>{html.escape(to_small_caps(platform))}</b>"
-    link_line = f"\n▪ <b>ʟɪɴᴋ:</b> {html.escape(link)}" if link else f"\n▪ <b>ʟɪɴᴋ:</b> {to_small_caps('None')}"
-    status_line = f"\n▪ <b>sᴛᴀᴛᴜs:</b> <b>{to_small_caps(status)}</b>"
+    platform_line = f"\n<b>ᴘʟᴀᴛꜰᴏʀᴍ:</b> <b>{html.escape(to_small_caps(platform))}</b>"
+    link_line = f"\n<b>ʟɪɴᴋ:</b> {html.escape(link)}" if link else f"\n<b>ʟɪɴᴋ:</b> {to_small_caps('None')}"
+    status_line = f"\n<b>sᴛᴀᴛᴜs:</b> <b>{to_small_caps(status)}</b>"
     
     sent_req = await context.bot.send_photo(
         chat_id=REQUEST_GROUP,
         photo=photo_id,
         caption=(
-            f"✶ <b>sᴛᴏʀʏ ʀᴇqᴜᴇsᴛ (ꜰᴏʀᴍ)</b>\n"
+            f"<b>sᴛᴏʀʏ ʀᴇǫᴜᴇsᴛ (ꜰᴏʀᴍ)</b>\n"
             f"<code>──────────────────</code>\n"
-            f"▪ <b>ɴᴀᴍᴇ:</b> <b>{html.escape(to_small_caps(story_name))}</b>\n"
-            f"▪ <b>ᴜsᴇʀ:</b> <a href='tg://user?id={user.id}'>{to_small_caps(full_name)}</a> ({to_small_caps(username) if username else to_small_caps('No username')})"
+            f"<b>ɴᴀᴍᴇ:</b> <b>{html.escape(to_small_caps(story_name))}</b>\n"
+            f"<b>ᴜsᴇʀ:</b> <a href='tg://user?id={user.id}'>{to_small_caps(full_name)}</a> ({to_small_caps(username) if username else to_small_caps('No username')})"
             f"{status_line}"
             f"{platform_line}"
             f"{link_line}\n"
-            f"▪ <b>ᴛᴏᴛᴀʟ ʀᴇqᴜᴇsᴛs:</b> <b>{count}</b>\n"
+            f"<b>ᴛᴏᴛᴀʟ ʀᴇǫᴜᴇsᴛs:</b> <b>{count}</b>\n"
             f"<code>──────────────────</code>"
         ),
         parse_mode="HTML",

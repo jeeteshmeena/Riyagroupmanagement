@@ -206,8 +206,10 @@ async def scan_channel(channel_id, bot=None, log_channel=None, progress_cb=None,
             if has_learned_template:
                 # STRICT mode — only learned-format posts are indexed
                 story = _apply_learned_formats(channel_id, msg, learned)
-            else:
-                # Fallback legacy path (no template configured yet)
+            
+            if not story:
+                # Fallback to the built-in parser if learned template fails 
+                # (or if there is no learned template). This ensures formats like "Light Pro" are always matched.
                 story = parse_story(msg)
 
             if not story:
