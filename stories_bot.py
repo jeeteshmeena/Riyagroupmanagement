@@ -8174,23 +8174,31 @@ async def auto_channel_react(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 except ValueError:
                     pass
                     
-        if chat_id in sources:
-            logger.info(f"[Live Indexing] Processing new channel post from chat {chat_id}")
-            msg = update.channel_post
-            # Telethon-compatible message ID
-            if not hasattr(msg, "id"):
-                msg.id = msg.message_id
+        if chat_id not in sources:
+            from database import save_config
+            if "sources" not in bot_config:
+                bot_config["sources"] = []
+            if chat_id not in bot_config["sources"]:
+                bot_config["sources"].append(chat_id)
+                save_config(bot_config)
+                logger.info(f"[Live Indexing] Auto-linked new channel {chat_id} to config sources.")
                 
-            story = parse_story(msg)
-            if story:
-                # Direct bot photo file ID assignment
-                if msg.photo:
-                    story["photo"] = msg.photo[-1].file_id
-                
-                add_story(story)
-                logger.info(f"[Live Indexing] Automatically indexed story: {story.get('text')} (link: {story.get('link')})")
-            else:
-                logger.debug(f"[Live Indexing] Channel post did not match any story format.")
+        logger.info(f"[Live Indexing] Processing new channel post from chat {chat_id}")
+        msg = update.channel_post
+        # Telethon-compatible message ID
+        if not hasattr(msg, "id"):
+            msg.id = msg.message_id
+            
+        story = parse_story(msg)
+        if story:
+            # Direct bot photo file ID assignment
+            if msg.photo:
+                story["photo"] = msg.photo[-1].file_id
+            
+            add_story(story)
+            logger.info(f"[Live Indexing] Automatically indexed story: {story.get('text')} (link: {story.get('link')})")
+        else:
+            logger.debug(f"[Live Indexing] Channel post did not match any story format.")
     except Exception as ie:
         logger.error(f"[Live Indexing] Error during automatic indexing: {ie}", exc_info=True)
     # ──────────────────────────────
