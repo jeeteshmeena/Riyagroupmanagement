@@ -108,7 +108,7 @@ async def nsfw_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
                 except Exception as e:
                     logger.warning(f"[GCP-NSFW] Animation thumbnail download failed: {e}")
 
-            if text or photo_bytes:
+            if photo_bytes:
                 from ai_engine import classify_content_with_gemini
                 ai_result = await classify_content_with_gemini(text=text, photo_bytes=photo_bytes)
                 if ai_result == "NSFW":

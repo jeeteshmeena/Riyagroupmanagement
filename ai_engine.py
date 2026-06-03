@@ -690,19 +690,34 @@ async def classify_content_with_gemini(text: str = None, photo_bytes: bytes = No
             system_instruction=mod_sys_prompt
         )
 
+        safety_settings = [
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+        ]
+
         if photo_bytes:
             contents = []
             if text:
                 contents.append(text)
             contents.append({'data': photo_bytes, 'mime_type': 'image/jpeg'})
-            resp = await asyncio.to_thread(mod_model.generate_content, contents)
+            resp = await asyncio.to_thread(mod_model.generate_content, contents, safety_settings=safety_settings)
         else:
             if not text or not text.strip():
                 return "CLEAN"
-            resp = await asyncio.to_thread(mod_model.generate_content, text.strip())
+            resp = await asyncio.to_thread(mod_model.generate_content, text.strip(), safety_settings=safety_settings)
 
-        result = resp.text.strip().upper()
-        
+        try:
+            result = resp.text.strip().upper()
+        except ValueError as ve:
+            # If `resp.text` throws ValueError, it is usually blocked by safety ratings.
+            err_str = str(ve).lower()
+            if "safety" in err_str or "blocked" in err_str or "none was returned" in err_str:
+                logger.warning(f"[AI-Moderator] Gemini safety block triggered, returning NSFW. Details: {ve}")
+                return "NSFW"
+            raise ve
+
         # Exact matching logic to avoid minor variation failures
         if "SPAM" in result:
             return "SPAM"
@@ -713,7 +728,10 @@ async def classify_content_with_gemini(text: str = None, photo_bytes: bytes = No
 
     except Exception as e:
         logger.error(f"[AI-Moderator] Gemini classification failed: {e}", exc_info=True)
-        return "CLEAN"  # Safe default on error
+        # If the API blocked it at the root level, assume it's dangerous/NSFW.
+        if "safety" in str(e).lower() or "blocked" in str(e).lower():
+            return "NSFW"
+        return "CLEAN"  # Safe default on other errors
 
 # ── Reinit shims (backward compat for stories_bot.py) ────────────────────────
 def reinit_gemini(key: str):
