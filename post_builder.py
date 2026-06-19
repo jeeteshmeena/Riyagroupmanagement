@@ -194,11 +194,16 @@ def build_light_format(data):
 
     return t
 
-def get_light_kb(data):
+def get_light_kb(data, is_alt=False):
     link        = data.get("link", "")
     backup_link = data.get("backup_link") or link   # fallback to main link
     if not link:
         return None
+    if is_alt:
+        return InlineKeyboardMarkup([[
+            InlineKeyboardButton("Mᴏʀᴇ ‽", url="https://t.me/StoriesLightX"),
+            InlineKeyboardButton("ʙᴀᴄᴋᴜᴘ",   url=backup_link),
+        ]])
     return InlineKeyboardMarkup([[
         InlineKeyboardButton("ᴘʟᴀʏ ɴᴏᴡ", url=link),
         InlineKeyboardButton("ʙᴀᴄᴋᴜᴘ",   url=backup_link),
@@ -342,11 +347,16 @@ def build_light_pro_format(data):
 
 
 
-def get_light_pro_kb(data):
+def get_light_pro_kb(data, is_alt=False):
     link        = data.get("link", "")
     backup_link = data.get("backup_link") or link
     if not link:
         return None
+    if is_alt:
+        return InlineKeyboardMarkup([[
+            InlineKeyboardButton("Mᴏʀᴇ ‽", url="https://t.me/StoriesLightX"),
+            InlineKeyboardButton("ʙᴀᴄᴋᴜᴘ",   url=backup_link),
+        ]])
     play_text = "ʙᴜʏ ɴᴏᴡ" if data.get("is_paid") else "ᴘʟᴀʏ ɴᴏᴡ"
     return InlineKeyboardMarkup([[
         InlineKeyboardButton(play_text, url=link),
@@ -1021,13 +1031,13 @@ async def handle_dest_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return await _add_dest_and_check(update.message, update, context, dest, topic)
 
 # ── Preview & Confirm ──────────────────────────────────────────────────────────
-async def _get_keyboard_for_format(data):
+async def _get_keyboard_for_format(data, is_alt=False):
     """Return correct InlineKeyboardMarkup based on format."""
     fmt = data.get("format")
     if fmt == "light":
-        return get_light_kb(data)
+        return get_light_kb(data, is_alt=is_alt)
     if fmt == "light_pro":
-        return get_light_pro_kb(data)
+        return get_light_pro_kb(data, is_alt=is_alt)
     return None
 
 
@@ -1065,23 +1075,33 @@ async def _show_preview(message, context: ContextTypes.DEFAULT_TYPE):
     data["cached_previews"] = previews
     photo_ids = data.get("photo_ids", [])
 
-    await message.reply_text("· <b>Preview</b>", parse_mode="HTML")
+    await message.reply_text("· <b>Preview (Main Channel)</b>", parse_mode="HTML")
     button = await _get_keyboard_for_format(data)
-    for p in previews:
-        try:
-            if photo_ids:
-                item = photo_ids[0]
-                if item["type"] == "doc":
-                    await context.bot.send_document(chat_id=message.chat_id, document=item["id"], caption=p, parse_mode="HTML", reply_markup=button)
-                else:
-                    await context.bot.send_photo(chat_id=message.chat_id, photo=item["id"], caption=p, parse_mode="HTML", reply_markup=button)
-            else:
-                await context.bot.send_message(chat_id=message.chat_id, text=p, parse_mode="HTML", disable_web_page_preview=True, reply_markup=button)
-        except Exception as e:
-            _log.error(f"[PREVIEW] {e}")
+    
+    async def send_preview(btn):
+        for p in previews:
             try:
-                await context.bot.send_message(chat_id=message.chat_id, text=p, parse_mode="HTML", disable_web_page_preview=True, reply_markup=button)
-            except: pass
+                if photo_ids:
+                    item = photo_ids[0]
+                    if item["type"] == "doc":
+                        await context.bot.send_document(chat_id=message.chat_id, document=item["id"], caption=p, parse_mode="HTML", reply_markup=btn)
+                    else:
+                        await context.bot.send_photo(chat_id=message.chat_id, photo=item["id"], caption=p, parse_mode="HTML", reply_markup=btn)
+                else:
+                    await context.bot.send_message(chat_id=message.chat_id, text=p, parse_mode="HTML", disable_web_page_preview=True, reply_markup=btn)
+            except Exception as e:
+                _log.error(f"[PREVIEW] {e}")
+                try:
+                    await context.bot.send_message(chat_id=message.chat_id, text=p, parse_mode="HTML", disable_web_page_preview=True, reply_markup=btn)
+                except: pass
+
+    await send_preview(button)
+    
+    if data.get("format") in ("light", "light_pro"):
+        alt_button = await _get_keyboard_for_format(data, is_alt=True)
+        if alt_button:
+            await message.reply_text("· <b>Preview (For Other Channels / Groups)</b>", parse_mode="HTML")
+            await send_preview(alt_button)
 
     kb = _kb([["[ Post ]", "[ Re-edit ]"], ["[ Cancel ]"]])
     await message.reply_text("¤ Confirm:", reply_markup=kb)
