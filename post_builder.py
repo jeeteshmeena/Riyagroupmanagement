@@ -1183,15 +1183,19 @@ async def _do_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     raise e
 
         else:
-            button = get_light_kb(data) if data.get("format") == "light" else (
-                get_light_pro_kb(data) if data.get("format") == "light_pro" else None
-            )
-            for target in targets:
+            primary_button = await _get_keyboard_for_format(data, is_alt=False)
+            alt_button = await _get_keyboard_for_format(data, is_alt=True)
+            
+            for i, target in enumerate(targets):
                 chat_id = target["chat"]
                 thread_id = target["thread"]
+                
+                # Send primary format to first destination, alternate format to all subsequent destinations
+                current_button = primary_button if i == 0 else (alt_button or primary_button)
+                
                 for p in previews:
                     try:
-                        result = await _send_post(context.bot, chat_id, p, photo_ids, thread_id, reply_markup=button)
+                        result = await _send_post(context.bot, chat_id, p, photo_ids, thread_id, reply_markup=current_button)
                         if result:
                             success = True
                             last_chat_id = chat_id
