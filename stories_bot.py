@@ -2216,10 +2216,11 @@ async def start_request_form(update: Update, context: ContextTypes.DEFAULT_TYPE)
     context.user_data["req_data"] = {}
     
     text = (
-        "<b>sᴛᴏʀʏ ʀᴇǫᴜᴇsᴛ ꜰᴏʀᴍ</b>\n"
-        "<code>──────────────────</code>\n"
-        "sᴛᴇᴘ 1: ᴘʟᴇᴀsᴇ ᴛʏᴘᴇ ᴛʜᴇ ᴄᴏʀʀᴇᴄᴛ <b>sᴛᴏʀʏ ɴᴀᴍᴇ</b>:\n\n"
-        "<i>(ʏᴏᴜ ᴄᴀɴ ᴛʏᴘᴇ ᴄᴀɴᴄᴇʟ ᴀɴʏᴛɪᴍᴇ ᴛᴏ ᴇxɪᴛ)</i>"
+        "◎ <b>𝗦𝗧𝗢𝗥𝗬 𝗥𝗘𝗤𝗨𝗘𝗦𝗧 𝗙𝗢𝗥𝗠</b>\n\n"
+        "◈ Step 1: Story Name\n\n"
+        "◑ Please enter the correct story name.\n\n"
+        "▸ You can type \"cancel\" anytime to exit.\n\n"
+        "━━━━━━━━━━━━━━━━━━"
     )
     await update.effective_chat.send_message(
         text=text, 
@@ -2231,24 +2232,24 @@ async def start_request_form(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def handle_req_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name_input = update.message.text.strip()
     if len(name_input) < 2:
-        await update.message.reply_text("✧ sᴛᴏʀʏ ɴᴀᴍᴇ ᴛᴏᴏ sʜᴏʀᴛ! ᴘʟᴇᴀsᴇ ᴇɴᴛᴇʀ ᴀ ᴠᴀʟɪᴅ sᴛᴏʀʏ ɴᴀᴍᴇ:")
+        await update.message.reply_text("▸ Story name too short. Please enter a valid story name.")
         return REQ_NAME
         
     context.user_data["req_data"]["name"] = name_input
     
     kb = ReplyKeyboardMarkup([
-        ["ᴘᴏᴄᴋᴇᴛ ꜰᴍ", "ᴋᴜᴋᴜ ꜰᴍ"],
-        ["ᴋᴜᴋᴜ ᴛᴠ", "ᴇɪɢʜᴛ ꜰᴍ"],
-        ["ʜᴇᴀᴅꜰᴏɴᴇ", "ᴘʀᴀᴛɪʟɪᴘɪ ꜰᴍ"],
-        ["ᴄᴜꜱᴛᴏᴍ"],
-        ["ᴄᴀɴᴄᴇʟ"]
+        ["Pocket FM", "Kuku FM"],
+        ["Kuku TV", "Eight FM"],
+        ["Headfone", "Pratilipi FM"],
+        ["Custom"],
+        ["Cancel"]
     ], resize_keyboard=True, one_time_keyboard=True)
     
     text = (
-        "<b>sᴛᴏʀʏ ʀᴇǫᴜᴇsᴛ ꜰᴏʀᴍ</b>\n"
-        "<code>──────────────────</code>\n"
-        f"<b>sᴛᴏʀʏ ɴᴀᴍᴇ:</b> <b>{html.escape(to_small_caps(name_input))}</b>\n\n"
-        "sᴛᴇᴘ 2: sᴇʟᴇᴄᴛ ᴛʜᴇ <b>ᴘʟᴀᴛꜰᴏʀᴍ</b>:"
+        "◎ 𝗦𝗧𝗢𝗥𝗬 𝗥𝗘𝗤𝗨𝗘𝗦𝗧 𝗙𝗢𝗥𝗠\n\n"
+        f"◈ Story Name: {html.escape(name_input)}\n\n"
+        "◑ Step 2: Select the platform.\n\n"
+        "━━━━━━━━━━━━━━━━━━"
     )
     await update.message.reply_text(text=text, parse_mode="HTML", reply_markup=kb)
     return REQ_PLATFORM
@@ -2276,9 +2277,10 @@ async def handle_req_platform(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     if text in ("custom", "ᴄᴜꜱᴛᴏᴍ"):
         await update.message.reply_text(
-            "<b>sᴛᴏʀʏ ʀᴇǫᴜᴇsᴛ ꜰᴏʀᴍ</b>\n"
-            "<code>──────────────────</code>\n"
-            "sᴛᴇᴘ 2: ᴘʟᴇᴀsᴇ ᴛʏᴘᴇ ᴛʜᴇ <b>ᴘʟᴀᴛꜰᴏʀᴍ ɴᴀᴍᴇ</b> ᴍᴀɴᴜᴀʟʟʏ:",
+            "◎ 𝗦𝗧𝗢𝗥𝗬 𝗥𝗘𝗤𝗨𝗘𝗦𝗧 𝗙𝗢𝗥𝗠\n\n"
+            "◈ Step 2: Custom Platform\n\n"
+            "◑ Please type the platform name manually:\n\n"
+            "━━━━━━━━━━━━━━━━━━",
             parse_mode="HTML",
             reply_markup=ReplyKeyboardRemove()
         )
@@ -2296,11 +2298,12 @@ async def handle_req_platform(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data["req_data"]["platform"] = matched_plat
     
     prompt_text = (
-        "<b>sᴛᴏʀʏ ʀᴇǫᴜᴇsᴛ ꜰᴏʀᴍ</b>\n"
-        "<code>──────────────────</code>\n"
-        f"<b>ᴘʟᴀᴛꜰᴏʀᴍ:</b> <b>{to_small_caps(matched_plat)}</b>\n\n"
-        "sᴛᴇᴘ 3: ᴘʟᴇᴀsᴇ ᴜᴘʟᴏᴀᴅ ᴛʜᴇ <b>sᴛᴏʀʏ ɪᴍᴀɢᴇ</b> (ᴍᴀɴᴅᴀᴛᴏʀʏ):\n\n"
-        "<i>(sᴇɴᴅ ɪᴛ ᴀs ᴀ sᴛᴀɴᴅᴀʀᴅ ᴘʜᴏᴛᴏ, ɴᴏᴛ ᴀ ᴅᴏᴄᴜᴍᴇɴᴛ)</i>"
+        "◎ 𝗦𝗧𝗢𝗥𝗬 𝗥𝗘𝗤𝗨𝗘𝗦𝗧 𝗙𝗢𝗥𝗠\n\n"
+        f"◈ Platform: {html.escape(matched_plat)}\n\n"
+        "◑ Step 3: Upload the story image.\n\n"
+        "▸ This step is mandatory.\n\n"
+        "⧉ Send it as a standard photo, not as a document.\n\n"
+        "━━━━━━━━━━━━━━━━━━"
     )
     await update.message.reply_text(text=prompt_text, parse_mode="HTML", reply_markup=ReplyKeyboardRemove())
     return REQ_IMAGE
@@ -2311,17 +2314,18 @@ async def handle_req_cust_platform(update: Update, context: ContextTypes.DEFAULT
         return await cancel_req_form(update, context)
         
     if len(plat_input) < 2:
-        await update.message.reply_text("✧ ᴘʟᴀᴛꜰᴏʀᴍ ɴᴀᴍᴇ ᴛᴏᴏ sʜᴏʀᴛ! ᴘʟᴇᴀsᴇ ᴇɴᴛᴇʀ ᴀ ᴠᴀʟɪᴅ ᴘʟᴀᴛꜰᴏʀᴍ:")
+        await update.message.reply_text("▸ Platform name too short. Please enter a valid platform:")
         return REQ_CUST_PLAT
         
     context.user_data["req_data"]["platform"] = plat_input
     
     prompt_text = (
-        "<b>sᴛᴏʀʏ ʀᴇǫᴜᴇsᴛ ꜰᴏʀᴍ</b>\n"
-        "<code>──────────────────</code>\n"
-        f"<b>ᴘʟᴀᴛꜰᴏʀᴍ:</b> <b>{html.escape(to_small_caps(plat_input))}</b>\n\n"
-        "sᴛᴇᴘ 3: ᴘʟᴇᴀsᴇ ᴜᴘʟᴏᴀᴅ ᴛʜᴇ <b>sᴛᴏʀʏ ɪᴍᴀɢᴇ</b> (ᴍᴀɴᴅᴀᴛᴏʀʏ):\n\n"
-        "<i>(sᴇɴᴅ ɪᴛ ᴀs ᴀ sᴛᴀɴᴅᴀʀᴅ ᴘʜᴏᴛᴏ, ɴᴏᴛ ᴀ ᴅᴏᴄᴜᴍᴇɴᴛ)</i>"
+        "◎ 𝗦𝗧𝗢𝗥𝗬 𝗥𝗘𝗤𝗨𝗘𝗦𝗧 𝗙𝗢𝗥𝗠\n\n"
+        f"◈ Platform: {html.escape(plat_input)}\n\n"
+        "◑ Step 3: Upload the story image.\n\n"
+        "▸ This step is mandatory.\n\n"
+        "⧉ Send it as a standard photo, not as a document.\n\n"
+        "━━━━━━━━━━━━━━━━━━"
     )
     await update.message.reply_text(text=prompt_text, parse_mode="HTML", reply_markup=ReplyKeyboardRemove())
     return REQ_IMAGE
@@ -2334,20 +2338,21 @@ async def handle_req_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
     if not update.message.photo:
         await update.message.reply_text(
-            "✧ sᴛᴏʀʏ ɪᴍᴀɢᴇ ɪs ᴍᴀɴᴅᴀᴛᴏʀʏ!\n"
-            "ᴘʟᴇᴀsᴇ ᴜᴘʟᴏᴀᴅ/sᴇɴᴅ ᴀ sᴛᴏʀʏ ᴘᴏsᴛᴇʀ ᴘʜᴏᴛᴏ ᴛᴏ ᴄᴏɴᴛɪɴᴜᴇ:"
+            "▸ Story image is mandatory!\n"
+            "Please upload/send a story poster photo to continue:"
         )
         return REQ_IMAGE
         
     context.user_data["req_data"]["photo_id"] = update.message.photo[-1].file_id
     
-    kb = ReplyKeyboardMarkup([["sᴋɪᴘ"], ["ᴄᴀɴᴄᴇʟ"]], resize_keyboard=True, one_time_keyboard=True)
+    kb = ReplyKeyboardMarkup([["Skip"], ["Cancel"]], resize_keyboard=True, one_time_keyboard=True)
     text = (
-        "<b>sᴛᴏʀʏ ʀᴇǫᴜᴇsᴛ ꜰᴏʀᴍ</b>\n"
-        "<code>──────────────────</code>\n"
-        "ɪᴍᴀɢᴇ sᴀᴠᴇᴅ sᴜᴄᴄᴇssꜰᴜʟʟʏ!\n\n"
-        "sᴛᴇᴘ 4: ᴘʟᴇᴀsᴇ ᴘᴀsᴛᴇ ᴛʜᴇ <b>sᴛᴏʀʏ ʟɪɴᴋ</b>:\n\n"
-        "<i>(ᴏᴘᴛɪᴏɴᴀʟ, ᴏʀ ᴄʟɪᴄᴋ sᴋɪᴘ ɪꜰ ɴᴏᴛ ᴀᴠᴀɪʟᴀʙʟᴇ)</i>"
+        "◎ 𝗦𝗧𝗢𝗥𝗬 𝗥𝗘𝗤𝗨𝗘𝗦𝗧 𝗙𝗢𝗥𝗠\n\n"
+        "▣ Image saved successfully.\n\n"
+        "◈ Step 4: Story Link\n\n"
+        "◑ Please paste the story link.\n\n"
+        "▸ Optional — tap \"Skip\" if unavailable.\n\n"
+        "━━━━━━━━━━━━━━━━━━"
     )
     await update.message.reply_text(text=text, parse_mode="HTML", reply_markup=kb)
     return REQ_LINK
@@ -2365,14 +2370,15 @@ async def handle_req_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["req_data"]["link"] = link_input
         
     kb = ReplyKeyboardMarkup([
-        ["ᴄᴏᴍᴘʟᴇᴛᴇᴅ", "ᴏɴɢᴏɪɴɢ"],
-        ["ᴄᴀɴᴄᴇʟ"]
+        ["Completed", "Ongoing"],
+        ["Cancel"]
     ], resize_keyboard=True, one_time_keyboard=True)
     
     text = (
-        "<b>sᴛᴏʀʏ ʀᴇǫᴜᴇsᴛ ꜰᴏʀᴍ</b>\n"
-        "<code>──────────────────</code>\n"
-        "sᴛᴇᴘ 5: sᴇʟᴇᴄᴛ ᴛʜᴇ <b>sᴛᴏʀʏ sᴛᴀᴛᴜs</b>:"
+        "◎ 𝗦𝗧𝗢𝗥𝗬 𝗥𝗘𝗤𝗨𝗘𝗦𝗧 𝗙𝗢𝗥𝗠\n\n"
+        "◈ Step 5: Story Status\n\n"
+        "◑ Please select the current story status.\n\n"
+        "━━━━━━━━━━━━━━━━━━"
     )
     await update.message.reply_text(text=text, parse_mode="HTML", reply_markup=kb)
     return REQ_STATUS
@@ -2395,10 +2401,10 @@ async def handle_req_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status = status_map.get(text)
     if not status:
         kb = ReplyKeyboardMarkup([
-            ["ᴄᴏᴍᴘʟᴇᴛᴇᴅ", "ᴏɴɢᴏɪɴɢ"],
-            ["ᴄᴀɴᴄᴇʟ"]
+            ["Completed", "Ongoing"],
+            ["Cancel"]
         ], resize_keyboard=True, one_time_keyboard=True)
-        await update.message.reply_text("✧ ᴘʟᴇᴀsᴇ sᴇʟᴇᴄᴛ ᴜsɪɴɢ ᴛʜᴇ ʙᴜᴛᴛᴏɴs:", reply_markup=kb)
+        await update.message.reply_text("▸ Please select the status using the buttons below:", reply_markup=kb)
         return REQ_STATUS
         
     context.user_data["req_data"]["status"] = status
@@ -2423,9 +2429,10 @@ async def handle_req_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_id=update.effective_chat.id,
                 text=(
                     f"<b>{mention}</b>\n\n"
-                    f"<b>☆ ᴀʟʀᴇᴀᴅʏ ɪɴ ᴅᴀᴛᴀʙᴀsᴇ / पहले से उपलब्ध है</b>\n"
-                    f"<i>ᴛʜɪs sᴛᴏʀʏ ɪs ᴀʟʀᴇᴀᴅʏ ɪɴ ᴏᴜʀ ᴅᴀᴛᴀʙᴀsᴇ!</i>\n\n"
-                    f"<b>ʟɪɴᴋ:</b> <tg-spoiler>{ex_link}</tg-spoiler>"
+                    f"◎ <b>𝗔𝗟𝗥𝗘𝗔𝗗𝗬 𝗔𝗩𝗔𝗜𝗟𝗔𝗕𝗟𝗘</b>\n\n"
+                    f"▣ This story is already in our database!\n\n"
+                    f"◈ Link: <tg-spoiler>{ex_link}</tg-spoiler>\n\n"
+                    f"━━━━━━━━━━━━━━━━━━"
                 ),
                 parse_mode="HTML",
                 reply_markup=ReplyKeyboardRemove()
@@ -2443,8 +2450,10 @@ async def handle_req_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id=update.effective_chat.id,
             text=(
                 f"<b>{mention}</b>\n\n"
-                f"<i>◌ ʏᴏᴜ ʜᴀᴠᴇ ᴀʟʀᴇᴀᴅʏ ʀᴇqᴜᴇsᴛᴇᴅ <b>{story}</b>.\n"
-                f"ᴘʟᴇᴀsᴇ ᴀᴠᴏɪᴅ ᴅᴜᴘʟɪᴄᴀᴛᴇ ʀᴇqᴜᴇsᴛs!</i>"
+                f"◎ <b>𝗗𝗨𝗣𝗟𝗜𝗖𝗔𝗧𝗘 𝗥𝗘𝗤𝗨𝗘𝗦𝗧</b>\n\n"
+                f"▣ You have already requested <b>{story}</b>.\n"
+                f"◑ Please avoid duplicate requests!\n\n"
+                f"━━━━━━━━━━━━━━━━━━"
             ),
             parse_mode="HTML",
             reply_markup=ReplyKeyboardRemove()
@@ -2512,33 +2521,36 @@ async def handle_req_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         _req_msg_cache = {}
     _req_msg_cache[safe_story] = sent_req.message_id
     
-    lang = get_chat_lang(update.effective_chat.id)
-    if lang == "hi":
-        text = f"<b>✦ आपकी <i>{html.escape(to_small_caps(story_name))}</i> की रिक्वेस्ट सबमिट हो गई है!</b>\n\n"
-        if count == 1:
-            text += "➔ हम इसे उपलब्ध कराने की पूरी कोशिश करेंगे।\n➔ जैसे ही मिलेगी, जल्द अपलोड कर दी जाएगी।"
-        else:
-            text += f"➔ आपके साथ {count - 1} और लोगों ने भी इसे रिक्वेस्ट किया है।"
-    else:
-        text = (
-            f"<b>✦ ʏᴏᴜʀ ʀᴇqᴜᴇsᴛ ꜰᴏʀ <i>{html.escape(to_small_caps(story_name))}</i> ʜᴀs ʙᴇᴇɴ sᴜʙᴍɪᴛᴛᴇ─ᴅ!</b>\n\n"
-            f"➔ ᴡᴇ ᴡɪʟʟ ᴛʀʏ ᴏᴜʀ ʙᴇsᴛ ᴛᴏ ᴘʀᴏᴠɪᴅᴇ ᴛʜɪs sᴛᴏʀʏ.\n"
-            f"➔ ɪᴛ ᴡɪʟʟ ʙᴇ ᴜᴘʟᴏᴀ─ᴅⲧᴅ ᴀs sᴏᴏɴ ᴀs ᴡᴇ ꜰɪɴ─ᴅ ɪᴛ."
-        ).replace("sᴜʙᴍɪᴛᴛᴇ─ᴅ", "sᴜʙᴍɪᴛᴛᴇᴅ").replace("ᴜᴘʟᴏᴀ─ᴅⲧᴅ", "ᴜᴘʟᴏᴀᴅᴇᴅ").replace("ꜰɪɴ─ᴅ", "ꜰɪɴᴅ")
-        if count > 1:
-            text += f"\n➔ ʏᴏᴜ ᴀɴ─ᴅ {count - 1} ᴏᴛʜᴇʀs ᴀʟsᴏ ʀᴇqᴜᴇsᴛᴇ─ᴅ ᴛʜɪs.".replace("ᴀɴ─ᴅ", "ᴀɴᴅ").replace("ʀᴇqᴜᴇsᴛᴇ─ᴅ", "ʀᴇqᴜᴇsᴛᴇᴅ")
-            
     queue_len = len(voting_queue)
-    if lang == "hi":
-        if queue_len < VOTING_SIZE_FOR_POLL:
-            text += f"\n\n<b>◌ वोटिंग कतार:</b> <code>{queue_len}/{VOTING_SIZE_FOR_POLL}</code> स्टोरीज़\n<i>(कम्युनिटी वोटिंग शुरू होने के लिए {VOTING_SIZE_FOR_POLL} अलग-अलग स्टोरीज़ चाहिए।)</i>"
-        else:
-            text += f"\n\n<b>✦ वोटिंग कतार फुल हो गई है!</b>\n<i>जल्द ही रिक्वेस्ट चैनल में एक नया पोल शुरू होगा।</i>"
+    
+    text = (
+        "◎ 𝗥𝗘𝗤𝗨𝗘𝗦𝗧 𝗦𝗨𝗕𝗠𝗜𝗧𝗧𝗘𝗗\n\n"
+        f"▣ Your request for <b>{html.escape(story_name)}</b> has been submitted successfully.\n\n"
+    )
+    
+    if count == 1:
+        text += (
+            "◑ We will do our best to provide this story.\n\n"
+            "◈ The story will be uploaded as soon as it becomes available.\n\n"
+        )
     else:
-        if queue_len < VOTING_SIZE_FOR_POLL:
-            text += f"\n\n<b>◌ ᴠᴏᴛɪɴɢ qᴜᴇᴜᴇ:</b> <code>{queue_len}/{VOTING_SIZE_FOR_POLL}</code> sᴛᴏʀɪᴇs\n<i>(ᴀ ᴘᴏʟʟ ᴡɪʟʟ sᴛᴀʀᴛ ᴏɴᴄᴇ {VOTING_SIZE_FOR_POLL} ᴜɴɪqᴜᴇ sᴛᴏʀɪᴇs ᴀʀᴇ ʀᴇqᴜᴇsᴛᴇᴅ.)</i>"
-        else:
-            text += f"\n\n<b>✦ ᴠᴏᴛɪɴɢ qᴜᴇᴜᴇ ɪs ꜰᴜʟʟ!</b>\n<i>ᴀ ɴᴇᴡ ᴘᴏʟʟ ᴡɪʟʟ sᴛᴀʀᴛ sʜᴏʀᴛʟʏ ɪɴ ᴛʜᴇ ʀᴇqᴜᴇsᴛ ᴄʜᴀɴɴᴇʟ.</i>"
+        text += (
+            f"◑ You and {count - 1} others have requested this story.\n\n"
+            "◈ The story will be uploaded as soon as it becomes available.\n\n"
+        )
+        
+    if queue_len < VOTING_SIZE_FOR_POLL:
+        text += (
+            f"⧉ Voting queue: {queue_len}/{VOTING_SIZE_FOR_POLL} stories\n\n"
+            f"▸ A poll will start once {VOTING_SIZE_FOR_POLL} unique stories are requested.\n\n"
+        )
+    else:
+        text += (
+            "⧉ Voting queue is currently full.\n\n"
+            "▸ A new poll will be posted shortly in the request channel.\n\n"
+        )
+        
+    text += "━━━━━━━━━━━━━━━━━━"
             
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
@@ -2554,7 +2566,12 @@ async def cancel_req_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop("req_data", None)
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
-        text="✦ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ ᴄᴀɴᴄᴇʟʟᴇᴅ / रद्द कर दिया गया है।",
+        text=(
+            "◎ 𝗦𝗧𝗢𝗥𝗬 𝗥𝗘𝗤𝗨𝗘𝗦𝗧 𝗙𝗢𝗥𝗠\n\n"
+            "▣ Form cancelled.\n\n"
+            "━━━━━━━━━━━━━━━━━━"
+        ),
+        parse_mode="HTML",
         reply_markup=ReplyKeyboardRemove()
     )
     return ConversationHandler.END
