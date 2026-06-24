@@ -7,3 +7,5 @@ groq
 google-generativeai
 pytesseract
 elevenlabs
+Pillow
+replicate
