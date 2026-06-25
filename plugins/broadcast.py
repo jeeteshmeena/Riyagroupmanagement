@@ -223,7 +223,7 @@ async def clean_broadcast_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     # 2. Deletion via Telethon Scan (fallback for unlogged posts or keyword-specific delete)
     # Perform a Telethon history scan to find unlogged messages
-    if keyword or (success == 0 and target_chat_id is None):
+    if keyword or success == 0:
         await status_msg.edit_text("🔍 Scanning channels via Telethon to clean matching messages...")
         from database import load_story_channels
         from config import API_ID, API_HASH, SESSION_STRING, GROUP_ID
@@ -268,6 +268,11 @@ async def clean_broadcast_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
             if not await client.is_user_authorized():
                 await status_msg.edit_text("❌ Telethon user session not authorized. Cannot scan history.")
                 return
+
+            # Fetch dialogs to populate Telethon's internal entity cache
+            await status_msg.edit_text("🔍 Fetching Telegram dialogs to resolve channel links...")
+            await client.get_dialogs()
+            await status_msg.edit_text("🔍 Scanning channels to clean matching messages...")
 
             for cid in scan_chats:
                 parsed_chat, _ = _parse_chat_target(cid)
