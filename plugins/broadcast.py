@@ -225,8 +225,8 @@ async def clean_broadcast_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
     # Perform a Telethon history scan to find unlogged messages
     if keyword or (success == 0 and target_chat_id is None):
         await status_msg.edit_text("🔍 Scanning channels via Telethon to clean matching messages...")
-        from database import load_story_channels, GROUP_ID
-        from config import API_ID, API_HASH, SESSION_STRING
+        from database import load_story_channels
+        from config import API_ID, API_HASH, SESSION_STRING, GROUP_ID
         from telethon import TelegramClient
         from telethon.sessions import StringSession
         from datetime import datetime, timezone
