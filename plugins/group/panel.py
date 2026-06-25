@@ -17,14 +17,21 @@ _DIV = "━━━━━━━━━━━━━━━━━━"
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-async def _is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+def is_bot_admin(user_id: int) -> bool:
     try:
-        m = await context.bot.get_chat_member(
-            update.effective_chat.id, update.effective_user.id
-        )
-        return m.status in ("administrator", "creator")
+        from config import ADMIN_ID, OWNER_ID
+        from database import load_config
+        if user_id in (OWNER_ID, ADMIN_ID):
+            return True
+        cfg = load_config()
+        mods = cfg.get("moderators", [])
+        return str(user_id) in mods or user_id in mods
     except Exception:
         return False
+
+
+async def _is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    return is_bot_admin(update.effective_user.id)
 
 
 def _in_group(update: Update) -> bool:
@@ -114,15 +121,8 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return
 
         # Admin check
-        try:
-            m = await context.bot.get_chat_member(
-                update.effective_chat.id, update.effective_user.id
-            )
-            if m.status not in ("administrator", "creator"):
-                await query.answer("⛔ Admin only!", show_alert=True)
-                return
-        except Exception:
-            await query.answer("⛔ Could not verify admin status.", show_alert=True)
+        if not is_bot_admin(update.effective_user.id):
+            await query.answer("⛔ Admin only.", show_alert=True)
             return
 
         await query.answer()

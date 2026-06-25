@@ -456,7 +456,7 @@ async def _route_after_name(update, context):
 async def start_builder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if not _is_admin(user.id):
-        msg = "Access denied."
+        msg = "⛔ Admin only. / केवल एडमिन ही इसे उपयोग कर सकते हैं।"
         if update.callback_query:
             try: await update.callback_query.answer(msg, show_alert=True)
             except: pass
