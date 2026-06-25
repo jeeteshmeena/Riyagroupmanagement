@@ -461,3 +461,34 @@ def save_ads_db(data: dict):
     _save_json(ADS_FILE, data)
 
 
+# --- Broadcast History DB for Mass Deletion ---
+BROADCASTS_LOG_FILE = _data_path("broadcast_history.json")
+
+def load_broadcast_history() -> list:
+    """Returns a list of all broadcasted message records."""
+    return _load_json(BROADCASTS_LOG_FILE, [])
+
+def save_broadcast_history(data: list):
+    """Saves the list of broadcasted message records."""
+    _save_json(BROADCASTS_LOG_FILE, data)
+
+def add_broadcast_record(chat_id, message_id, timestamp: float):
+    """Logs a sent broadcast message and purges logs older than 3 days."""
+    import time
+    try:
+        history = load_broadcast_history()
+        history.append({
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "timestamp": timestamp
+        })
+        # Keep only the last 3 days of broadcast history to prevent file bloat
+        cutoff = time.time() - (3 * 24 * 3600)
+        history = [h for h in history if h.get("timestamp", 0) > cutoff]
+        save_broadcast_history(history)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"[Database] add_broadcast_record error: {e}")
+
+
+

@@ -5617,6 +5617,11 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
     chat_id  = query.message.chat.id
     lang     = get_chat_lang(chat_id)
 
+    # Security Guard: Only admins can trigger any config callback operations
+    if not is_admin(user.id):
+        await query.answer("⛔ Admin only." if lang != "hi" else "⛔ केवल एडमिन।", show_alert=True)
+        return
+
     # ── Close / delete ──────────────────────────────────────────────────────
     if section == "close":
         if user.id == caller_id or is_admin(user.id):
@@ -8490,6 +8495,8 @@ def start_bot():
     app.add_handler(CommandHandler("listalias", listalias_cmd))
     app.add_handler(CommandHandler("whisper", whisper_cmd))
     app.add_handler(CommandHandler("setreplicate", setreplicate_cmd))
+    from plugins.broadcast import clean_broadcast_cmd
+    app.add_handler(CommandHandler("clean_broadcast", clean_broadcast_cmd))
 
     # react when bot is added/removed
     app.add_handler(ChatMemberHandler(chat_member_update))
