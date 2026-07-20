@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Riya Stories - Request Form</title>
+    
+    <!-- Google Fonts Import -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Annapurna+SIL:wght@400;700&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,700;1,400&family=Inconsolata:wght@200..900&family=Jersey+10+Charted&family=Playpen+Sans:wght@300;400;600;800&family=Rajdhani:wght@300;400;500;600;700&family=Ubuntu:ital,wght@0,300;0,400;0,500;0,700;1,300&display=swap" rel="stylesheet">
+
+    <style>
+        /* Modern Premium Design System */
+        :root {
+            --bg-gradient: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #311042 100%);
+            --card-bg: rgba(255, 255, 255, 0.03);
+            --card-border: rgba(255, 255, 255, 0.08);
+            --accent-primary: #a855f7;
+            --accent-glow: rgba(168, 85, 247, 0.4);
+            --text-color: #f8fafc;
+            --text-muted: #94a3b8;
+            
+            /* Default Font Families */
+            --font-hindi: 'Rajdhani', sans-serif;
+            --font-english: 'Ubuntu', sans-serif;
+            --active-font: var(--font-english);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        body {
+            min-height: 100vh;
+            background: var(--bg-gradient);
+            color: var(--text-color);
+            font-family: var(--active-font);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            overflow-x: hidden;
+        }
+
+        /* Glassmorphism Container Card */
+        .request-card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-radius: 24px;
+            width: 100%;
+            max-width: 580px;
+            padding: 40px;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+            position: relative;
+        }
+
+        .request-card::before {
+            content: '';
+            position: absolute;
+            top: -2px;
+            left: -2px;
+            right: -2px;
+            bottom: -2px;
+            background: linear-gradient(45deg, transparent, var(--accent-primary), transparent);
+            border-radius: 26px;
+            z-index: -1;
+            opacity: 0.15;
+            pointer-events: none;
+        }
+
+        header {
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 2.2rem;
+            font-weight: 700;
+            background: linear-gradient(to right, #f472b6, var(--accent-primary), #60a5fa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+            letter-spacing: 0.5px;
+        }
+
+        p.subtitle {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+        }
+
+        /* Controllers Section */
+        .controls {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 30px;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 15px;
+            border-radius: 16px;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .control-group label {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        select {
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid var(--card-border);
+            color: var(--text-color);
+            padding: 10px;
+            border-radius: 10px;
+            outline: none;
+            cursor: pointer;
+            font-family: inherit;
+        }
+
+        select:focus {
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 10px var(--accent-glow);
+        }
+
+        /* Form Layout */
+        form {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .form-group label {
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: #e2e8f0;
+        }
+
+        input[type="text"], input[type="url"] {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--card-border);
+            color: var(--text-color);
+            padding: 14px 18px;
+            border-radius: 12px;
+            font-size: 1rem;
+            outline: none;
+            font-family: inherit;
+        }
+
+        input[type="text"]::placeholder, input[type="url"]::placeholder {
+            color: rgba(255, 255, 255, 0.2);
+        }
+
+        input[type="text"]:focus, input[type="url"]:focus {
+            border-color: var(--accent-primary);
+            background: rgba(255, 255, 255, 0.04);
+            box-shadow: 0 0 15px var(--accent-glow);
+        }
+
+        /* Platform Selection Grid */
+        .platform-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+        }
+
+        .platform-btn {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--card-border);
+            color: var(--text-color);
+            padding: 12px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: 500;
+            font-size: 0.85rem;
+            text-align: center;
+            font-family: inherit;
+        }
+
+        .platform-btn.active, .platform-btn:hover {
+            background: var(--accent-primary);
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 15px var(--accent-glow);
+            transform: translateY(-2px);
+        }
+
+        /* Image Drag & Drop Area */
+        .image-uploader {
+            border: 2px dashed var(--card-border);
+            padding: 30px 20px;
+            border-radius: 14px;
+            text-align: center;
+            cursor: pointer;
+            background: rgba(255, 255, 255, 0.01);
+            position: relative;
+        }
+
+        .image-uploader:hover {
+            border-color: var(--accent-primary);
+            background: rgba(168, 85, 247, 0.02);
+        }
+
+        .image-uploader input[type="file"] {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            cursor: pointer;
+        }
+
+        .uploader-icon {
+            font-size: 2rem;
+            margin-bottom: 10px;
+            display: block;
+        }
+
+        .uploader-text {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        /* Status Checkboxes */
+        .status-options {
+            display: flex;
+            gap: 20px;
+        }
+
+        .status-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            font-size: 0.95rem;
+        }
+
+        .status-label input[type="radio"] {
+            accent-color: var(--accent-primary);
+            width: 18px;
+            height: 18px;
+        }
+
+        /* Submit Button */
+        button[type="submit"] {
+            background: linear-gradient(135deg, var(--accent-primary) 0%, #7c3aed 100%);
+            color: var(--text-color);
+            border: none;
+            padding: 16px;
+            border-radius: 14px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 10px 25px rgba(124, 58, 237, 0.3);
+            font-family: inherit;
+            margin-top: 10px;
+        }
+
+        button[type="submit"]:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 30px rgba(124, 58, 237, 0.5);
+        }
+
+        /* Responsive Breakpoints */
+        @media (max-width: 480px) {
+            .request-card {
+                padding: 24px;
+            }
+            .controls {
+                grid-template-columns: 1fr;
+            }
+            .platform-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="request-card">
+        <header>
+            <h1 id="title-text">𝗦𝗧𝗢𝗥𝗬 𝗥𝗘𝗤𝗨𝗘𝗦𝗧 𝗙𝗢𝗥𝗠</h1>
+            <p class="subtitle" id="subtitle-text">Fill in the fields below to request a new story.</p>
+        </header>
+
+        <!-- Custom Controls Area -->
+        <div class="controls">
+            <!-- Language Switcher -->
+            <div class="control-group">
+                <label for="lang-select">Language / भाषा</label>
+                <select id="lang-select" onchange="changeLanguage()">
+                    <option value="en">English (English)</option>
+                    <option value="hi">हिन्दी (Hindi)</option>
+                </select>
+            </div>
+
+            <!-- Dynamic Font Selector -->
+            <div class="control-group">
+                <label for="font-select">Font Family / फॉन्ट</label>
+                <select id="font-select" onchange="changeFont()">
+                    <!-- English Fonts initially -->
+                    <option value="Ubuntu">Ubuntu (Default)</option>
+                    <option value="Jersey 10 Charted">Jersey 10 Charted</option>
+                    <option value="Inconsolata">Inconsolata</option>
+                    <option value="Cormorant Garamond">Cormorant Garamond</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Submission Form -->
+        <form onsubmit="handleSubmit(event)">
+            <!-- Story Name -->
+            <div class="form-group">
+                <label id="lbl-story-name" for="story-name">Story Name / कहानी का नाम</label>
+                <input type="text" id="story-name" required placeholder="e.g. Saaya, Millionaire Delivery Man...">
+            </div>
+
+            <!-- Platform -->
+            <div class="form-group">
+                <label id="lbl-platform">Source Platform / सोर्स प्लेटफार्म</label>
+                <div class="platform-grid">
+                    <div class="platform-btn active" onclick="selectPlatform('Pocket FM')">Pocket FM</div>
+                    <div class="platform-btn" onclick="selectPlatform('Kuku FM')">Kuku FM</div>
+                    <div class="platform-btn" onclick="selectPlatform('Eight FM')">Eight FM</div>
+                    <div class="platform-btn" onclick="selectPlatform('Headfone')">Headfone</div>
+                    <div class="platform-btn" onclick="selectPlatform('Pratilipi FM')">Pratilipi FM</div>
+                    <div class="platform-btn" onclick="selectPlatform('Custom')">Custom</div>
+                </div>
+                <input type="text" id="custom-platform" style="display: none; margin-top: 10px;" placeholder="Type custom platform name...">
+            </div>
+
+            <!-- Poster Image -->
+            <div class="form-group">
+                <label id="lbl-image">Story Cover Image / कवर इमेज</label>
+                <div class="image-uploader">
+                    <span class="uploader-icon">🖼️</span>
+                    <span class="uploader-text" id="uploader-text">Drag & drop cover photo here, or click to upload</span>
+                    <input type="file" id="cover-file" accept="image/*" onchange="handleFileChange(event)">
+                </div>
+            </div>
+
+            <!-- Link -->
+            <div class="form-group">
+                <label id="lbl-link" for="story-link">Reference Link / संदर्भ लिंक (Optional)</label>
+                <input type="url" id="story-link" placeholder="https://example.com/story-link">
+            </div>
+
+            <!-- Status -->
+            <div class="form-group">
+                <label id="lbl-status">Release Status / रिलीज़ स्टेटस</label>
+                <div class="status-options">
+                    <label class="status-label">
+                        <input type="radio" name="status" value="Ongoing" checked>
+                        <span id="txt-ongoing">Ongoing / चालू है</span>
+                    </label>
+                    <label class="status-label">
+                        <input type="radio" name="status" value="Completed">
+                        <span id="txt-completed">Completed / पूरा हो गया</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Submit Button -->
+            <button type="submit" id="btn-submit">Submit Request</button>
+        </form>
+    </div>
+
+    <script>
+        let selectedPlatform = 'Pocket FM';
+
+        // Custom translation pools
+        const locales = {
+            en: {
+                title: "𝗦𝗧𝗢𝗥𝗬 𝗥𝗘𝗤𝗨𝗘𝗦𝗧 𝗙𝗢𝗥𝗠",
+                subtitle: "Fill in the fields below to request a new story.",
+                storyName: "Story Name",
+                platform: "Source Platform",
+                image: "Story Cover Image",
+                uploader: "Drag & drop cover photo here, or click to upload",
+                link: "Reference Link (Optional)",
+                status: "Release Status",
+                ongoing: "Ongoing",
+                completed: "Completed",
+                submit: "Submit Request",
+                fonts: [
+                    { name: "Ubuntu (Default)", val: "Ubuntu" },
+                    { name: "Jersey 10 Charted", val: "Jersey 10 Charted" },
+                    { name: "Inconsolata", val: "Inconsolata" },
+                    { name: "Cormorant Garamond", val: "Cormorant Garamond" }
+                ],
+                placeholders: {
+                    name: "e.g. Saaya, Millionaire Delivery Man...",
+                    customPlat: "Type custom platform name..."
+                }
+            },
+            hi: {
+                title: "कहानी अनुरोध फॉर्म",
+                subtitle: "नई कहानी का अनुरोध करने के लिए नीचे दिए गए विवरण भरें।",
+                storyName: "कहानी का नाम",
+                platform: "सोर्स प्लेटफार्म",
+                image: "कहानी की मुख्य छवि (पोस्टर)",
+                uploader: "कवर फोटो यहां खींचे और छोड़ें, या अपलोड करने के लिए क्लिक करें",
+                link: "कहानी का लिंक (वैकल्पिक)",
+                status: "रिलीज़ स्थिति",
+                ongoing: "चालू है (Ongoing)",
+                completed: "पूरा हो गया (Completed)",
+                submit: "अनुरोध सबमिट करें",
+                fonts: [
+                    { name: "Rajdhani (Default)", val: "Rajdhani" },
+                    { name: "Annapurna SIL", val: "Annapurna SIL" },
+                    { name: "Playpen Sans (Devanagari)", val: "Playpen Sans" }
+                ],
+                placeholders: {
+                    name: "उदा. साया, करोड़पति डिलीवरी मैन...",
+                    customPlat: "कस्टम प्लेटफ़ॉर्म का नाम टाइप करें..."
+                }
+            }
+        };
+
+        function changeLanguage() {
+            const lang = document.getElementById('lang-select').value;
+            const data = locales[lang];
+
+            // Update UI texts
+            document.getElementById('title-text').innerText = data.title;
+            document.getElementById('subtitle-text').innerText = data.subtitle;
+            document.getElementById('lbl-story-name').innerText = data.storyName;
+            document.getElementById('lbl-platform').innerText = data.platform;
+            document.getElementById('lbl-image').innerText = data.image;
+            document.getElementById('uploader-text').innerText = data.uploader;
+            document.getElementById('lbl-link').innerText = data.link;
+            document.getElementById('lbl-status').innerText = data.status;
+            document.getElementById('txt-ongoing').innerText = data.ongoing;
+            document.getElementById('txt-completed').innerText = data.completed;
+            document.getElementById('btn-submit').innerText = data.submit;
+            
+            // Placeholders
+            document.getElementById('story-name').placeholder = data.placeholders.name;
+            document.getElementById('custom-platform').placeholder = data.placeholders.customPlat;
+
+            // Update Fonts Selector choices
+            const fontSelect = document.getElementById('font-select');
+            fontSelect.innerHTML = '';
+            data.fonts.forEach(f => {
+                const opt = document.createElement('option');
+                opt.value = f.val;
+                opt.innerText = f.name;
+                fontSelect.appendChild(opt);
+            });
+
+            // Trigger font update to matches the language first option
+            changeFont();
+        }
+
+        function changeFont() {
+            const font = document.getElementById('font-select').value;
+            document.documentElement.style.setProperty('--active-font', `'${font}', sans-serif`);
+        }
+
+        function selectPlatform(platform) {
+            selectedPlatform = platform;
+            const btns = document.querySelectorAll('.platform-btn');
+            btns.forEach(btn => {
+                if (btn.innerText === platform) {
+                    btn.classList.add('active');
+                } else if (platform === 'Custom' && btn.innerText === 'Custom') {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+
+            const customInput = document.getElementById('custom-platform');
+            if (platform === 'Custom') {
+                customInput.style.display = 'block';
+                customInput.required = true;
+            } else {
+                customInput.style.display = 'none';
+                customInput.required = false;
+            }
+        }
+
+        function handleFileChange(event) {
+            const file = event.target.files[0];
+            if (file) {
+                document.getElementById('uploader-text').innerText = `Selected File: ${file.name}`;
+            }
+        }
+
+        function handleSubmit(event) {
+            event.preventDefault();
+            const storyName = document.getElementById('story-name').value;
+            const platform = selectedPlatform === 'Custom' ? document.getElementById('custom-platform').value : selectedPlatform;
+            const link = document.getElementById('story-link').value;
+            const status = document.querySelector('input[name="status"]:checked').value;
+            
+            alert(`Request Submitted Successfully!\n\nStory Name: ${storyName}\nPlatform: ${platform}\nLink: ${link || 'None'}\nStatus: ${status}`);
+        }
+    </script>
+
+</body>
+</html>

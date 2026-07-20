@@ -360,7 +360,7 @@ voting_queue = voting_db.get("queue", [])
 active_polls = voting_db.get("polls", {})
 
 VOTING_THRESHOLD = 5 # 5 votes to win
-VOTING_SIZE_FOR_POLL = 3 # 3 unique stories to start a poll
+VOTING_SIZE_FOR_POLL = 10 # 10 unique stories to start a poll
 POLL_TIMEOUT_SEC = 86400 # 24 hours
 
 _maint_cfg = bot_config.get("maintenance", {})
@@ -2504,8 +2504,8 @@ async def handle_req_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         caption=(
             f"<b>sᴛᴏʀʏ ʀᴇǫᴜᴇsᴛ (ꜰᴏʀᴍ)</b>\n"
             f"<code>──────────────────</code>\n"
-            f"<b>ɴᴀᴍᴇ:</b> <b>{html.escape(to_small_caps(story_name))}</b>\n"
-            f"<b>ᴜsᴇʀ:</b> <a href='tg://user?id={user.id}'>{to_small_caps(full_name)}</a> ({to_small_caps(username) if username else to_small_caps('No username')})"
+            f"<b>ɴᴀᴍᴇ:</b> <code>{html.escape(story_name)}</code>\n"
+            f"<b>ᴜsᴇʀ:</b> <a href='tg://user?id={user.id}'>{full_name}</a> ({username if user.username else 'No username'})\n"
             f"{status_line}"
             f"{platform_line}"
             f"{link_line}\n"
@@ -2581,10 +2581,8 @@ async def request_story(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     chat = update.effective_chat
-    # ── PRIVATE CHAT ROUTING: Redirect to Form conversation entry ──────────────
-    if chat.type == "private":
-        if not context.args:
-            return await start_request_form(update, context)
+    bot_user = context.bot.username
+    form_url = f"https://t.me/{bot_user}?start=request"
 
     # Always delete the /request command message from the group after 5 seconds
     async def _delete_cmd_msg():
@@ -2594,13 +2592,11 @@ async def request_story(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
-    if update.message:
+    if update.message and chat.type in ("group", "supergroup"):
         asyncio.create_task(_delete_cmd_msg())
 
-    if not context.args:
-        # Group redirection deep-link
-        bot_user = context.bot.username
-        form_url = f"https://t.me/{bot_user}?start=request"
+    # ── GROUP CHAT ROUTING: Redirect to PM request form ────────────────────────
+    if chat.type in ("group", "supergroup"):
         lang = get_chat_lang(chat.id)
         tutorial_kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("» ʀᴇqᴜᴇsᴛ ᴠɪᴀ ꜰᴏʀᴍ / फ़ॉर्म द्वारा रिक्वेस्ट करें", url=form_url)],
@@ -2609,19 +2605,13 @@ async def request_story(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if lang == "hi":
             warn_text = (
-                "<b>✮ कृपया स्टोरी/सीरीज़ का नाम और प्लेटफ़ॉर्म लिखें</b>\n\n"
-                "<i>➔ उदाहरण:</i>\n"
-                "▪ <code>/request Vashikaran</code>\n"
-                "▪ <code>/request Saaya Mastar/Pratilipi</code>\n\n"
-                "<b>या फ़ॉर्म का उपयोग करके प्राइवेट चैट में रिक्वेस्ट करने के लिए नीचे दिए गए बटन पर क्लिक करें!</b>"
+                "<b>ग्रुप में स्टोरी रिक्वेस्ट करना बंद है!</b>\n\n"
+                "<i>कृपया स्टोरी रिक्वेस्ट करने के लिए नीचे दिए गए बटन पर क्लिक करें और बोट की प्राइवेट चैट (DM) में जाकर <b>Story Request Form</b> भरें।</i>"
             )
         else:
             warn_text = (
-                "<b>✮ ᴘʟᴇᴀsᴇ ᴘʀᴏᴠɪᴅᴇ ᴛʜᴇ sᴛᴏʀʏ ɴᴀᴍᴇ ᴀɴᴅ ᴘʟᴀᴛꜰᴏʀᴍ</b>\n\n"
-                "<i>➔ ᴇxᴀᴍᴘʟᴇs:</i>\n"
-                "▪ <code>/request Vashikaran</code>\n"
-                "▪ <code>/request Saaya Mastar/Pratilipi</code>\n\n"
-                "<b>ᴏʀ ᴄʟɪᴄᴋ ᴛʜᴇ ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ ᴛᴏ ʀᴇqᴜᴇsᴛ ᴠɪᴀ ᴛʜᴇ ɪɴᴛᴇʀᴀᴄᴛɪᴠᴇ ꜰᴏʀᴍ ɪɴ ᴘʀɪᴠᴀᴛᴇ ᴄʜᴀᴛ!</b>"
+                "<b>Story requests are disabled in groups!</b>\n\n"
+                "<i>Please click the button below to start the <b>Story Request Form</b> in private chat (DM) and submit your request there.</i>"
             )
 
         warn_msg = await update.effective_chat.send_message(warn_text, parse_mode="HTML", reply_markup=tutorial_kb)
@@ -2634,7 +2624,12 @@ async def request_story(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
 
         asyncio.create_task(_delete_warn())
-        return
+        return ConversationHandler.END
+
+    # ── PRIVATE CHAT ROUTING: Redirect to Form conversation entry ──────────────
+    if chat.type == "private":
+        if not context.args:
+            return await start_request_form(update, context)
 
     # Parse story name and optional platform from args
     # Format: /request <story name> [platform] — platform is last word if it looks like a platform name
@@ -2992,8 +2987,8 @@ async def trigger_community_poll(context: ContextTypes.DEFAULT_TYPE, chat_id: in
         seen.add(opt)
         options.append(opt)
     
-    # Send poll to the requester's chat
-    target_chat = chat_id
+    # Send poll to the public channel directly
+    target_chat = -1003097953020
     
     try:
         poll_msg = await context.bot.send_poll(
@@ -3064,13 +3059,8 @@ async def poll_answer_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     for option_id in answer.option_ids:
         poll_data["votes"][str(option_id)].append(user_id)
         
-    # Check max votes
-    for option_id, voters in poll_data["votes"].items():
-        if len(voters) >= VOTING_THRESHOLD:
-            await _declare_poll_winner(context, poll_id, int(option_id))
-            # Re-save voting_db to permanently lock out the poll since it's removed
-            save_voting_db({"queue": voting_queue, "polls": active_polls})
-            break
+    # Save votes without checking for early closure
+    save_voting_db({"queue": voting_queue, "polls": active_polls})
 
 
 async def _declare_poll_winner(context, poll_id, winner_idx):
@@ -3143,10 +3133,10 @@ async def _declare_poll_winner(context, poll_id, winner_idx):
 
 
 async def poll_timeout_manager(context: ContextTypes.DEFAULT_TYPE):
-    """Background task to close stale polls."""
+    """Background task to close stale polls after 24 hours and approve the top 2 winners."""
     global active_polls, voting_queue
     while True:
-        await asyncio.sleep(3600) # Check every hour
+        await asyncio.sleep(300) # Check every 5 minutes
         now = time.time()
         to_remove = []
         for pid, data in active_polls.items():
@@ -3155,11 +3145,94 @@ async def poll_timeout_manager(context: ContextTypes.DEFAULT_TYPE):
         
         for pid in to_remove:
             data = active_polls.pop(pid)
+            options_with_votes = []
+            
             try:
-                await context.bot.stop_poll(chat_id=data["chat_id"], message_id=data["message_id"])
-                await context.bot.unpin_chat_message(chat_id=data["chat_id"], message_id=data["message_id"])
+                stopped_poll = await context.bot.stop_poll(chat_id=data["chat_id"], message_id=data["message_id"])
+                try:
+                    await context.bot.unpin_chat_message(chat_id=data["chat_id"], message_id=data["message_id"])
+                except Exception:
+                    pass
+                
+                for opt in stopped_poll.options:
+                    options_with_votes.append((opt.text, opt.voter_count))
             except Exception:
-                pass
+                # Fallback to local active_polls data
+                for idx_str, voters in data.get("votes", {}).items():
+                    try:
+                        idx = int(idx_str)
+                        name = data["options"][idx]
+                        options_with_votes.append((name, len(voters)))
+                    except Exception:
+                        pass
+            
+            if not options_with_votes:
+                options_with_votes = [(name, 0) for name in data.get("options", [])]
+            
+            # Sort by vote count in descending order
+            options_with_votes.sort(key=lambda x: x[1], reverse=True)
+            winners = options_with_votes[:2]
+            
+            if winners:
+                winner_lines_en = ""
+                winner_lines_hi = ""
+                for rank, (name, votes) in enumerate(winners, 1):
+                    winner_lines_en += f"🏆 <b>#{rank}</b>: <i>{html.escape(name)}</i> ({votes} votes)\n"
+                    winner_lines_hi += f"🏆 <b>#{rank}</b>: <i>{html.escape(name)}</i> ({votes} वोट)\n"
+                
+                win_text = (
+                    f"🎊 <b>Community Voting Results / कम्युनिटी वोटिंग रिजल्ट</b>\n\n"
+                    f"<b>Top {len(winners)} Stories Approved ✅</b>\n\n"
+                    f"<blockquote expandable>\n"
+                    f"🇬🇧 <b>English Winners:</b>\n"
+                    f"{winner_lines_en}\n"
+                    f"These stories have been approved by community voting and will be prioritized for upload. "
+                    f"If found, they will be uploaded soon. Please wait patiently. 🙏\n\n"
+                    f"🇮🇳 <b>हिन्दी विजेता:</b>\n"
+                    f"{winner_lines_hi}\n"
+                    f"ये स्टोरीज़ कम्युनिटी वोटिंग द्वारा अप्रूव की गई हैं और इन्हें अपलोड के लिए प्राथमिकता दी जाएगी। "
+                    f"अगर मिलीं, तो जल्द ही अपलोड कर दी जाएंगी। कृपया धैर्य रखें। 🙏\n"
+                    f"</blockquote>"
+                )
+                try:
+                    await context.bot.send_message(chat_id=data["chat_id"], text=win_text, parse_mode="HTML")
+                except Exception:
+                    pass
+                
+                for name, votes in winners:
+                    # Notify REQUEST_GROUP
+                    if REQUEST_GROUP:
+                        try:
+                            await context.bot.send_message(
+                                chat_id=REQUEST_GROUP,
+                                text=(
+                                    f"✅ <b>Story Approved via Community Voting</b>\n\n"
+                                    f"📖 <b>Story:</b> {html.escape(name)}\n"
+                                    f"🗳 <b>Votes:</b> {votes}"
+                                ),
+                                parse_mode="HTML"
+                            )
+                        except Exception:
+                            pass
+                    
+                    # Notify requesters
+                    requesters = data.get("requesters", {}).get(name, {})
+                    for rid_chat, uids in requesters.items():
+                        for uid in uids:
+                            try:
+                                mention = _user_mention_by_id(uid, fallback="User")
+                                await context.bot.send_message(
+                                    chat_id=int(rid_chat),
+                                    text=(
+                                        f"👋 {mention}, your requested story <b>{html.escape(name)}</b> has been approved via community voting! "
+                                        f"It will be uploaded soon. 🌸\n\n"
+                                        f"<i>👋 {mention}, आपकी रिक्वेस्ट की हुई स्टोरी <b>{html.escape(name)}</b> "
+                                        f"कम्युनिटी वोटिंग द्वारा अप्रूव हो गई है! जल्द ही अपलोड होगी। 🌸</i>"
+                                    ),
+                                    parse_mode="HTML"
+                                )
+                            except Exception:
+                                pass
         
         if to_remove:
             save_voting_db({"queue": voting_queue, "polls": active_polls})
