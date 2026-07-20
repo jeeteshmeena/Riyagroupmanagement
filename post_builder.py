@@ -199,14 +199,20 @@ def get_light_kb(data, is_alt=False):
     backup_link = data.get("backup_link") or link   # fallback to main link
     if not link:
         return None
+    
+    is_paid = data.get("is_paid", False)
+    second_btn_text = "ᴛᴜᴛᴏʀɪᴀʟ" if is_paid else "ʙᴀᴄᴋᴜᴘ"
+    
     if is_alt:
         return InlineKeyboardMarkup([[
             InlineKeyboardButton("Mᴏʀᴇ ‽", url="https://t.me/StoriesLightX"),
-            InlineKeyboardButton("ʙᴀᴄᴋᴜᴘ",   url=backup_link),
+            InlineKeyboardButton(second_btn_text,   url=backup_link),
         ]])
+    
+    play_text = "ʙᴜʏ ɴᴏᴡ" if is_paid else "ᴘʟᴀʏ ɴᴏᴡ"
     return InlineKeyboardMarkup([[
-        InlineKeyboardButton("ᴘʟᴀʏ ɴᴏᴡ", url=link),
-        InlineKeyboardButton("ʙᴀᴄᴋᴜᴘ",   url=backup_link),
+        InlineKeyboardButton(play_text, url=link),
+        InlineKeyboardButton(second_btn_text,   url=backup_link),
     ]])
 
 # ── Light Pro helpers ──────────────────────────────────────────────────────────
@@ -352,15 +358,20 @@ def get_light_pro_kb(data, is_alt=False):
     backup_link = data.get("backup_link") or link
     if not link:
         return None
+    
+    is_paid = data.get("is_paid", False)
+    second_btn_text = "ᴛᴜᴛᴏʀɪᴀʟ" if is_paid else "ʙᴀᴄᴋᴜᴘ"
+    
     if is_alt:
         return InlineKeyboardMarkup([[
             InlineKeyboardButton("Mᴏʀᴇ ‽", url="https://t.me/StoriesLightX"),
-            InlineKeyboardButton("ʙᴀᴄᴋᴜᴘ",   url=backup_link),
+            InlineKeyboardButton(second_btn_text,   url=backup_link),
         ]])
-    play_text = "ʙᴜʏ ɴᴏᴡ" if data.get("is_paid") else "ᴘʟᴀʏ ɴᴏᴡ"
+    
+    play_text = "ʙᴜʏ ɴᴏᴡ" if is_paid else "ᴘʟᴀʏ ɴᴏᴡ"
     return InlineKeyboardMarkup([[
         InlineKeyboardButton(play_text, url=link),
-        InlineKeyboardButton("ʙᴀᴄᴋᴜᴘ",   url=backup_link),
+        InlineKeyboardButton(second_btn_text,   url=backup_link),
     ]])
 
 

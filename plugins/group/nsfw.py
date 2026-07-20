@@ -38,6 +38,9 @@ _NSFW_LINK_PATTERNS = [
 
 def _is_nsfw(text: str) -> bool:
     t = text.lower()
+    # Avoid false positive: "chudail" contains the NSFW substring "chudai"
+    t = re.sub(r'chudail\w*', 'ghost', t)
+    
     for kw in _NSFW_KEYWORDS:
         if kw in t:
             return True

@@ -3536,13 +3536,13 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
             caption += f"🎬<b>Episodes</b> : <b>{html.escape(str(result['episodes']))}</b>\n"
         if result.get("is_paid"):
             caption += "\n💎 <b>Paid Story</b> — <i>Purchase required for access.</i>\n"
-        caption += f"\n<tg-spoiler>◒ This reply will be deleted automatically in 5 minutes.</tg-spoiler>"
+        caption += f"\n<tg-spoiler>◒ This reply will be deleted automatically in 24 hours.</tg-spoiler>"
     else:
         caption = (
             f"Hey {mention} 👋\n"
             f"<b>✫ I found this story</b> ➴\n\n"
             f"<i>❁ Name:-</i> <b>{html.escape(str(story_name))}</b>{story_type_line}\n\n"
-            f"<tg-spoiler>◒ This reply will be deleted automatically in 5 minutes.</tg-spoiler>"
+            f"<tg-spoiler>◒ This reply will be deleted automatically in 24 hours.</tg-spoiler>"
         )
 
     import os as _os
@@ -3584,7 +3584,7 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             _plain = (f"\u2764 Story found: {story_name}"
                       + (f"\nType: {story_type}" if story_type != "Not specified" else "")
-                      + "\n\n(This reply auto-deletes in 5 minutes.)")
+                      + "\n\n(This reply auto-deletes in 24 hours.)")
             msg = await context.bot.send_message(
                 chat_id=chat_id, text=_plain, disable_web_page_preview=True)
         except Exception as _e4:
@@ -3608,7 +3608,7 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # delete the reply later without blocking the handler
     async def _delete_later():
 
-        await asyncio.sleep(300)
+        await asyncio.sleep(86400)
 
         try:
             await msg.delete()
