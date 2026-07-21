@@ -1017,8 +1017,8 @@ def _menu_main(caller_id: int, lang: str = "en", mention: str = "") -> tuple:
     )
     btn_rows = [
         [
-            InlineKeyboardButton("♥ Favourites",  callback_data=f"menu|saved|{caller_id}"),
-            InlineKeyboardButton("✸ New Series",   callback_data=f"menu|new|{caller_id}"),
+            InlineKeyboardButton(" ♡ FvTs ",        callback_data=f"menu|saved|{caller_id}"),
+            InlineKeyboardButton(" ✯ Smtg New ",    callback_data=f"menu|new|{caller_id}"),
         ],
         [
             InlineKeyboardButton("❁ About",        callback_data=f"menu|about|{caller_id}"),
@@ -3502,7 +3502,7 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 _rnd.choice(_REACTION_ON_NOT_FOUND)
             ))
         async def _del_no():
-            await asyncio.sleep(86400)
+            await asyncio.sleep(30)
             try:
                 await no_msg.delete()
             except Exception:
@@ -3671,12 +3671,7 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         _bot_search_replies.pop(next(iter(_bot_search_replies)))
     _record_user_search(chat_id, user.id)
 
-    try:
-        await user_query_msg.delete()
-    except Exception:
-        pass
-
-    # delete the reply later without blocking the handler
+    # delete the reply and user query message after 24 hours
     async def _delete_later():
 
         await asyncio.sleep(86400)
@@ -3686,7 +3681,10 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
 
-        # user message already deleted above
+        try:
+            await user_query_msg.delete()
+        except:
+            pass
 
     asyncio.create_task(_delete_later())
 
