@@ -1000,23 +1000,21 @@ def _nav_row(caller_id: int, back: str | None = None) -> list:
 
 def _menu_main(caller_id: int, lang: str = "en", mention: str = "") -> tuple:
     """Main / Home menu."""
-    greet = f", {mention}" if mention else ""
-    if lang == "hi":
-        text = (
-            f"<b>♡ नमस्ते,</b>{greet} ( ˶ˆᗜˆ˵ )\n\n"
-            f"{_DIVIDER}\n"
-            "<b>📚 Riya — Main Menu</b>\n"
-            "<i>✺ स्टोरी खोजें, एक्सप्लोर करें, और ज़्यादा। ✨</i>\n"
-            f"{_DIVIDER}"
-        )
-    else:
-        text = (
-            f"<b>♡ Hey,</b>{greet} ( ˶ˆᗜˆ˵ )\n\n"
-            f"{_DIVIDER}\n"
-            "<b>📚 Riya — Main Menu</b>\n"
-            "<i>✺ Search stories, explore, and more. ✨</i>\n"
-            f"{_DIVIDER}"
-        )
+    from database import load_db
+    try:
+        db = load_db()
+        count = len(db)
+    except Exception:
+        count = 0
+
+    user_disp = mention if mention else "User"
+
+    text = (
+        f"❈ 𝐇𝐞𝐲, {user_disp} ⟡ ʷᵉˡᶜᵒᵐᵉ ᴛᴏ 𝑹𝒊𝒚𝒂 ◈ ᴅɪꜱᴄᴏᴠᴇʀ ʏᴏᴜʀ ꜰᴀᴠᴏʀɪᴛᴇ ꜱᴛᴏʀɪᴇꜱ, ᴏʀ ʀᴇQᴜᴇꜱᴛ ᴏɴᴇ ɪꜰ ɪᴛ'ꜱ ɴᴏᴛ ᴀᴠᴀɪʟᴀʙʟᴇ. "
+        f"❊ 𝑨𝒗𝒂𝒊𝒍𝒂𝒃𝒍𝒆 𝑺𝒕𝒐𝒓𝒊𝒆𝒔 ⟢ {count} 𝑺𝒕𝒐𝒓𝒊𝒆𝒔 𝑹𝒆𝒂𝒅𝒚 "
+        f"✧ ɪ'ᴍ ʏᴏᴜʀ 𝑨𝒍𝒍-𝒊𝒏-𝑶𝒏𝒆 ʙᴇꜱᴛɪᴇ, ʀᴇᴀᴅʏ ᴛᴏ ʜᴇʟᴘ ᴀɴʏᴛɪᴍᴇ. "
+        f"✺ 𝖲𝖾𝖺𝗋𝖼𝗁 𝖲𝗍𝗈𝗋𝗂𝖾𝗌 • ᴇxᴘʟᴏʀᴇ ᴍᴇ • 𝑹𝒆𝒒𝒖𝒆𝒔𝒕 𝑺𝒕𝒐𝒓𝒚 • ᴍᴏʀᴇ"
+    )
     btn_rows = [
         [
             InlineKeyboardButton("♥ Favourites",  callback_data=f"menu|saved|{caller_id}"),
@@ -3504,7 +3502,7 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 _rnd.choice(_REACTION_ON_NOT_FOUND)
             ))
         async def _del_no():
-            await asyncio.sleep(30)
+            await asyncio.sleep(86400)
             try:
                 await no_msg.delete()
             except Exception:
@@ -3560,7 +3558,7 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         sent = await msg.reply_text(broken_msg, parse_mode="HTML")
         async def _del_broken():
-            await asyncio.sleep(30)
+            await asyncio.sleep(86400)
             try: await sent.delete()
             except: pass
         asyncio.create_task(_del_broken())
@@ -4020,7 +4018,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"<i>\u2741 Name:-</i> <b>{html.escape(str(story_name))}</b>{story_type_line}\n\n"
             )
 
-        caption += "\n<tg-spoiler>\u25d2 This reply will be deleted automatically in 5 minutes.</tg-spoiler>"
+        caption += "\n<tg-spoiler>\u25d2 This reply will be deleted automatically in 24 hours.</tg-spoiler>"
 
         # Keyboard matching normal search
         fav_data = f"fav|{story_key}"
@@ -4087,7 +4085,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 pass
             async def _del_later():
-                await asyncio.sleep(300)
+                await asyncio.sleep(86400)
                 try:
                     await sent.delete()
                 except Exception:
@@ -7814,7 +7812,7 @@ async def menu_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     u = update.effective_user
     lang = get_chat_lang(update.effective_chat.id)
-    text, markup = _menu_main(u.id, lang)
+    text, markup = _menu_main(u.id, lang, u.mention_html() if u else "")
     await update.message.reply_text(text=text, parse_mode="HTML", reply_markup=markup)
 
 
