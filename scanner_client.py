@@ -218,26 +218,57 @@ async def scan_channel(channel_id, bot=None, log_channel=None, progress_cb=None,
             # Try to get photo file_id if message has photo and we have bot + log channel
             photo_obj = get_photo(msg)  # use robust extractor (handles docs with thumbs too)
             if bot and log_channel and photo_obj:
-                try:
-                    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
-                        path = tmp.name
-                    await client.download_media(photo_obj, path)
+                # First check if this story is already in database and has a photo
+                db = load_db()
+                existing_story = db.get(story["name"])
+                if existing_story and existing_story.get("photo"):
+                    story["photo"] = existing_story["photo"]
+                else:
                     try:
-                        with open(path, "rb") as f:
-                            sent = await bot.send_photo(chat_id=log_channel, photo=f)
-                        if sent and sent.photo:
-                            fid = sent.photo[-1].file_id
-                            story["photo"] = fid
+                        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+                            path = tmp.name
+                        await client.download_media(photo_obj, path)
                         try:
-                            await sent.delete()
-                        except Exception:
-                            pass
-                    finally:
-                        if os.path.exists(path):
-                            os.unlink(path)
-                except Exception as _pe:
-                    logger.debug(f"Photo extraction failed for msg {msg.id}: {_pe}")
-                    pass
+                            with open(path, "rb") as f:
+                                sent = await bot.send_photo(chat_id=log_channel, photo=f)
+                            if sent and sent.photo:
+                                fid = sent.photo[-1].file_id
+                                story["photo"] = fid
+                            try:
+                                await sent.delete()
+                            except Exception:
+                                pass
+                        except Exception as e:
+                            # Handle rate limit retry
+                            if "retry" in str(e).lower() or "too many requests" in str(e).lower():
+                                import re
+                                seconds = 10
+                                match = re.search(r'retry after (\d+)', str(e).lower())
+                                if match:
+                                    seconds = int(match.group(1))
+                                logger.warning(f"Rate limited during photo upload. Sleeping for {seconds}s...")
+                                await asyncio.sleep(seconds)
+                                # Retry once
+                                try:
+                                    with open(path, "rb") as f:
+                                        sent = await bot.send_photo(chat_id=log_channel, photo=f)
+                                    if sent and sent.photo:
+                                        fid = sent.photo[-1].file_id
+                                        story["photo"] = fid
+                                    try:
+                                        await sent.delete()
+                                    except Exception:
+                                        pass
+                                except Exception as e2:
+                                    logger.error(f"Retry photo upload failed: {e2}")
+                            else:
+                                raise e
+                        finally:
+                            if os.path.exists(path):
+                                os.unlink(path)
+                    except Exception as _pe:
+                        logger.debug(f"Photo extraction failed for msg {msg.id}: {_pe}")
+                        pass
 
             add_story(story)
             names.append(story["text"])
