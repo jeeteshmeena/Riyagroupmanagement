@@ -3465,6 +3465,7 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         nonlocal searching_msg
         if searching_msg:
             try:
+                await asyncio.sleep(0.8)
                 await searching_msg.delete()
                 searching_msg = None
             except Exception:
@@ -3798,7 +3799,7 @@ async def render_genre_dashboard(chat_id, user_mention, genre_name: str, page: i
         f"{unicodes_top}\n\n"
         f"<b>✫ Here's what I found in the {html.escape(genre_name)} genre ➴</b>\n\n"
         f"{unicodes_bot}\n\n"
-        f"<i>Total Stories: {total_stories}</i>\n\n"
+        f"<b>{total_stories} Stories</b>\n\n"
         f"<tg-spoiler>◒ This reply will be deleted automatically in 24 hours.</tg-spoiler>"
     )
 
@@ -3806,33 +3807,34 @@ async def render_genre_dashboard(chat_id, user_mention, genre_name: str, page: i
     all_genres = sorted(list(genre_map.keys()))
     g_idx = all_genres.index(genre_name) if genre_name in all_genres else 0
 
-    for story_title in page_stories:
+    for idx, story_title in enumerate(page_stories):
+        num_str = f"{start_idx + idx + 1}"
         btn_label = story_title if len(story_title) <= 24 else story_title[:23] + "…"
         story_res = search_story_exact_or_alias(story_title)
         s_key = story_res.get("name") if story_res else clean_story(story_title).lower()
         cb_data = f"srch|{s_key}"
         if len(cb_data) > 64:
             cb_data = "srch|toolong"
-        keyboard.append([InlineKeyboardButton(f"📖 {btn_label}", callback_data=cb_data)])
+        keyboard.append([InlineKeyboardButton(f"{num_str}. {btn_label}", callback_data=cb_data)])
 
     if total_pages > 1:
         pag_row = []
         if page > 1:
-            pag_row.append(InlineKeyboardButton("◀ Prev", callback_data=f"gnr_v|{g_idx}|{page-1}"))
+            pag_row.append(InlineKeyboardButton("◄ Prev", callback_data=f"gnr_v|{g_idx}|{page-1}"))
         else:
             pag_row.append(InlineKeyboardButton("▪", callback_data="gnr_noop"))
 
         pag_row.append(InlineKeyboardButton(f"{page}/{total_pages}", callback_data="gnr_noop"))
 
         if page < total_pages:
-            pag_row.append(InlineKeyboardButton("Next ▶", callback_data=f"gnr_v|{g_idx}|{page+1}"))
+            pag_row.append(InlineKeyboardButton("Next ►", callback_data=f"gnr_v|{g_idx}|{page+1}"))
         else:
             pag_row.append(InlineKeyboardButton("▪", callback_data="gnr_noop"))
 
         keyboard.append(pag_row)
 
     keyboard.append([
-        InlineKeyboardButton("🎭 All Genres", callback_data="gnr_l|1"),
+        InlineKeyboardButton("「All Genres」", callback_data="gnr_l|1"),
         InlineKeyboardButton("🗑️ Delete", callback_data="delete")
     ])
 
@@ -3864,7 +3866,7 @@ async def render_genre_list(chat_id, user_mention, page: int = 1, context=None, 
 
     all_genres = sorted(list(genre_map.keys()))
     if not all_genres:
-        text = "<b>🎭 Story Genres</b>\n\n<i>No genres indexed yet. Run /scan to update.</i>"
+        text = "<b>Story Genres</b>\n\nNo genres indexed yet. Run /scan to update."
         if target_msg:
             try: return await target_msg.edit_text(text, parse_mode="HTML")
             except Exception: pass
@@ -3883,9 +3885,9 @@ async def render_genre_list(chat_id, user_mention, page: int = 1, context=None, 
     text = (
         f"Hey {user_mention} 👋\n\n"
         f"{unicodes_top}\n\n"
-        f"<b>🎭 Story Genres / श्रेणी</b>\n\n"
+        f"<b>Story Genres / श्रेणी</b>\n\n"
         f"Select a genre below to explore stories:\n\n"
-        f"<i>Page {page} of {total_pages}</i>"
+        f"Page {page} of {total_pages}"
     )
 
     keyboard = []
@@ -3896,7 +3898,7 @@ async def render_genre_list(chat_id, user_mention, page: int = 1, context=None, 
         btn_label = f"{g_name} ({count})"
         if len(btn_label) > 20:
             btn_label = btn_label[:19] + "…"
-        row.append(InlineKeyboardButton(f"✨ {btn_label}", callback_data=f"gnr_v|{g_idx}|1"))
+        row.append(InlineKeyboardButton(btn_label, callback_data=f"gnr_v|{g_idx}|1"))
         if len(row) == 2:
             keyboard.append(row)
             row = []
@@ -3906,14 +3908,14 @@ async def render_genre_list(chat_id, user_mention, page: int = 1, context=None, 
     if total_pages > 1:
         pag_row = []
         if page > 1:
-            pag_row.append(InlineKeyboardButton("◀ Prev", callback_data=f"gnr_l|{page-1}"))
+            pag_row.append(InlineKeyboardButton("◄ Prev", callback_data=f"gnr_l|{page-1}"))
         else:
             pag_row.append(InlineKeyboardButton("▪", callback_data="gnr_noop"))
 
         pag_row.append(InlineKeyboardButton(f"{page}/{total_pages}", callback_data="gnr_noop"))
 
         if page < total_pages:
-            pag_row.append(InlineKeyboardButton("Next ▶", callback_data=f"gnr_l|{page+1}"))
+            pag_row.append(InlineKeyboardButton("Next ►", callback_data=f"gnr_l|{page+1}"))
         else:
             pag_row.append(InlineKeyboardButton("▪", callback_data="gnr_noop"))
 
