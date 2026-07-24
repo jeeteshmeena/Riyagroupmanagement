@@ -3886,10 +3886,10 @@ async def render_genre_list(chat_id, user_mention, page: int = 1, context=None, 
     page_genres = all_genres[start_idx : start_idx + per_page]
 
     text = (
-        f"Hey {user_mention} 👋\n\n"
-        f"<b>Story Genres / श्रेणी</b>\n\n"
-        f"Select a genre below to explore stories:\n\n"
-        f"Page {page} of {total_pages}"
+        f"Hey {user_mention} ♡\n\n"
+        f"<b>◈ I found these genres for you ⟫</b>\n\n"
+        f"█▓▒▒░░░𝚂𝚎𝚕𝚎𝚌𝚝 𝚊 𝚐𝚎𝚗𝚛𝚎 𝚋𝚎𝚕𝚘𝚠 𝚝𝚘 𝚎𝚡𝚙𝚕𝚘𝚛𝚎 𝚜𝚝𝚘𝚛𝚒𝚎𝚜:░░░▒▒▓█\n\n"
+        f"𝑷𝒂𝒈𝒆 {page} 𝒐𝒇 {total_pages}"
     )
 
     keyboard = []
