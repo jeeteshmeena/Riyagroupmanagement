@@ -2204,11 +2204,13 @@ async def start_request_form(update: Update, context: ContextTypes.DEFAULT_TYPE)
         bot_user = context.bot.username
         form_url = f"https://t.me/{bot_user}?start=request"
         tutorial_kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("» ʀᴇqᴜᴇsᴛ ᴠɪᴀ ꜰᴏʀᴍ / फ़ॉर्म द्वारा रिक्वेस्ट करें", url=form_url)]
+            [InlineKeyboardButton("「 𝗥𝗲𝗾𝘂𝗲𝘀𝘁 𝗩𝗶𝗮 𝗗𝗠 」", url=form_url)]
         ])
         text = (
-            "<b>ʀᴇǫᴜᴇsᴛ ᴠɪᴀ ꜰᴏʀᴍ</b>\n\n"
-            "ꜰᴏʀᴍ ʀᴇǫᴜᴇsᴛs ᴀʀᴇ ᴏɴʟʏ ᴀᴠᴀɪʟᴀʙʟᴇ ɪɴ ᴘʀɪᴠᴀᴛᴇ ᴄʜᴀᴛ! ᴘʟᴇᴀsᴇ ᴄʟɪᴄᴋ ᴛʜᴇ ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ ᴛᴏ sᴛᴀʀᴛ ᴛʜᴇ ɪɴᴛᴇʀᴀᴄᴛɪᴠᴇ ꜰᴏʀᴍ ɪɴ ᴘᴍ."
+            "<b>Story Requests Are Available Only in Private Chat</b>\n\n"
+            "Now Story Requests can't be submitted in groups.\n"
+            "Tap 「 𝗥𝗲𝗾𝘂𝗲𝘀𝘁 𝗩𝗶𝗮 𝗗𝗠 」 below to open a private chat with "
+            "<u>Riya Bot</u> and submit your Story Request there."
         )
         await chat.send_message(text=text, parse_mode="HTML", reply_markup=tutorial_kb)
         return ConversationHandler.END
@@ -2600,19 +2602,23 @@ async def request_story(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if chat.type in ("group", "supergroup"):
         lang = get_chat_lang(chat.id)
         tutorial_kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("» ʀᴇqᴜᴇsᴛ ᴠɪᴀ ꜰᴏʀᴍ / फ़ॉर्म द्वारा रिक्वेस्ट करें", url=form_url)],
-            [InlineKeyboardButton("» ʜᴏᴡ ᴛᴏ ᴜsᴇ ᴛʜᴇ ʙᴏᴛ", url="https://t.me/StoriesLinkopningguide")]
+            [InlineKeyboardButton("「 𝗥𝗲𝗾𝘂𝗲𝘀𝘁 𝗩𝗶𝗮 𝗗𝗠 」", url=form_url)],
+            [InlineKeyboardButton("「How to Use The Bot 」", url="https://t.me/StoriesLinkopningguide")]
         ])
 
         if lang == "hi":
             warn_text = (
-                "<b>ग्रुप में स्टोरी रिक्वेस्ट करना बंद है!</b>\n\n"
-                "<i>कृपया स्टोरी रिक्वेस्ट करने के लिए नीचे दिए गए बटन पर क्लिक करें और बोट की प्राइवेट चैट (DM) में जाकर <b>Story Request Form</b> भरें।</i>"
+                "<b>Story Requests Are Available Only in Private Chat</b>\n\n"
+                "Now Story Requests can't be submitted in groups.\n"
+                "Tap 「 𝗥𝗲𝗾𝘂𝗲𝘀𝘁 𝗩𝗶𝗮 𝗗𝗠 」 below to open a private chat with "
+                "<u>Riya Bot</u> and submit your Story Request there."
             )
         else:
             warn_text = (
-                "<b>Story requests are disabled in groups!</b>\n\n"
-                "<i>Please click the button below to start the <b>Story Request Form</b> in private chat (DM) and submit your request there.</i>"
+                "<b>Story Requests Are Available Only in Private Chat</b>\n\n"
+                "Now Story Requests can't be submitted in groups.\n"
+                "Tap 「 𝗥𝗲𝗾𝘂𝗲𝘀𝘁 𝗩𝗶𝗮 𝗗𝗠 」 below to open a private chat with "
+                "<u>Riya Bot</u> and submit your Story Request there."
             )
 
         warn_msg = await update.effective_chat.send_message(warn_text, parse_mode="HTML", reply_markup=tutorial_kb)
@@ -2659,7 +2665,7 @@ async def request_story(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not story_raw or len(story_raw) < 2:
         lang = get_chat_lang(update.effective_chat.id)
-        tutorial_kb = InlineKeyboardMarkup([[InlineKeyboardButton("How to use the bot", url="https://t.me/StoriesLinkopningguide")]])
+        tutorial_kb = InlineKeyboardMarkup([[InlineKeyboardButton("「How to Use The Bot 」", url="https://t.me/StoriesLinkopningguide")]])
         if lang == "hi":
             warn_text = "<b>✮ कृपया स्टोरी का सही नाम लिखें</b>\n\n<i>➔ उदाहरण:</i>\n▪ /request Vashikaran\n▪ /request Saaya Mastar"
         else:
@@ -3475,8 +3481,8 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             lang = get_chat_lang(update.effective_chat.id)
             tutorial_kb = InlineKeyboardMarkup([
-                [[InlineKeyboardButton("📬 Request Story", switch_inline_query_current_chat=f"/request {query_text}")]],
-                [InlineKeyboardButton("How to use the bot", url="https://t.me/StoriesLinkopningguide")]
+                [InlineKeyboardButton("📬 Request Story", switch_inline_query_current_chat=f"/request {query_text}")],
+                [InlineKeyboardButton("「How to Use The Bot 」", url="https://t.me/StoriesLinkopningguide")]
             ])
             if lang == "hi":
                 not_found_text = (
@@ -8173,7 +8179,7 @@ async def check_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
 
         lang = get_chat_lang(chat.id)
-        tutorial_kb = InlineKeyboardMarkup([[InlineKeyboardButton("How to use the bot", url="https://t.me/StoriesLinkopningguide")]])
+        tutorial_kb = InlineKeyboardMarkup([[InlineKeyboardButton("「How to Use The Bot 」", url="https://t.me/StoriesLinkopningguide")]])
         if lang == "hi":
             warn = await cmd_msg.reply_text(
                 "कृपया /check <स्टोरी का नाम> का उपयोग करें या किसी संदेश का उत्तर दें।",
@@ -8213,7 +8219,7 @@ async def check_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         elif result["status"] == "not_found":
             lang = get_chat_lang(chat.id)
-            tutorial_kb = InlineKeyboardMarkup([[InlineKeyboardButton("How to use the bot", url="https://t.me/StoriesLinkopningguide")]])
+            tutorial_kb = InlineKeyboardMarkup([[InlineKeyboardButton("「How to Use The Bot 」", url="https://t.me/StoriesLinkopningguide")]])
             if lang == "hi":
                 resp = (
                     "<b>☆ स्टोरी नहीं मिली</b>\n\n"
