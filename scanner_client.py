@@ -10,7 +10,7 @@ from config import API_ID, API_HASH, SESSION_STRING
 from telethon.sessions import StringSession
 
 from parser import parse_story, get_text, get_photo
-from database import add_story, remove_stories_not_in, load_learned_formats
+from database import add_story, remove_stories_not_in, load_learned_formats, load_db
 from format_learner import extract_with_template
 
 logger = logging.getLogger(__name__)
