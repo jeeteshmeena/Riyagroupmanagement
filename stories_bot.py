@@ -254,6 +254,7 @@ from database import (
     remove_stories_not_in,
     load_favorites, save_favorites,
     load_stats, save_stats,
+    load_genre_index, save_genre_index, build_genre_index,
     load_subs, save_subs,
     load_learned_formats, save_learned_formats,
     load_voting_db, save_voting_db,
@@ -747,8 +748,13 @@ async def _send_maintenance_notice(msg, lang: str):
 
 
 def init_search_index():
-    """Bootstrap search index from DB if empty (e.g. after first deploy)."""
+    """Bootstrap search index and genre index from DB if empty (e.g. after first deploy)."""
     global story_index, search_index, last_scan_count
+    try:
+        build_genre_index()
+    except Exception as _e:
+        logger.warning(f"[Genre] Index build error: {_e}")
+
     if search_index:
         return
     db = load_db()
@@ -3448,11 +3454,44 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     cooldown_db[user.id] = now
 
+    # Instant typing indicator message
+    searching_msg = None
+    try:
+        searching_msg = await msg.reply_text("𝚂𝚎𝚊𝚛𝚌𝚑𝚒𝚗𝚐◉◎◌")
+    except Exception:
+        pass
+
+    async def _del_searching():
+        nonlocal searching_msg
+        if searching_msg:
+            try:
+                await searching_msg.delete()
+                searching_msg = None
+            except Exception:
+                pass
+
     # Try exact match or alias match from Search Engine
     result = search_story_exact_or_alias(query_text)
 
-    # If no story found, show suggestions
+    # If no story found, check if it's a genre search or show suggestions
     if not result:
+        # Check if query_text matches an existing genre name directly
+        g_map = load_genre_index()
+        if not g_map:
+            g_map = build_genre_index()
+
+        clean_q = query_text.lower().lstrip("#").replace("genre:", "").strip()
+        matched_genre = None
+        for g_name in g_map.keys():
+            if g_name.lower() == clean_q:
+                matched_genre = g_name
+                break
+
+        if matched_genre:
+            await _del_searching()
+            await render_genre_dashboard(update.effective_chat.id, user.mention_html(), matched_genre, page=1, context=context)
+            return
+
         await log(
             context,
             f"SEARCH MISS | user_id={user.id} username={user.username} query={query_text}"
@@ -3467,7 +3506,8 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if len(f"srch|{key}") <= 64:
                     keyboard.append([InlineKeyboardButton(s, callback_data=f"srch|{key}")])
             lang = get_chat_lang(update.effective_chat.id)
-            keyboard.append([InlineKeyboardButton("How to use the bot", url="https://t.me/StoriesLinkopningguide")])
+            keyboard.append([InlineKeyboardButton("「How to Use The Bot 」", url="https://t.me/StoriesLinkopningguide")])
+            await _del_searching()
             no_msg = await msg.reply_text(
                 "✧ Did you mean one of these?" if lang != "hi" else "✧ क्या आप इनमें से कोई स्टोरी कहना चाहते थे?",
                 reply_markup=InlineKeyboardMarkup(keyboard)
@@ -3498,10 +3538,11 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "✧ Check spelling or try /request to add it.\n"
                     "✧ You can also use <b>/request</b> to request this story for upload."
                 )
+            await _del_searching()
             no_msg = await msg.reply_text(
                 not_found_text, parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("How to use the bot", url="https://t.me/StoriesLinkopningguide")]
+                    [InlineKeyboardButton("「How to Use The Bot 」", url="https://t.me/StoriesLinkopningguide")]
                 ])
             )
             # React on the not-found message with a shrug/sad emoji
@@ -3565,6 +3606,7 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             broken_msg = f"<b>☆ Link Temporarily Unavailable</b>\n\n<i>{html.escape(story_name)}</i>\n\nThere is currently an issue with this story's link (like copyright or deletion) and admins have been notified. Please wait until it is fixed."
         
+        await _del_searching()
         sent = await msg.reply_text(broken_msg, parse_mode="HTML")
         async def _del_broken():
             await asyncio.sleep(86400)
@@ -3631,6 +3673,8 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     import os as _os
     _reply_markup = InlineKeyboardMarkup(keyboard)
     msg = None
+
+    await _del_searching()
 
     # Tier 1: stored Telegram photo (channel file_id) + HTML caption
     if photo and not msg:
@@ -3707,6 +3751,247 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # -----------------------
+# Genre System
+# -----------------------
+
+async def render_genre_dashboard(chat_id, user_mention, genre_name: str, page: int = 1, context=None, target_msg=None):
+    """
+    Renders the Genre Results Dashboard with decorative unicodes around header and paginated story buttons.
+    """
+    genre_map = load_genre_index()
+    if not genre_map:
+        genre_map = build_genre_index()
+
+    stories_list = genre_map.get(genre_name, [])
+    matched_real_name = genre_name
+
+    if not stories_list:
+        for g, sl in genre_map.items():
+            if g.lower() == genre_name.lower():
+                matched_real_name = g
+                stories_list = sl
+                break
+
+    genre_name = matched_real_name
+    total_stories = len(stories_list)
+
+    if total_stories == 0:
+        text = f"<b>☆ Genre Empty</b>\n\nNo stories found for genre <i>{html.escape(genre_name)}</i>."
+        if target_msg:
+            try: return await target_msg.edit_text(text, parse_mode="HTML")
+            except Exception: pass
+        if context:
+            return await context.bot.send_message(chat_id=chat_id, text=text, parse_mode="HTML")
+
+    per_page = 5
+    total_pages = max(1, (total_stories + per_page - 1) // per_page)
+    page = max(1, min(page, total_pages))
+
+    start_idx = (page - 1) * per_page
+    page_stories = stories_list[start_idx : start_idx + per_page]
+
+    unicodes_top = "⟡⟢⟣⟤⟠⟐⟑⟟◈◉◌◎◈❖❈❉❊❋✦✧✪"
+    unicodes_bot = "⟡⟢⟣⟤⟠⟐⟑⟟◈◉◌◎◈❖❈❉❊❋✦✧✪"
+
+    caption = (
+        f"Hey {user_mention} 👋\n\n"
+        f"{unicodes_top}\n\n"
+        f"<b>✫ Here's what I found in the {html.escape(genre_name)} genre ➴</b>\n\n"
+        f"{unicodes_bot}\n\n"
+        f"<i>Total Stories: {total_stories}</i>\n\n"
+        f"<tg-spoiler>◒ This reply will be deleted automatically in 24 hours.</tg-spoiler>"
+    )
+
+    keyboard = []
+    all_genres = sorted(list(genre_map.keys()))
+    g_idx = all_genres.index(genre_name) if genre_name in all_genres else 0
+
+    for story_title in page_stories:
+        btn_label = story_title if len(story_title) <= 24 else story_title[:23] + "…"
+        story_res = search_story_exact_or_alias(story_title)
+        s_key = story_res.get("name") if story_res else clean_story(story_title).lower()
+        cb_data = f"srch|{s_key}"
+        if len(cb_data) > 64:
+            cb_data = "srch|toolong"
+        keyboard.append([InlineKeyboardButton(f"📖 {btn_label}", callback_data=cb_data)])
+
+    if total_pages > 1:
+        pag_row = []
+        if page > 1:
+            pag_row.append(InlineKeyboardButton("◀ Prev", callback_data=f"gnr_v|{g_idx}|{page-1}"))
+        else:
+            pag_row.append(InlineKeyboardButton("▪", callback_data="gnr_noop"))
+
+        pag_row.append(InlineKeyboardButton(f"{page}/{total_pages}", callback_data="gnr_noop"))
+
+        if page < total_pages:
+            pag_row.append(InlineKeyboardButton("Next ▶", callback_data=f"gnr_v|{g_idx}|{page+1}"))
+        else:
+            pag_row.append(InlineKeyboardButton("▪", callback_data="gnr_noop"))
+
+        keyboard.append(pag_row)
+
+    keyboard.append([
+        InlineKeyboardButton("🎭 All Genres", callback_data="gnr_l|1"),
+        InlineKeyboardButton("🗑️ Delete", callback_data="delete")
+    ])
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    if target_msg:
+        try:
+            return await target_msg.edit_text(caption, parse_mode="HTML", reply_markup=reply_markup)
+        except Exception:
+            pass
+
+    if context:
+        sent = await context.bot.send_message(chat_id=chat_id, text=caption, parse_mode="HTML", reply_markup=reply_markup)
+        async def _del_24h(m):
+            await asyncio.sleep(86400)
+            try: await m.delete()
+            except Exception: pass
+        asyncio.create_task(_del_24h(sent))
+        return sent
+
+
+async def render_genre_list(chat_id, user_mention, page: int = 1, context=None, target_msg=None):
+    """
+    Renders list of available genres as interactive inline buttons.
+    """
+    genre_map = load_genre_index()
+    if not genre_map:
+        genre_map = build_genre_index()
+
+    all_genres = sorted(list(genre_map.keys()))
+    if not all_genres:
+        text = "<b>🎭 Story Genres</b>\n\n<i>No genres indexed yet. Run /scan to update.</i>"
+        if target_msg:
+            try: return await target_msg.edit_text(text, parse_mode="HTML")
+            except Exception: pass
+        if context:
+            return await context.bot.send_message(chat_id=chat_id, text=text, parse_mode="HTML")
+
+    per_page = 10
+    total_pages = max(1, (len(all_genres) + per_page - 1) // per_page)
+    page = max(1, min(page, total_pages))
+
+    start_idx = (page - 1) * per_page
+    page_genres = all_genres[start_idx : start_idx + per_page]
+
+    unicodes_top = "⟡⟢⟣⟤⟠⟐⟑⟟◈◉◌◎◈❖❈❉❊❋✦✧✪"
+
+    text = (
+        f"Hey {user_mention} 👋\n\n"
+        f"{unicodes_top}\n\n"
+        f"<b>🎭 Story Genres / श्रेणी</b>\n\n"
+        f"Select a genre below to explore stories:\n\n"
+        f"<i>Page {page} of {total_pages}</i>"
+    )
+
+    keyboard = []
+    row = []
+    for g_name in page_genres:
+        g_idx = all_genres.index(g_name)
+        count = len(genre_map[g_name])
+        btn_label = f"{g_name} ({count})"
+        if len(btn_label) > 20:
+            btn_label = btn_label[:19] + "…"
+        row.append(InlineKeyboardButton(f"✨ {btn_label}", callback_data=f"gnr_v|{g_idx}|1"))
+        if len(row) == 2:
+            keyboard.append(row)
+            row = []
+    if row:
+        keyboard.append(row)
+
+    if total_pages > 1:
+        pag_row = []
+        if page > 1:
+            pag_row.append(InlineKeyboardButton("◀ Prev", callback_data=f"gnr_l|{page-1}"))
+        else:
+            pag_row.append(InlineKeyboardButton("▪", callback_data="gnr_noop"))
+
+        pag_row.append(InlineKeyboardButton(f"{page}/{total_pages}", callback_data="gnr_noop"))
+
+        if page < total_pages:
+            pag_row.append(InlineKeyboardButton("Next ▶", callback_data=f"gnr_l|{page+1}"))
+        else:
+            pag_row.append(InlineKeyboardButton("▪", callback_data="gnr_noop"))
+
+        keyboard.append(pag_row)
+
+    keyboard.append([InlineKeyboardButton("🗑️ Delete", callback_data="delete")])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    if target_msg:
+        try:
+            return await target_msg.edit_text(text, parse_mode="HTML", reply_markup=reply_markup)
+        except Exception:
+            pass
+
+    if context:
+        sent = await context.bot.send_message(chat_id=chat_id, text=text, parse_mode="HTML", reply_markup=reply_markup)
+        async def _del_24h(m):
+            await asyncio.sleep(86400)
+            try: await m.delete()
+            except Exception: pass
+        asyncio.create_task(_del_24h(sent))
+        return sent
+
+
+async def genre_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler for /genre and /genres command."""
+    user = update.effective_user
+    chat = update.effective_chat
+    if not user or not chat:
+        return
+
+    mention = user.mention_html()
+    if context.args:
+        target_genre = " ".join(context.args).strip()
+        await render_genre_dashboard(chat.id, mention, target_genre, page=1, context=context)
+    else:
+        await render_genre_list(chat.id, mention, page=1, context=context)
+
+
+async def _handle_genre_callback(query, context):
+    data = query.data
+    user = query.from_user
+    mention = user.mention_html()
+
+    if data == "gnr_noop":
+        await query.answer()
+        return
+
+    if data.startswith("gnr_l|"):
+        try:
+            page = int(data.split("|")[1])
+        except Exception:
+            page = 1
+        await render_genre_list(query.message.chat_id, mention, page=page, context=context, target_msg=query.message)
+        await query.answer()
+        return
+
+    if data.startswith("gnr_v|"):
+        parts = data.split("|")
+        try:
+            g_idx = int(parts[1])
+            page = int(parts[2])
+        except Exception:
+            await query.answer()
+            return
+
+        genre_map = load_genre_index()
+        all_genres = sorted(list(genre_map.keys()))
+        if 0 <= g_idx < len(all_genres):
+            genre_name = all_genres[g_idx]
+            await render_genre_dashboard(query.message.chat_id, mention, genre_name, page=page, context=context, target_msg=query.message)
+        else:
+            await query.answer("Genre not found.", show_alert=True)
+        await query.answer()
+        return
+
+
+# -----------------------
 # buttons
 # -----------------------
 
@@ -3714,6 +3999,10 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     query = update.callback_query
     user = query.from_user
+
+    if query.data.startswith("gnr_"):
+        await _handle_genre_callback(query, context)
+        return
 
     if not query.data.startswith(("fav|", "check_sub", "whisper|")):
         try:
@@ -8539,6 +8828,8 @@ def start_bot():
     app.add_handler(CommandHandler("scan", scan))
     app.add_handler(CommandHandler("check", check_command))
     app.add_handler(CommandHandler("stories", stories))
+    app.add_handler(CommandHandler("genre", genre_cmd))
+    app.add_handler(CommandHandler("genres", genre_cmd))
     # /storylist command removed — access via WTF button only
     app.add_handler(request_form_handler)
     app.add_handler(CommandHandler("about", about))

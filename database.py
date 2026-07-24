@@ -39,6 +39,7 @@ REQUESTS_FILE = _data_path("requests_db.json")
 VOTING_FILE = _data_path("voting_db.json")
 SEARCH_INDEX_FILE = _data_path("search_index.json")
 STORY_INDEX_FILE = _data_path("story_index.json")
+GENRE_INDEX_FILE = _data_path("genre_index.json")
 LANG_FILE = _data_path("languages_db.json")
 COOLDOWN_FILE = _data_path("cooldowns_db.json")
 LINK_FLAGS_FILE = _data_path("link_flags.json")
@@ -287,6 +288,56 @@ def load_story_index():
 
 def save_story_index(data):
     _save_json(STORY_INDEX_FILE, data)
+
+
+def load_genre_index():
+    """Load genre index mapping: {genre_name -> [story_name1, ...]}."""
+    raw = _load_json(GENRE_INDEX_FILE, {})
+    if isinstance(raw, dict):
+        return raw
+    return {}
+
+
+def save_genre_index(data):
+    _save_json(GENRE_INDEX_FILE, data)
+
+
+def build_genre_index():
+    """Build or rebuild genre index mapping { genre_name: [story_name1, ...] } from main db."""
+    import re
+    db = load_db()
+    genre_map = {}
+    
+    for key, story in db.items():
+        story_name = story.get("text") or story.get("name") or key
+        if not story_name:
+            continue
+            
+        genre = story.get("genre") or story.get("story_type")
+        if not genre:
+            caption = story.get("caption", "")
+            match = re.search(r"(?:🧩|🗓|Story Type|Type|Genre)\s*:*\s*-*\s*(.+)", caption, re.IGNORECASE)
+            if match:
+                genre = match.group(1).strip()
+        
+        if not genre:
+            genre = "General"
+            
+        genre = genre.strip()
+        if genre.lower() in ("unknown", "none", "not specified", ""):
+            genre = "General"
+            
+        # Clean html tags if any
+        genre = re.sub(r"<[^>]+>", "", genre).strip()
+        genre_clean = genre.title() if genre.islower() or genre.isupper() else genre
+        
+        if genre_clean not in genre_map:
+            genre_map[genre_clean] = []
+        if story_name not in genre_map[genre_clean]:
+            genre_map[genre_clean].append(story_name)
+            
+    save_genre_index(genre_map)
+    return genre_map
 
 
 # -----------------------
