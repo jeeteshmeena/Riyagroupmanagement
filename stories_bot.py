@@ -3581,7 +3581,7 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not story_link.startswith(("http://", "https://", "tg://")):
             story_link = "https://" + story_link.lstrip("/")
         
-        btn_text = "Buy Now" if result.get("is_paid") else "Open Story"
+        btn_text = "Buy Now □" if result.get("is_paid") else "Open Story"
         keyboard.append([InlineKeyboardButton(btn_text, url=story_link)])
 
     # safeguard for long lengths
@@ -3590,11 +3590,14 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lnw_data = f"lnw|{story_key}"
     if len(lnw_data) > 64: lnw_data = "lnw|toolong"
     
-    action_row = [InlineKeyboardButton("Favourites", callback_data=fav_data)]
-    if not result.get("is_paid"):
+    action_row = [InlineKeyboardButton("♥ Favourites", callback_data=fav_data)]
+    if result.get("is_paid"):
+        action_row.append(InlineKeyboardButton("🗑️ Delete", callback_data="delete"))
+    else:
         action_row.append(InlineKeyboardButton("Link Broken?", callback_data=lnw_data))
     keyboard.append(action_row)
-    keyboard.append([InlineKeyboardButton("🗑️ Delete", callback_data="delete")])
+    if not result.get("is_paid"):
+        keyboard.append([InlineKeyboardButton("🗑️ Delete", callback_data="delete")])
 
     photo = result.get("photo") or result.get("image")
     story_type_line = f"\n<b>✽ Story Type:-</b> <i>{html.escape(str(story_type))}</i>" if story_type != "Not specified" else ""
@@ -3615,7 +3618,7 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if result.get("format") == "LIGHT_PRO" and result.get("episodes"):
             caption += f"🎬<b>Episodes</b> : <b>{html.escape(str(result['episodes']))}</b>\n"
         if result.get("is_paid"):
-            caption += "\n💎 <b>Paid Story</b> — <i>Purchase required for access.</i>\n"
+            caption += "\n█▓▒▒░░░<b>Paid Story</b>  → Purchase required for access.░░░▒▒▓█\n"
         caption += f"\n<tg-spoiler>◒ This reply will be deleted automatically in 24 hours.</tg-spoiler>"
     else:
         caption = (
@@ -4013,7 +4016,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if result.get("format") == "LIGHT_PRO" and result.get("episodes"):
                 caption += f"\U0001f3ac<b>Episodes</b> : <b>{html.escape(str(result['episodes']))}</b>\n"
             if result.get("is_paid"):
-                caption += "\n\U0001f48e <b>Paid Story</b> \u2014 <i>Purchase required for access.</i>\n"
+                caption += "\n█▓▒▒░░░<b>Paid Story</b>  → Purchase required for access.░░░▒▒▓█\n"
         else:
             story_type_line = (
                 f"\n<b>\u273d Story Type:-</b> <i>{html.escape(str(story_type))}</i>"
@@ -4033,17 +4036,20 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lnw_data = f"lnw|{story_key}"
         if len(lnw_data) > 64: lnw_data = "lnw|toolong"
 
-        open_btn_text = "Buy Now" if result.get("is_paid") else "Open Story"
+        open_btn_text = "Buy Now □" if result.get("is_paid") else "Open Story"
         
-        action_row = [InlineKeyboardButton("Favourites", callback_data=fav_data)]
-        if not result.get("is_paid"):
+        action_row = [InlineKeyboardButton("♥ Favourites", callback_data=fav_data)]
+        if result.get("is_paid"):
+            action_row.append(InlineKeyboardButton("🗑️ Delete", callback_data="delete"))
+        else:
             action_row.append(InlineKeyboardButton("Link Broken?", callback_data=lnw_data))
 
         keyboard = [
             [InlineKeyboardButton(open_btn_text, url=result["link"])],
             action_row,
-            [InlineKeyboardButton("🗑️ Delete", callback_data="delete")],
         ]
+        if not result.get("is_paid"):
+            keyboard.append([InlineKeyboardButton("🗑️ Delete", callback_data="delete")])
 
 
         photo = result.get("photo") or result.get("image")
