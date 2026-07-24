@@ -3755,9 +3755,17 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Genre System
 # -----------------------
 
+def _to_fancy_digits(val) -> str:
+    digit_map = {
+        '0': '⓿', '1': '➊', '2': '➋', '3': '➌', '4': '➍',
+        '5': '➎', '6': '➏', '7': '➐', '8': '➑', '9': '➒'
+    }
+    return "".join(digit_map.get(c, c) for c in str(val))
+
+
 async def render_genre_dashboard(chat_id, user_mention, genre_name: str, page: int = 1, context=None, target_msg=None):
     """
-    Renders the Genre Results Dashboard with decorative unicodes around header and paginated story buttons.
+    Renders the Genre Results Dashboard with paginated story buttons.
     """
     genre_map = load_genre_index()
     if not genre_map:
@@ -3777,7 +3785,7 @@ async def render_genre_dashboard(chat_id, user_mention, genre_name: str, page: i
     total_stories = len(stories_list)
 
     if total_stories == 0:
-        text = f"<b>☆ Genre Empty</b>\n\nNo stories found for genre <i>{html.escape(genre_name)}</i>."
+        text = f"<b>☆ Genre Empty</b>\n\nNo stories found for genre <b>{html.escape(genre_name)}</b>."
         if target_msg:
             try: return await target_msg.edit_text(text, parse_mode="HTML")
             except Exception: pass
@@ -3791,15 +3799,12 @@ async def render_genre_dashboard(chat_id, user_mention, genre_name: str, page: i
     start_idx = (page - 1) * per_page
     page_stories = stories_list[start_idx : start_idx + per_page]
 
-    unicodes_top = "⟡⟢⟣⟤⟠⟐⟑⟟◈◉◌◎◈❖❈❉❊❋✦✧✪"
-    unicodes_bot = "⟡⟢⟣⟤⟠⟐⟑⟟◈◉◌◎◈❖❈❉❊❋✦✧✪"
+    fancy_count = _to_fancy_digits(total_stories)
 
     caption = (
-        f"Hey {user_mention} 👋\n\n"
-        f"{unicodes_top}\n\n"
-        f"<b>✫ Here's what I found in the {html.escape(genre_name)} genre ➴</b>\n\n"
-        f"{unicodes_bot}\n\n"
-        f"<b>{total_stories} Stories</b>\n\n"
+        f"Hey {user_mention} 👋\n"
+        f"<b>✫ Here's what I found in the {html.escape(genre_name)} genre ➴</b>\n\n\n"
+        f"█▓▒▒░░░{fancy_count}░░░▒▒▓█\n\n\n"
         f"<tg-spoiler>◒ This reply will be deleted automatically in 24 hours.</tg-spoiler>"
     )
 
@@ -3848,6 +3853,94 @@ async def render_genre_dashboard(chat_id, user_mention, genre_name: str, page: i
 
     if context:
         sent = await context.bot.send_message(chat_id=chat_id, text=caption, parse_mode="HTML", reply_markup=reply_markup)
+        async def _del_24h(m):
+            await asyncio.sleep(86400)
+            try: await m.delete()
+            except Exception: pass
+        asyncio.create_task(_del_24h(sent))
+        return sent
+
+
+async def render_genre_list(chat_id, user_mention, page: int = 1, context=None, target_msg=None):
+    """
+    Renders list of available genres as interactive inline buttons.
+    """
+    genre_map = load_genre_index()
+    if not genre_map:
+        genre_map = build_genre_index()
+
+    all_genres = sorted(list(genre_map.keys()))
+    if not all_genres:
+        text = "<b>Story Genres</b>\n\nNo genres indexed yet. Run /scan to update."
+        if target_msg:
+            try: return await target_msg.edit_text(text, parse_mode="HTML")
+            except Exception: pass
+        if context:
+            return await context.bot.send_message(chat_id=chat_id, text=text, parse_mode="HTML")
+
+    per_page = 10
+    total_pages = max(1, (len(all_genres) + per_page - 1) // per_page)
+    page = max(1, min(page, total_pages))
+
+    start_idx = (page - 1) * per_page
+    page_genres = all_genres[start_idx : start_idx + per_page]
+
+    text = (
+        f"Hey {user_mention} 👋\n\n"
+        f"<b>Story Genres / श्रेणी</b>\n\n"
+        f"Select a genre below to explore stories:\n\n"
+        f"Page {page} of {total_pages}"
+    )
+
+    keyboard = []
+    row = []
+    import re as _re
+    for g_name in page_genres:
+        g_idx = all_genres.index(g_name)
+        count = len(genre_map[g_name])
+
+        clean_g = _re.sub(r"^[\s\-_.,:+|/]+|[\s\-_.,:+|/]+$", "", g_name).strip()
+        clean_g = _re.sub(r"[\-_.,:+|/]{2,}", " ", clean_g).strip()
+        if not clean_g:
+            clean_g = g_name
+
+        btn_label = f"{clean_g} ({count})"
+        if len(btn_label) > 20:
+            btn_label = btn_label[:19] + "…"
+        row.append(InlineKeyboardButton(btn_label, callback_data=f"gnr_v|{g_idx}|1"))
+        if len(row) == 2:
+            keyboard.append(row)
+            row = []
+    if row:
+        keyboard.append(row)
+
+    if total_pages > 1:
+        pag_row = []
+        if page > 1:
+            pag_row.append(InlineKeyboardButton("◄ Prev", callback_data=f"gnr_l|{page-1}"))
+        else:
+            pag_row.append(InlineKeyboardButton("▪", callback_data="gnr_noop"))
+
+        pag_row.append(InlineKeyboardButton(f"{page}/{total_pages}", callback_data="gnr_noop"))
+
+        if page < total_pages:
+            pag_row.append(InlineKeyboardButton("Next ►", callback_data=f"gnr_l|{page+1}"))
+        else:
+            pag_row.append(InlineKeyboardButton("▪", callback_data="gnr_noop"))
+
+        keyboard.append(pag_row)
+
+    keyboard.append([InlineKeyboardButton("🗑️ Delete", callback_data="delete")])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    if target_msg:
+        try:
+            return await target_msg.edit_text(text, parse_mode="HTML", reply_markup=reply_markup)
+        except Exception:
+            pass
+
+    if context:
+        sent = await context.bot.send_message(chat_id=chat_id, text=text, parse_mode="HTML", reply_markup=reply_markup)
         async def _del_24h(m):
             await asyncio.sleep(86400)
             try: await m.delete()

@@ -327,8 +327,14 @@ def build_genre_index():
         if genre.lower() in ("unknown", "none", "not specified", ""):
             genre = "General"
             
-        # Clean html tags if any
+        # Clean html tags, dashes, dots, underscores, commas from genre name
         genre = re.sub(r"<[^>]+>", "", genre).strip()
+        genre = re.sub(r"^[\s\-_.,:+|/]+|[\s\-_.,:+|/]+$", "", genre).strip()
+        genre = re.sub(r"[\-_.,:+|/]{2,}", " ", genre).strip()
+        
+        if not genre or genre.lower() in ("unknown", "none", "not specified", ""):
+            genre = "General"
+            
         genre_clean = genre.title() if genre.islower() or genre.isupper() else genre
         
         if genre_clean not in genre_map:
