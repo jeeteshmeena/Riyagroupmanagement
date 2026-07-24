@@ -8806,13 +8806,35 @@ def start_bot():
     init_search_index()
 
     async def _post_init(application):
+        try:
+            loop = asyncio.get_running_loop()
+            def _handle_asyncio_exception(loop, context):
+                exc = context.get("exception")
+                msg = context.get("message")
+                logger.warning(f"[Asyncio Exception Handler] Ignored background error: {exc or msg}")
+            loop.set_exception_handler(_handle_asyncio_exception)
+        except Exception:
+            pass
+
         if str(AUTO_SCAN).lower() == "true" and CHANNEL_ID:
             asyncio.create_task(auto_scan_loop(application.bot))
-        asyncio.create_task(start_link_checker())
-        asyncio.create_task(poll_timeout_manager(application))
-        asyncio.create_task(schedule_loop_task(application))
-        from plugins.ads_manager import auto_ads_loop_task
-        asyncio.create_task(auto_ads_loop_task(application))
+        try:
+            asyncio.create_task(start_link_checker())
+        except Exception as _e:
+            logger.error(f"[Init] link_checker launch error: {_e}")
+        try:
+            asyncio.create_task(poll_timeout_manager(application))
+        except Exception as _e:
+            logger.error(f"[Init] poll_timeout launch error: {_e}")
+        try:
+            asyncio.create_task(schedule_loop_task(application))
+        except Exception as _e:
+            logger.error(f"[Init] schedule_loop launch error: {_e}")
+        try:
+            from plugins.ads_manager import auto_ads_loop_task
+            asyncio.create_task(auto_ads_loop_task(application))
+        except Exception as _e:
+            logger.error(f"[Init] auto_ads launch error: {_e}")
 
         # ── Premium userbot auto-connect ──────────────────────────────────────
         p_cfg = bot_config.get("premium_account", {})
