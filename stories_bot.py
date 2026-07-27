@@ -7467,6 +7467,42 @@ async def _handle_no_or_thanks(update: Update, context: ContextTypes.DEFAULT_TYP
     return True
 
 
+# Expanded Premium Emoji Mapping — Maps standard emoji char to (mood, custom_emoji_id)
+_EMOJI_TO_PREMIUM = {
+    "🌸": ("sparkle", "5471952986970267163"),
+    "♡": ("heart",   "5368324170671202286"),
+    "❤️": ("heart",   "5368324170671202286"),
+    "💕": ("heart",   "5368324170671202286"),
+    "😊": ("smile",   "5368324170671202286"),
+    "🙂": ("smile",   "5368324170671202286"),
+    "📖": ("book",    "5471699564427268111"),
+    "📚": ("book",    "5471699564427268111"),
+    "⭐": ("star",    "5440539497383087970"),
+    "✨": ("sparkle", "5471952986970267163"),
+    "🔥": ("fire",    "5373141891321699086"),
+    "🎧": ("music",   "5471952291543580065"),
+    "🎵": ("music",   "5471952291543580065"),
+    "😂": ("laugh",   "5452023368596077203"),
+    "😔": ("sad",     "5471912804219283477"),
+    "🥰": ("heart",   "5368324170671202286"),
+    "🎉": ("crown",   "5430665757416087548"),
+    "👑": ("crown",   "5430665757416087548"),
+    "👍": ("ok",      "5471741978792603722"),
+}
+
+def inject_premium_emojis(text: str) -> str:
+    """Convert standard emojis in HTML text to Telegram <tg-emoji> animated custom emoji tags."""
+    if not text:
+        return text
+    for char, (_, emoji_id) in _EMOJI_TO_PREMIUM.items():
+        if char in text:
+            text = text.replace(
+                char,
+                f'<tg-emoji emoji-id="{emoji_id}">{char}</tg-emoji>'
+            )
+    return text
+
+
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if (context.chat_data and context.chat_data.get("config_state")) or \
        (context.user_data and context.user_data.get("bc_add_waiting")):
@@ -7508,21 +7544,21 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_text, search_query, wants_voice, wants_stop, img_prompt = \
                 await gemini_chat.process_gemini_message(user_id, user_name, actual_input)
 
-            # ── Story search ──────────────────────────────────────────────────
+            # ── Story & Genre search ──────────────────────────────────────────────────
             if search_query:
                 # Detect language (English vs Hinglish/Hindi)
                 lower_in = actual_input.lower()
-                is_english = "english" in lower_in or not any(w in lower_in for w in ["hai", "karo", "do", "bhejo", "chahiye", "main", "ko", "par", "se", "naam", "btao", "dhoondh"])
+                is_english = "english" in lower_in or not any(w in lower_in for w in ["hai", "karo", "do", "bhejo", "chahiye", "main", "ko", "par", "se", "naam", "btao", "dhoondh", "list"])
 
                 if is_english:
                     init_text = f"Searching for <b>{html.escape(search_query)}</b> right now... Give me a second! 🌸"
                 else:
-                    init_text = f"Aapki story <b>{html.escape(search_query)}</b> main dhoondh rahi hoon... 1 sec! 🌸"
+                    init_text = f"Aapki story/genre <b>{html.escape(search_query)}</b> main dhoondh rahi hoon... 1 sec! 🌸"
 
                 # Send initial human typing chat message
                 sent_msg = await context.bot.send_message(
                     chat_id=update.effective_chat.id,
-                    text=init_text,
+                    text=inject_premium_emojis(init_text),
                     parse_mode="HTML"
                 )
 
@@ -7530,52 +7566,124 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
                 await asyncio.sleep(1.8)
 
-                story_result = search_story_exact_or_alias(search_query)
-                if story_result:
-                    link = story_result.get("link", "")
-                    name = story_result.get("text") or story_result.get("name") or search_query
-                    if is_english:
-                        final_text = (
-                            f"Found it! Here is <b>{html.escape(name)}</b> ♡\n\n"
-                            f"Link: <a href='{link}'>Click Here to Listen/Read 🎧</a>\n\n"
-                            f"Enjoy listening! Let me know if you want another story 😊"
-                        )
-                    else:
-                        final_text = (
-                            f"Yeh lo! <b>{html.escape(name)}</b> dhoondh li hai maine ♡\n\n"
-                            f"Link: <a href='{link}'>Click Here to Listen/Read 🎧</a>\n\n"
-                            f"Enjoy karo! Agar koi aur story chahiye ho toh batana 😊"
-                        )
-                else:
-                    suggestions = get_suggestions(search_query, limit=1)
-                    if suggestions:
-                        sname = suggestions[0]
-                        sres  = search_story_exact_or_alias(sname)
-                        if sres:
-                            link = sres.get("link", "")
-                            if is_english:
-                                final_text = (
-                                    f"I couldn't find exact match for <b>{html.escape(search_query)}</b>, but did you mean <b>{html.escape(sname)}</b>? ♡\n\n"
-                                    f"Link: <a href='{link}'>Click Here to Listen/Read 🎧</a>"
-                                )
+                # 1. Check if user is asking for a Genre (recommendation or list)
+                genre_map = load_genre_index()
+                if not genre_map:
+                    genre_map = build_genre_index()
+
+                matched_genre = None
+                clean_q = _re.sub(r"^[\s\-_.,:+|/]+|[\s\-_.,:+|/]+$", "", search_query).strip().lower()
+                for phrase in ["genre ki story do", "genre ki list do", "genre list", "genre ki story", "genre me se", "genre", "suggest", "stories"]:
+                    clean_q = clean_q.replace(phrase, "").strip()
+
+                if not clean_q:
+                    clean_q = search_query.strip().lower()
+
+                for g_name in genre_map.keys():
+                    clean_g = _re.sub(r"^[\s\-_.,:+|/]+|[\s\-_.,:+|/]+$", "", g_name).strip().lower()
+                    if clean_g and (clean_g == clean_q or clean_g in clean_q or clean_q in clean_g):
+                        matched_genre = g_name
+                        break
+
+                if matched_genre:
+                    g_stories = genre_map.get(matched_genre, [])
+                    is_list_request = any(w in lower_in for w in ["list", "sabhi", "saari", "all", "sare", "sab"])
+
+                    if is_list_request and g_stories:
+                        lines = []
+                        for idx, st_name in enumerate(g_stories[:10]):
+                            sres = search_story_exact_or_alias(st_name)
+                            slink = sres.get("link", "") if sres else ""
+                            if slink:
+                                lines.append(f"{idx+1}. <a href='{slink}'><b>{html.escape(st_name)}</b></a>")
                             else:
-                                final_text = (
-                                    f"Exact <b>{html.escape(search_query)}</b> toh nahi mili, par kya aap <b>{html.escape(sname)}</b> ki baat kar rahe the? ♡\n\n"
-                                    f"Link: <a href='{link}'>Click Here to Listen/Read 🎧</a>\n\n"
-                                    f"Ek baar check kar lo!"
-                                )
+                                lines.append(f"{idx+1}. <b>{html.escape(st_name)}</b>")
+                        
+                        story_list_str = "\n".join(lines)
+                        if is_english:
+                            final_text = (
+                                f"Here are top stories in <b>{html.escape(matched_genre)}</b> genre! ♡\n\n"
+                                f"{story_list_str}\n\n"
+                                f"Click on any story title above to open & listen! 🎧"
+                            )
+                        else:
+                            final_text = (
+                                f"<b>{html.escape(matched_genre)}</b> genre ki stories yeh rahi! ♡\n\n"
+                                f"{story_list_str}\n\n"
+                                f"Aap kisi bhi story title par click karke direct sun sakte ho! 🎧"
+                            )
+                    elif g_stories:
+                        import random as _rnd
+                        picked_story = _rnd.choice(g_stories)
+                        sres = search_story_exact_or_alias(picked_story)
+                        link = sres.get("link", "") if sres else ""
+
+                        if is_english:
+                            final_text = (
+                                f"From <b>{html.escape(matched_genre)}</b> genre, I highly recommend <b>{html.escape(picked_story)}</b>! ♡\n\n"
+                                f"Link: <a href='{link}'>Click Here to Listen/Read 🎧</a>\n\n"
+                                f"Enjoy listening! Let me know if you want another recommendation 😊"
+                            )
+                        else:
+                            final_text = (
+                                f"<b>{html.escape(matched_genre)}</b> genre mein se <b>{html.escape(picked_story)}</b> bohot zabardast story hai! ♡\n\n"
+                                f"Link: <a href='{link}'>Click Here to Listen/Read 🎧</a>\n\n"
+                                f"Suno aur batao kaisa laga! Agar koi aur genre ya story chahiye ho toh mujhe batana 😊"
+                            )
+                    else:
+                        if is_english:
+                            final_text = f"No stories found in <b>{html.escape(matched_genre)}</b> genre yet! You can request one with <code>/request</code>."
+                        else:
+                            final_text = f"<b>{html.escape(matched_genre)}</b> genre mein abhi koi story nahi mili! Aap <code>/request</code> se request submit kar do."
+
+                else:
+                    story_result = search_story_exact_or_alias(search_query)
+                    if story_result:
+                        link = story_result.get("link", "")
+                        name = story_result.get("text") or story_result.get("name") or search_query
+                        if is_english:
+                            final_text = (
+                                f"Found it! Here is <b>{html.escape(name)}</b> ♡\n\n"
+                                f"Link: <a href='{link}'>Click Here to Listen/Read 🎧</a>\n\n"
+                                f"Enjoy listening! Let me know if you want another story 😊"
+                            )
+                        else:
+                            final_text = (
+                                f"Yeh lo! <b>{html.escape(name)}</b> dhoondh li hai maine ♡\n\n"
+                                f"Link: <a href='{link}'>Click Here to Listen/Read 🎧</a>\n\n"
+                                f"Enjoy karo! Agar koi aur story chahiye ho toh batana 😊"
+                            )
+                    else:
+                        suggestions = get_suggestions(search_query, limit=1)
+                        if suggestions:
+                            sname = suggestions[0]
+                            sres  = search_story_exact_or_alias(sname)
+                            if sres:
+                                link = sres.get("link", "")
+                                if is_english:
+                                    final_text = (
+                                        f"I couldn't find exact match for <b>{html.escape(search_query)}</b>, but did you mean <b>{html.escape(sname)}</b>? ♡\n\n"
+                                        f"Link: <a href='{link}'>Click Here to Listen/Read 🎧</a>"
+                                    )
+                                else:
+                                    final_text = (
+                                        f"Exact <b>{html.escape(search_query)}</b> toh nahi mili, par kya aap <b>{html.escape(sname)}</b> ki baat kar rahe the? ♡\n\n"
+                                        f"Link: <a href='{link}'>Click Here to Listen/Read 🎧</a>\n\n"
+                                        f"Ek baar check kar lo!"
+                                    )
+                            else:
+                                if is_english:
+                                    final_text = f"Aww, <b>{html.escape(search_query)}</b> is not available in our database yet 🙁\n\nYou can submit a request using <code>/request {html.escape(search_query)}</code>!"
+                                else:
+                                    final_text = f"Aww, <b>{html.escape(search_query)}</b> abhi mere database mein nahi mili 🙁\n\nAap <code>/request {html.escape(search_query)}</code> karke request submit kar do, main try karungi jald add karne ki!"
                         else:
                             if is_english:
                                 final_text = f"Aww, <b>{html.escape(search_query)}</b> is not available in our database yet 🙁\n\nYou can submit a request using <code>/request {html.escape(search_query)}</code>!"
                             else:
                                 final_text = f"Aww, <b>{html.escape(search_query)}</b> abhi mere database mein nahi mili 🙁\n\nAap <code>/request {html.escape(search_query)}</code> karke request submit kar do, main try karungi jald add karne ki!"
-                    else:
-                        if is_english:
-                            final_text = f"Aww, <b>{html.escape(search_query)}</b> is not available in our database yet 🙁\n\nYou can submit a request using <code>/request {html.escape(search_query)}</code>!"
-                        else:
-                            final_text = f"Aww, <b>{html.escape(search_query)}</b> abhi mere database mein nahi mili 🙁\n\nAap <code>/request {html.escape(search_query)}</code> karke request submit kar do, main try karungi jald add karne ki!"
 
                 # Edit initial chat message with final natural reply
+                final_text = inject_premium_emojis(final_text)
                 try:
                     await sent_msg.edit_text(final_text, parse_mode="HTML", disable_web_page_preview=True)
                 except Exception:
@@ -7595,43 +7703,16 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return  # nothing to send
 
             # ── Premium Emoji & Reaction Injection ─────────────────────────────────────────────────────
-            # Map: standard emoji char → (mood_name, custom_emoji_id)
-            # Premium emoji IDs are from Telegram's official animated emoji packs.
-            # The <tg-emoji> HTML tag is officially supported by Bot API (parse_mode=HTML).
-            # Premium users see the animated premium emoji; others see the fallback char.
-            _EMOJI_TO_PREMIUM = {
-                "\U0001f60a": ("smile",   "5368324170671202286"),   # 😊
-                "\U0001f4d6": ("book",    "5471699564427268111"),   # 📖
-                "\U0001f614": ("sad",     "5471912804219283477"),   # 😔
-                "\U0001f602": ("laugh",   "5452023368596077203"),   # 😂
-                "\U0001f970": ("heart",   "5368324170671202286"),   # 🥰
-                "\U0001f338": ("sparkle", "5471952986970267163"),   # 🌸
-                "\U0001f642": ("smile",   "5368324170671202286"),   # 🙂
-            }
-            detected_mood = None
+            reply_text = inject_premium_emojis(reply_text)
             try:
                 import premium_userbot
-                for emoji_char, (mood, emoji_id) in _EMOJI_TO_PREMIUM.items():
-                    if emoji_char in reply_text:
-                        detected_mood = mood
-                        # Replace standard emoji with <tg-emoji> tag (Bot API supported)
-                        # Premium users see animated emoji, others see the fallback char
-                        reply_text = reply_text.replace(
-                            emoji_char,
-                            f'<tg-emoji emoji-id="{emoji_id}">{emoji_char}</tg-emoji>',
-                            1   # replace first occurrence only
-                        )
-                        break
-
-                # Standard reaction on user's incoming message via Bot
+                detected_mood = "smile" if "😊" in reply_text or "🙂" in reply_text else ("heart" if "♡" in reply_text or "❤️" in reply_text else None)
                 if detected_mood:
-                    # Find the original standard emoji char that triggered this mood
-                    react_emoji = next(k for k, v in _EMOJI_TO_PREMIUM.items() if v[0] == detected_mood)
                     asyncio.create_task(_try_react(
                         context.bot,
                         update.effective_chat.id,
                         update.message.message_id,
-                        react_emoji
+                        "❤️" if detected_mood == "heart" else "😊"
                     ))
             except Exception as e:
                 logger.warning(f"[Premium] Emoji injection error: {e}")
