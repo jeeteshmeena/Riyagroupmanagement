@@ -8932,9 +8932,9 @@ def start_bot():
 
         # ── Premium userbot auto-connect ──────────────────────────────────────
         p_cfg = bot_config.get("premium_account", {})
-        sess  = p_cfg.get("session_string", "")
-        pid   = p_cfg.get("api_id",   0)
-        ph    = p_cfg.get("api_hash", "")
+        sess  = (p_cfg.get("session_string", "") or os.getenv("PREMIUM_SESSION_STRING", "") or os.getenv("SESSION_STRING", "")).strip()
+        pid   = p_cfg.get("api_id", 0) or os.getenv("PREMIUM_API_ID", 0) or os.getenv("API_ID", 0)
+        ph    = (p_cfg.get("api_hash", "") or os.getenv("PREMIUM_API_HASH", "") or os.getenv("API_HASH", "")).strip()
         if sess and pid and ph:
             try:
                 import premium_userbot
