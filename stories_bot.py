@@ -166,6 +166,7 @@ import http.server
 import socketserver
 import asyncio
 import re
+_re = re
 import time
 import json
 import random
@@ -7559,11 +7560,18 @@ def _is_thanks_msg(text: str) -> bool:
     return t in _THANKS_WORDS
 
 
-async def _try_react(bot, chat_id: int, message_id: int, emoji: str, big: bool = False):
-    """Send a reaction using the bot's own account (ReactionTypeEmoji).
-    The bot reacts as itself — clean and expected behavior.
-    Premium userbot is NOT used for reactions (would show personal account reacting).
-    """
+async def _try_react(bot, chat_id: int, message_id: int, emoji: str, big: bool = True):
+    """Send a reaction using Premium Userbot if connected (for big animated reactions),
+    or fall back to Bot's set_message_reaction."""
+    try:
+        import premium_userbot
+        if premium_userbot.is_connected():
+            ok = await premium_userbot.react_with_emoji(chat_id, message_id, emoji, big=big)
+            if ok:
+                return
+    except Exception as pe:
+        logger.debug("[Premium] React via userbot skipped: %s", pe)
+
     try:
         from telegram import ReactionTypeEmoji
         await bot.set_message_reaction(
@@ -7572,8 +7580,8 @@ async def _try_react(bot, chat_id: int, message_id: int, emoji: str, big: bool =
             reaction=[ReactionTypeEmoji(emoji=emoji)],
             is_big=big,
         )
-    except Exception as _re:
-        logger.debug("Reaction failed: %s", _re)
+    except Exception as err:
+        logger.debug("Bot reaction failed: %s", err)
 
 
 
@@ -8887,16 +8895,31 @@ async def auto_channel_react(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # ──────────────────────────────
         
     import random
-    emojis = ["👍", "❤️", "🔥", "🎉", "🤩", "🙏", "👏", "⚡", "✨", "💯", "💖", "🥰", "🫡"]
+    emojis = ["❤️", "🔥", "🎉", "🤩", "✨", "💯", "💖", "🥰", "⚡", "👍"]
+    chosen_emoji = random.choice(emojis)
+    chat_id = update.effective_chat.id
+    msg_id  = update.channel_post.message_id
+
+    # Try Premium Userbot first for big animated reaction!
+    try:
+        import premium_userbot
+        if premium_userbot.is_connected():
+            ok = await premium_userbot.react_with_emoji(chat_id, msg_id, chosen_emoji, big=True)
+            if ok:
+                logger.info(f"[AutoReact] Sent premium reaction '{chosen_emoji}' on channel {chat_id}")
+                return
+    except Exception as pe:
+        logger.debug(f"[AutoReact] Premium userbot reaction skipped: {pe}")
+
     try:
         from telegram import ReactionTypeEmoji
         await context.bot.set_message_reaction(
-            chat_id=update.effective_chat.id,
-            message_id=update.channel_post.message_id,
-            reaction=[ReactionTypeEmoji(emoji=random.choice(emojis))]
+            chat_id=chat_id,
+            message_id=msg_id,
+            reaction=[ReactionTypeEmoji(emoji=chosen_emoji)]
         )
     except Exception as e:
-        logger.warning(f"[AutoReact] Failed on chat {update.effective_chat.id}: {e}")
+        logger.warning(f"[AutoReact] Failed on chat {chat_id}: {e}")
 
 async def gban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin-only: globally ban a user from all authorized channels."""
