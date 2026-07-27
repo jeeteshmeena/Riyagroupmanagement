@@ -6671,7 +6671,7 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("❌ Set API ID, API Hash, and Session String first!", show_alert=True)
             return
         await query.answer("Connecting...", show_alert=False)
-        ok = await premium_userbot.connect_userbot(sess, int(pid), ph)
+        ok = await premium_userbot.connect_userbot(sess, _safe_api_id(pid), _safe_api_hash(ph))
         if ok:
             await query.message.reply_text("✅ <b>Premium userbot connected!</b>\nRiya can now react with premium emoji.", parse_mode="HTML")
         else:
@@ -7095,8 +7095,22 @@ async def handle_config_input(update: Update, context: ContextTypes.DEFAULT_TYPE
             return
 
         p_cfg = bot_config.get("premium_account", {})
-        api_id = int(p_cfg.get("api_id", 0) or os.getenv("PREMIUM_API_ID", 0) or os.getenv("API_ID", 6))
-        api_hash = (p_cfg.get("api_hash", "") or os.getenv("PREMIUM_API_HASH", "") or os.getenv("API_HASH", "eb06630096315a4d3563c4e6465e92d4")).strip()
+        
+        def _safe_api_id(val) -> int:
+            try:
+                res = int(str(val).strip())
+                if res > 0:
+                    return res
+            except Exception:
+                pass
+            return 6
+
+        def _safe_api_hash(val) -> str:
+            s = str(val or "").strip()
+            return s if s else "eb06630096315a4d3563c4e6465e92d4"
+
+        api_id = _safe_api_id(p_cfg.get("api_id") or os.getenv("PREMIUM_API_ID") or os.getenv("API_ID"))
+        api_hash = _safe_api_hash(p_cfg.get("api_hash") or os.getenv("PREMIUM_API_HASH") or os.getenv("API_HASH"))
 
         from telethon import TelegramClient
         from telethon.sessions import StringSession
@@ -9087,10 +9101,10 @@ def start_bot():
         sess  = (p_cfg.get("session_string", "") or os.getenv("PREMIUM_SESSION_STRING", "") or os.getenv("SESSION_STRING", "")).strip()
         pid   = p_cfg.get("api_id", 0) or os.getenv("PREMIUM_API_ID", 0) or os.getenv("API_ID", 0)
         ph    = (p_cfg.get("api_hash", "") or os.getenv("PREMIUM_API_HASH", "") or os.getenv("API_HASH", "")).strip()
-        if sess and pid and ph:
+        if sess:
             try:
                 import premium_userbot
-                ok = await premium_userbot.connect_userbot(sess, int(pid), ph)
+                ok = await premium_userbot.connect_userbot(sess, _safe_api_id(pid), _safe_api_hash(ph))
                 if ok:
                     logger.info("[Premium] Userbot connected at startup ✅")
                 else:
