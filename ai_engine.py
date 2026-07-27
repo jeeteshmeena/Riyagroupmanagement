@@ -298,6 +298,9 @@ async def _get_ai_raw(user_id: int, payload: str) -> str:
     backup  = _ai_config.get("backup")
 
     if not _clients:
+        init_all()
+
+    if not _clients:
         logger.error("[AI] No providers initialized! Check API keys and openai package.")
         return ""
 
