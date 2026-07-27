@@ -267,16 +267,24 @@ async def _call_openai_compat(client, user_id: int, payload: str, model: str) ->
     messages.extend(history)
     messages.append({"role": "user", "content": payload})
 
-    # Candidate models for fallback if requested model returns 404
     candidates = [model]
+    try:
+        models_res = await client.models.list()
+        if hasattr(models_res, 'data') and models_res.data:
+            fetched_models = [m.id for m in models_res.data if getattr(m, 'id', None)]
+            if fetched_models:
+                candidates = fetched_models + candidates
+    except Exception as _me:
+        logger.debug(f"[AI] Failed to fetch models.list: {_me}")
+
     if "cerebras" in str(client.base_url).lower():
-        candidates = [model, "llama-3.3-70b", "llama3.1-8b", "llama-3.1-8b"]
-        # Remove duplicates while preserving order
-        seen = set()
-        candidates = [m for m in candidates if not (m in seen or seen.add(m))]
+        candidates.extend(["llama-3.3-70b", "llama3.3-70b", "llama-3.1-8b", "llama3.1-8b", "llama3.1-70b", "llama-3.1-70b"])
+
+    seen = set()
+    unique_candidates = [m for m in candidates if not (m in seen or seen.add(m))]
 
     last_err = None
-    for target_model in candidates:
+    for target_model in unique_candidates:
         try:
             resp = await client.chat.completions.create(
                 model=target_model,
