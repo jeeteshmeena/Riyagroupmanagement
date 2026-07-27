@@ -8886,23 +8886,24 @@ async def auto_channel_react(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # ──────────────────────────────
         
     import random
-    emojis = ["❤️", "🔥", "🎉", "🤩", "✨", "💯", "💖", "🥰", "⚡", "👍"]
-    chosen_emoji = random.choice(emojis)
+    emojis = ["👍", "❤️", "🔥", "🎉"]
+    random.shuffle(emojis)
     chat_id = update.effective_chat.id
     msg_id  = update.channel_post.message_id
 
-    # Riya Bot reacts as itself on new channel posts
-    try:
-        from telegram import ReactionTypeEmoji
-        await context.bot.set_message_reaction(
-            chat_id=chat_id,
-            message_id=msg_id,
-            reaction=[ReactionTypeEmoji(emoji=chosen_emoji)],
-            is_big=True
-        )
-        logger.info(f"[AutoReact] Riya Bot reacted '{chosen_emoji}' on channel {chat_id}")
-    except Exception as e:
-        logger.warning(f"[AutoReact] Failed on chat {chat_id}: {e}")
+    for em in emojis:
+        try:
+            from telegram import ReactionTypeEmoji
+            await context.bot.set_message_reaction(
+                chat_id=chat_id,
+                message_id=msg_id,
+                reaction=[ReactionTypeEmoji(emoji=em)],
+                is_big=True
+            )
+            logger.info(f"[AutoReact] Riya Bot reacted '{em}' on channel {chat_id}")
+            break
+        except Exception:
+            continue
 
 async def gban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin-only: globally ban a user from all authorized channels."""

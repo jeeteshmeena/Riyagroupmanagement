@@ -716,11 +716,19 @@ async def classify_content_with_gemini(text: str = None, photo_bytes: bytes = No
             "- CLEAN: Safe, normal friendly conversation, greeting, or legitimate user query."
         )
 
-        model_name = gemini_cfg.get("model", "gemini-1.5-flash")
-        mod_model = genai.GenerativeModel(
-            model_name=model_name,
-            system_instruction=mod_sys_prompt
-        )
+        model_name = gemini_cfg.get("model", "gemini-2.5-flash")
+        if model_name == "gemini-1.5-flash":
+            model_name = "gemini-2.5-flash"
+        try:
+            mod_model = genai.GenerativeModel(
+                model_name=model_name,
+                system_instruction=mod_sys_prompt
+            )
+        except Exception:
+            mod_model = genai.GenerativeModel(
+                model_name="gemini-2.0-flash",
+                system_instruction=mod_sys_prompt
+            )
 
         safety_settings = [
             {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
