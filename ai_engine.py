@@ -201,17 +201,21 @@ def init_all():
         _ai_config = _default_ai_config()
         _save_ai_config(_ai_config)
 
-    # Auto-inject GEMINI_API_KEY from env if not in DB
-    gemini_env_key = os.getenv("GEMINI_API_KEY", "").strip()
-    if gemini_env_key:
-        prov = _ai_config.setdefault("providers", {})
-        g = prov.setdefault("gemini", {"model": PROVIDERS["gemini"]["model"], "api_key": "", "enabled": False})
-        if not g.get("api_key"):
-            g["api_key"] = gemini_env_key
-            g["enabled"] = True
-            if not _ai_config.get("primary"):
-                _ai_config["primary"] = "gemini"
-            _save_ai_config(_ai_config)
+    # Auto-inject any provider keys set in environment variables if not in DB
+    prov = _ai_config.setdefault("providers", {})
+    cfg_changed = False
+    for pid, info in PROVIDERS.items():
+        env_key = os.getenv(info["env_key"], "").strip()
+        if env_key:
+            p_entry = prov.setdefault(pid, {"model": info["model"], "api_key": "", "enabled": False})
+            if not p_entry.get("api_key"):
+                p_entry["api_key"] = env_key
+                p_entry["enabled"] = True
+                cfg_changed = True
+                if not _ai_config.get("primary"):
+                    _ai_config["primary"] = pid
+    if cfg_changed:
+        _save_ai_config(_ai_config)
 
     _clients.clear()
     for pid, info in PROVIDERS.items():

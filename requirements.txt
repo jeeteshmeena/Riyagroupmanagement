@@ -3,7 +3,7 @@ rapidfuzz
 python-dotenv
 telethon
 requests
-groq
+openai
 google-generativeai
 pytesseract
 elevenlabs
