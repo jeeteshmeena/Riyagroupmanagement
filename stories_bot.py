@@ -7561,17 +7561,8 @@ def _is_thanks_msg(text: str) -> bool:
 
 
 async def _try_react(bot, chat_id: int, message_id: int, emoji: str, big: bool = True):
-    """Send a reaction using Premium Userbot if connected (for big animated reactions),
-    or fall back to Bot's set_message_reaction."""
-    try:
-        import premium_userbot
-        if premium_userbot.is_connected():
-            ok = await premium_userbot.react_with_emoji(chat_id, message_id, emoji, big=big)
-            if ok:
-                return
-    except Exception as pe:
-        logger.debug("[Premium] React via userbot skipped: %s", pe)
-
+    """Send a reaction using Riya Bot's own account (ReactionTypeEmoji).
+    Riya Bot reacts as itself — clean and official behavior."""
     try:
         from telegram import ReactionTypeEmoji
         await bot.set_message_reaction(
@@ -7581,7 +7572,7 @@ async def _try_react(bot, chat_id: int, message_id: int, emoji: str, big: bool =
             is_big=big,
         )
     except Exception as err:
-        logger.debug("Bot reaction failed: %s", err)
+        logger.debug("Riya Bot reaction failed: %s", err)
 
 
 
@@ -8900,24 +8891,16 @@ async def auto_channel_react(update: Update, context: ContextTypes.DEFAULT_TYPE)
     chat_id = update.effective_chat.id
     msg_id  = update.channel_post.message_id
 
-    # Try Premium Userbot first for big animated reaction!
-    try:
-        import premium_userbot
-        if premium_userbot.is_connected():
-            ok = await premium_userbot.react_with_emoji(chat_id, msg_id, chosen_emoji, big=True)
-            if ok:
-                logger.info(f"[AutoReact] Sent premium reaction '{chosen_emoji}' on channel {chat_id}")
-                return
-    except Exception as pe:
-        logger.debug(f"[AutoReact] Premium userbot reaction skipped: {pe}")
-
+    # Riya Bot reacts as itself on new channel posts
     try:
         from telegram import ReactionTypeEmoji
         await context.bot.set_message_reaction(
             chat_id=chat_id,
             message_id=msg_id,
-            reaction=[ReactionTypeEmoji(emoji=chosen_emoji)]
+            reaction=[ReactionTypeEmoji(emoji=chosen_emoji)],
+            is_big=True
         )
+        logger.info(f"[AutoReact] Riya Bot reacted '{chosen_emoji}' on channel {chat_id}")
     except Exception as e:
         logger.warning(f"[AutoReact] Failed on chat {chat_id}: {e}")
 
