@@ -6592,26 +6592,19 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
         import premium_userbot
         p_cfg    = bot_config.get("premium_account", {})
         pid      = p_cfg.get("api_id", "")
-        sess_set = "✅ Set" if p_cfg.get("session_string") else "❌ Not Set"
+        sess_set = "✅ Set" if (p_cfg.get("session_string") or os.getenv("PREMIUM_SESSION_STRING")) else "❌ Not Set"
         connected = "🟢 Connected" if premium_userbot.is_connected() else "🔴 Disconnected"
         text = (
             "<b>⭐ Premium Telegram Account</b>\n"
             f"{_CFG_DIV}\n\n"
             f"▪ <b>Status:</b> <code>{connected}</code>\n"
-            f"▪ <b>Session:</b> <code>{sess_set}</code>\n"
-            f"▪ <b>API ID:</b> <code>{pid or 'Not Set'}</code>\n\n"
-            "<b>── How to connect ──</b>\n"
-            "1. Get API ID+Hash from <code>my.telegram.org</code>\n"
-            "2. Run on server to generate session:\n"
-            "<pre>python3 -c \"\n"
-            "from telethon.sync import TelegramClient\n"
-            "c = TelegramClient('riya', API_ID, API_HASH)\n"
-            "c.start(); print(c.session.save()); c.disconnect()\n"
-            "\"</pre>\n"
-            "3. Set API ID → API Hash → Session String below\n\n"
-            "<i>Once connected, Riya sends premium emoji reactions ⭐</i>"
+            f"▪ <b>Session:</b> <code>{sess_set}</code>\n\n"
+            "<b>── Easy Phone Login (Recommended) ──</b>\n"
+            "Tap <b>📱 Phone Login Wizard</b> below to login with your mobile phone number. Riya Bot will send OTP to your Telegram & auto-generate the session key!\n\n"
+            "<i>Once connected, Riya sends premium animated emojis & big reactions ⭐</i>"
         )
         markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📱 Phone Login Wizard (Auto Session)", callback_data=f"cfg|prem_login_phone||{caller_id}")],
             [
                 InlineKeyboardButton("Set API ID",    callback_data=f"cfg|prem_apiid||{caller_id}"),
                 InlineKeyboardButton("Set API Hash",  callback_data=f"cfg|prem_apihash||{caller_id}"),
@@ -6623,6 +6616,19 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
         ])
         await _edit_cfg(query, text, markup)
         await query.answer()
+        return
+
+    if section == "prem_login_phone":
+        context.chat_data["config_state"] = "waiting_prem_phone"
+        await query.answer()
+        await query.message.reply_text(
+            "<b>📱 Telegram Premium Phone Login Wizard</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
+            "Please send your mobile phone number with country code.\n"
+            "Example: <code>+919876543210</code>\n\n"
+            "<i>Note: Riya Bot will send an official Telegram login OTP code to your Telegram app so your session key is generated automatically!</i>",
+            parse_mode="HTML"
+        )
         return
 
     if section == "prem_apiid":
@@ -7079,6 +7085,152 @@ async def handle_config_input(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text(
             f"<b>⭐ Premium Account</b>\n{done_text}", parse_mode="HTML"
         )
+        return
+
+    # ── Phone Login Wizard Step Handlers ──────────────────────────────────────
+    if state == "waiting_prem_phone":
+        phone_number = text.replace(" ", "").strip()
+        if not (phone_number.startswith("+") and len(phone_number) >= 10):
+            await update.message.reply_text("⚠️ Invalid phone format. Please send with country code e.g. <code>+919876543210</code>", parse_mode="HTML")
+            return
+
+        p_cfg = bot_config.get("premium_account", {})
+        api_id = int(p_cfg.get("api_id", 0) or os.getenv("PREMIUM_API_ID", 0) or os.getenv("API_ID", 6))
+        api_hash = (p_cfg.get("api_hash", "") or os.getenv("PREMIUM_API_HASH", "") or os.getenv("API_HASH", "eb06630096315a4d3563c4e6465e92d4")).strip()
+
+        from telethon import TelegramClient
+        from telethon.sessions import StringSession
+
+        msg_wait = await update.message.reply_text(f"⏳ Connecting to Telegram servers for <code>{phone_number}</code>...", parse_mode="HTML")
+        try:
+            client = TelegramClient(StringSession(), api_id, api_hash)
+            await client.connect()
+            res = await client.send_code_request(phone_number)
+
+            context.chat_data["config_state"] = "waiting_prem_otp"
+            context.chat_data["prem_login_data"] = {
+                "client": client,
+                "phone": phone_number,
+                "phone_code_hash": res.phone_code_hash,
+                "api_id": api_id,
+                "api_hash": api_hash,
+            }
+            await msg_wait.edit_text(
+                "📩 <b>OTP Sent Successfully!</b>\n\n"
+                f"Telegram has sent an official login code to <code>{phone_number}</code>.\n\n"
+                "Please reply with your OTP code below:\n"
+                "<i>(Tip: Send code like <code>1 2 3 4 5</code> with spaces so Telegram doesn't block it)</i>",
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            context.chat_data.pop("config_state", None)
+            await msg_wait.edit_text(f"❌ Failed to send OTP code: <code>{e}</code>", parse_mode="HTML")
+        return
+
+    if state == "waiting_prem_otp":
+        login_data = context.chat_data.get("prem_login_data", {})
+        if not login_data or "client" not in login_data:
+            context.chat_data.pop("config_state", None)
+            await update.message.reply_text("❌ Login session expired. Please start phone login again.", parse_mode="HTML")
+            return
+
+        import re
+        otp_code = re.sub(r"\D", "", text)
+        if not otp_code or len(otp_code) < 5:
+            await update.message.reply_text("⚠️ Invalid OTP format. Please send the numeric code (e.g. <code>1 2 3 4 5</code> or <code>12345</code>)", parse_mode="HTML")
+            return
+
+        client = login_data["client"]
+        phone = login_data["phone"]
+        phone_code_hash = login_data["phone_code_hash"]
+
+        msg_wait = await update.message.reply_text("⏳ Verifying OTP code...", parse_mode="HTML")
+        from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError, PhoneCodeExpiredError
+        try:
+            await client.sign_in(phone, code=otp_code, phone_code_hash=phone_code_hash)
+            
+            sess_str = client.session.save()
+            me = await client.get_me()
+
+            p_cfg = bot_config.get("premium_account", {})
+            p_cfg["session_string"] = sess_str
+            p_cfg["api_id"] = login_data["api_id"]
+            p_cfg["api_hash"] = login_data["api_hash"]
+            bot_config["premium_account"] = p_cfg
+            save_config(bot_config)
+
+            context.chat_data.pop("config_state", None)
+            context.chat_data.pop("prem_login_data", None)
+
+            import premium_userbot
+            await premium_userbot.connect_userbot(sess_str, login_data["api_id"], login_data["api_hash"])
+
+            await msg_wait.edit_text(
+                "🎉 <b>Success! Premium Account Connected!</b>\n"
+                "━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"👤 <b>Logged in as:</b> <b>{html.escape(me.first_name)}</b> (@{me.username or 'N/A'})\n"
+                f"⭐ <b>Premium Status:</b> <code>{'Yes' if me.premium else 'No'}</code>\n\n"
+                "Session string key generated and saved automatically! Riya Bot is now connected to your Premium account.",
+                parse_mode="HTML"
+            )
+        except SessionPasswordNeededError:
+            context.chat_data["config_state"] = "waiting_prem_2fa"
+            await msg_wait.edit_text(
+                "🔐 <b>Two-Step Verification (2FA) Required!</b>\n\n"
+                "Your Telegram account is protected by a 2FA password.\n"
+                "Please reply with your 2FA password to complete login:",
+                parse_mode="HTML"
+            )
+        except (PhoneCodeInvalidError, PhoneCodeExpiredError) as e:
+            await msg_wait.edit_text(f"❌ Invalid or expired OTP code (<code>{e}</code>). Please try again or restart phone login.", parse_mode="HTML")
+        except Exception as e:
+            context.chat_data.pop("config_state", None)
+            context.chat_data.pop("prem_login_data", None)
+            await msg_wait.edit_text(f"❌ Login failed: <code>{e}</code>", parse_mode="HTML")
+        return
+
+    if state == "waiting_prem_2fa":
+        login_data = context.chat_data.get("prem_login_data", {})
+        if not login_data or "client" not in login_data:
+            context.chat_data.pop("config_state", None)
+            await update.message.reply_text("❌ Login session expired. Please start phone login again.", parse_mode="HTML")
+            return
+
+        twofa_password = text.strip()
+        client = login_data["client"]
+
+        msg_wait = await update.message.reply_text("⏳ Verifying 2FA password...", parse_mode="HTML")
+        try:
+            await client.sign_in(password=twofa_password)
+
+            sess_str = client.session.save()
+            me = await client.get_me()
+
+            p_cfg = bot_config.get("premium_account", {})
+            p_cfg["session_string"] = sess_str
+            p_cfg["api_id"] = login_data["api_id"]
+            p_cfg["api_hash"] = login_data["api_hash"]
+            bot_config["premium_account"] = p_cfg
+            save_config(bot_config)
+
+            context.chat_data.pop("config_state", None)
+            context.chat_data.pop("prem_login_data", None)
+
+            import premium_userbot
+            await premium_userbot.connect_userbot(sess_str, login_data["api_id"], login_data["api_hash"])
+
+            await msg_wait.edit_text(
+                "🎉 <b>Success! Premium Account Connected!</b>\n"
+                "━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"👤 <b>Logged in as:</b> <b>{html.escape(me.first_name)}</b> (@{me.username or 'N/A'})\n"
+                f"⭐ <b>Premium Status:</b> <code>{'Yes' if me.premium else 'No'}</code>\n\n"
+                "Session string key generated and saved automatically! Riya Bot is now connected to your Premium account.",
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            context.chat_data.pop("config_state", None)
+            context.chat_data.pop("prem_login_data", None)
+            await msg_wait.edit_text(f"❌ 2FA verification failed: <code>{e}</code>", parse_mode="HTML")
         return
 
     if state == "waiting_sp_republish_dest":
