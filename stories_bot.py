@@ -3690,14 +3690,18 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lnw_data = f"lnw|{story_key}"
     if len(lnw_data) > 64: lnw_data = "lnw|toolong"
     
-    action_row = [InlineKeyboardButton("♥ Favourites", callback_data=fav_data)]
-    if result.get("is_paid"):
-        action_row.append(InlineKeyboardButton("🗑️ Delete", callback_data="delete"))
-    else:
-        action_row.append(InlineKeyboardButton("Link Broken?", callback_data=lnw_data))
+    is_paid = result.get("is_paid", False)
+    tut_url = "https://t.me/StoriesLinkopningguide/19" if is_paid else "https://t.me/StoriesLinkopningguide/5"
+    
+    action_row = [
+        InlineKeyboardButton("Add2💗", callback_data=fav_data),
+        InlineKeyboardButton("Link Broken?", callback_data=lnw_data)
+    ]
     keyboard.append(action_row)
-    if not result.get("is_paid"):
-        keyboard.append([InlineKeyboardButton("🗑️ Delete", callback_data="delete")])
+    keyboard.append([
+        InlineKeyboardButton("🗑️ Delete", callback_data="delete"),
+        InlineKeyboardButton("📖 Tutorial", url=tut_url)
+    ])
 
     photo = result.get("photo") or result.get("image")
     story_type_line = f"\n<b>✽ Story Type:-</b> <i>{html.escape(str(story_type))}</i>" if story_type != "Not specified" else ""
@@ -4397,19 +4401,22 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if len(lnw_data) > 64: lnw_data = "lnw|toolong"
 
         open_btn_text = "Buy Now □" if result.get("is_paid") else "Open Story"
-        
-        action_row = [InlineKeyboardButton("♥ Favourites", callback_data=fav_data)]
-        if result.get("is_paid"):
-            action_row.append(InlineKeyboardButton("🗑️ Delete", callback_data="delete"))
-        else:
-            action_row.append(InlineKeyboardButton("Link Broken?", callback_data=lnw_data))
+        is_paid = result.get("is_paid", False)
+        tut_url = "https://t.me/StoriesLinkopningguide/19" if is_paid else "https://t.me/StoriesLinkopningguide/5"
+
+        action_row = [
+            InlineKeyboardButton("Add2💗", callback_data=fav_data),
+            InlineKeyboardButton("Link Broken?", callback_data=lnw_data)
+        ]
 
         keyboard = [
             [InlineKeyboardButton(open_btn_text, url=result["link"])],
             action_row,
+            [
+                InlineKeyboardButton("🗑️ Delete", callback_data="delete"),
+                InlineKeyboardButton("📖 Tutorial", url=tut_url)
+            ]
         ]
-        if not result.get("is_paid"):
-            keyboard.append([InlineKeyboardButton("🗑️ Delete", callback_data="delete")])
 
 
         photo = result.get("photo") or result.get("image")
