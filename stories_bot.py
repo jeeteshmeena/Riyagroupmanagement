@@ -1249,6 +1249,58 @@ def _menu_lang(caller_id: int) -> tuple:
     return text, markup
 
 
+DEFAULT_TUTORIAL_TEXT = (
+    "<b>📖 How to Use Riya Bot & Open Story Links</b>\n"
+    "━━━━━━━━━━━━━━━━━━━━\n\n"
+    "1️⃣ <b>Search Any Story:</b> Type the story name directly in chat (e.g. <i>Malang</i>, <i>Beggar Husband</i>).\n"
+    "2️⃣ <b>Listen / Read:</b> Click the story link provided by Riya to start listening.\n"
+    "3️⃣ <b>Genres:</b> Send <code>/genre</code> or ask Riya <i>'Romance genre ki story do'</i> for recommendations!\n"
+    "4️⃣ <b>Request Stories:</b> If a story is missing, use <code>/request Story Name</code>.\n\n"
+    "<i>Enjoy listening to your favorite stories! 🎧🌸</i>"
+)
+
+def get_tutorial_url(bot_username: str = "") -> str:
+    """Return the configured tutorial URL (external video URL or bot deep-link)."""
+    tut_cfg = bot_config.get("tutorial_guide", {})
+    ext_url = tut_cfg.get("external_url", "").strip()
+    if ext_url:
+        return ext_url
+    uname = bot_username or (context.bot.username if 'context' in locals() and hasattr(context, 'bot') else "") or os.getenv("BOT_USERNAME", "") or "Riya_Stories_Bot"
+    return f"https://t.me/{uname}?start=guide"
+
+def get_tutorial_button_text() -> str:
+    tut_cfg = bot_config.get("tutorial_guide", {})
+    return tut_cfg.get("button_text") or "📖 How to Open Link / Tutorial"
+
+def get_tutorial_inline_button(bot_username: str = "") -> InlineKeyboardButton:
+    return InlineKeyboardButton(get_tutorial_button_text(), url=get_tutorial_url(bot_username))
+
+async def send_tutorial_guide(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Render and send the custom tutorial guide to the user."""
+    tut_cfg = bot_config.get("tutorial_guide", {})
+    tut_text = tut_cfg.get("text", "").strip() or DEFAULT_TUTORIAL_TEXT
+    ext_url  = tut_cfg.get("external_url", "").strip()
+    
+    tut_text = inject_premium_emojis(tut_text)
+
+    buttons = []
+    if ext_url:
+        buttons.append([InlineKeyboardButton("🎥 Watch Video Tutorial", url=ext_url)])
+    
+    caller_id = update.effective_user.id if update.effective_user else 0
+    buttons.append([InlineKeyboardButton("🏠 Main Menu", callback_data=f"cfg|main||{caller_id}")])
+    
+    markup = InlineKeyboardMarkup(buttons)
+    
+    if update.callback_query:
+        try:
+            await update.callback_query.message.edit_text(tut_text, parse_mode="HTML", reply_markup=markup, disable_web_page_preview=True)
+        except Exception:
+            await update.callback_query.message.reply_text(tut_text, parse_mode="HTML", reply_markup=markup, disable_web_page_preview=True)
+    elif update.message:
+        await update.message.reply_text(tut_text, parse_mode="HTML", reply_markup=markup, disable_web_page_preview=True)
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if await _enforce_cooldown(update, context):
         return
@@ -1256,18 +1308,22 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
     chat = update.effective_chat
     
-    if context.args and context.args[0] == "request":
-        kb = ReplyKeyboardMarkup([
-            ["✦ sᴛᴀʀᴛ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ ✦"]
-        ], resize_keyboard=True, one_time_keyboard=True)
-        await update.message.reply_text(
-            "✦ <b>sᴛᴏʀʏ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ</b>\n\n"
-            "ᴡᴇʟᴄᴏᴍᴇ! ᴄʟɪᴄᴋ ᴛʜᴇ ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ ᴛᴏ sᴛᴀʀᴛ ꜰɪʟʟɪɴɢ ᴏᴜᴛ ʏᴏᴜʀ sᴛᴏʀʏ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ / "
-            "आपका स्वागत है! अपनी स्टोरी रिक्वेस्ट फ़ॉर्म भरने के लिए नीचे दिए गए बटन पर क्लिक करें:",
-            parse_mode="HTML",
-            reply_markup=kb
-        )
-        return
+    if context.args:
+        arg_lower = context.args[0].lower()
+        if arg_lower in ("guide", "tutorial", "help", "link_guide"):
+            return await send_tutorial_guide(update, context)
+        elif arg_lower == "request":
+            kb = ReplyKeyboardMarkup([
+                ["✦ sᴛᴀʀᴛ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ ✦"]
+            ], resize_keyboard=True, one_time_keyboard=True)
+            await update.message.reply_text(
+                "✦ <b>sᴛᴏʀʏ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ</b>\n\n"
+                "ᴡᴇʟᴄᴏᴍᴇ! ᴄʟɪᴄᴋ ᴛʜᴇ ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ ᴛᴏ sᴛᴀʀᴛ ꜰɪʟʟɪɴɢ ᴏᴜᴛ ʏᴏᴜʀ sᴛᴏʀʏ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ / "
+                "आपका स्वागत है! अपनी स्टोरी रिक्वेस्ट फ़ॉर्म भरने के लिए नीचे दिए गए बटन पर क्लिक करें:",
+                parse_mode="HTML",
+                reply_markup=kb
+            )
+            return
 
     lang = get_chat_lang(chat.id)
     caller_id = u.id
@@ -1332,7 +1388,7 @@ Riya v10
 """
 
     keyboard = [
-        [InlineKeyboardButton("How to use the bot", url="https://t.me/StoriesLinkopningguide")],
+        [get_tutorial_inline_button()],
         [InlineKeyboardButton("➦ Back to Menu", callback_data="cmd|start")],
     ]
     reply = await update.message.reply_text(text=text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
@@ -1371,7 +1427,7 @@ When the story gets uploaded, you will be notified automatically.
 """
 
     keyboard = [
-        [InlineKeyboardButton("How to use the bot", url="https://t.me/StoriesLinkopningguide")],
+        [get_tutorial_inline_button()],
         [InlineKeyboardButton("➦ Back to Menu", callback_data="cmd|start")],
     ]
     msg = await update.message.reply_text(text=text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
@@ -1513,7 +1569,7 @@ def _build_commands_page(page: int, admin: bool = False) -> tuple:
     markup = InlineKeyboardMarkup([
         nav_row,
         [
-            InlineKeyboardButton("📖 Tutorial Guide", url="https://t.me/StoriesLinkopningguide"),
+            get_tutorial_inline_button(),
             InlineKeyboardButton("✖ Close", callback_data="cmdmenu|close"),
         ],
     ])
@@ -2610,7 +2666,7 @@ async def request_story(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lang = get_chat_lang(chat.id)
         tutorial_kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("「 𝗥𝗲𝗾𝘂𝗲𝘀𝘁 𝗩𝗶𝗮 𝗗𝗠 」", url=form_url)],
-            [InlineKeyboardButton("「How to Use The Bot 」", url="https://t.me/StoriesLinkopningguide")]
+            [get_tutorial_inline_button()]
         ])
 
         if lang == "hi":
@@ -2672,7 +2728,7 @@ async def request_story(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not story_raw or len(story_raw) < 2:
         lang = get_chat_lang(update.effective_chat.id)
-        tutorial_kb = InlineKeyboardMarkup([[InlineKeyboardButton("「How to Use The Bot 」", url="https://t.me/StoriesLinkopningguide")]])
+        tutorial_kb = InlineKeyboardMarkup([[get_tutorial_inline_button()]])
         if lang == "hi":
             warn_text = "<b>✮ कृपया स्टोरी का सही नाम लिखें</b>\n\n<i>➔ उदाहरण:</i>\n▪ /request Vashikaran\n▪ /request Saaya Mastar"
         else:
@@ -3508,7 +3564,7 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if len(f"srch|{key}") <= 64:
                     keyboard.append([InlineKeyboardButton(s, callback_data=f"srch|{key}")])
             lang = get_chat_lang(update.effective_chat.id)
-            keyboard.append([InlineKeyboardButton("「How to Use The Bot 」", url="https://t.me/StoriesLinkopningguide")])
+            keyboard.append([get_tutorial_inline_button()])
             await _del_searching()
             no_msg = await msg.reply_text(
                 "✧ Did you mean one of these?" if lang != "hi" else "✧ क्या आप इनमें से कोई स्टोरी कहना चाहते थे?",
@@ -3524,7 +3580,7 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
             lang = get_chat_lang(update.effective_chat.id)
             tutorial_kb = InlineKeyboardMarkup([
                 [InlineKeyboardButton("📬 Request Story", switch_inline_query_current_chat=f"/request {query_text}")],
-                [InlineKeyboardButton("「How to Use The Bot 」", url="https://t.me/StoriesLinkopningguide")]
+                [get_tutorial_inline_button()]
             ])
             if lang == "hi":
                 not_found_text = (
@@ -3544,7 +3600,7 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
             no_msg = await msg.reply_text(
                 not_found_text, parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("「How to Use The Bot 」", url="https://t.me/StoriesLinkopningguide")]
+                    [get_tutorial_inline_button()]
                 ])
             )
             # React on the not-found message with a shrug/sad emoji
@@ -5316,10 +5372,13 @@ def _cfg_main_panel(caller_id: int, lang: str = "en") -> tuple:
         ],
         [
             InlineKeyboardButton("✦ Premium",     callback_data=f"cfg|premium_account||{caller_id}"),
-            InlineKeyboardButton("▤ Saved Posts", callback_data=f"cfg|savedposts||{caller_id}"),
+            InlineKeyboardButton("📖 Tutorial",    callback_data=f"cfg|tutorial_guide||{caller_id}"),
         ],
         [
+            InlineKeyboardButton("▤ Saved Posts", callback_data=f"cfg|savedposts||{caller_id}"),
             InlineKeyboardButton("↺ Refresh",     callback_data=f"cfg|main||{caller_id}"),
+        ],
+        [
             InlineKeyboardButton("✖ Close",       callback_data=f"cfg|close||{caller_id}"),
         ],
     ])
@@ -6686,6 +6745,78 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text("🔴 Premium userbot disconnected.", parse_mode="HTML")
         return
 
+    # ── Tutorial / Guide Config ───────────────────────────────────────────────
+    if section == "tutorial_guide":
+        tut_cfg  = bot_config.get("tutorial_guide", {})
+        tut_text = tut_cfg.get("text", "").strip()
+        btn_text = tut_cfg.get("button_text", "📖 How to Open Link / Tutorial")
+        ext_url  = tut_cfg.get("external_url", "").strip()
+        
+        bot_uname = (context.bot.username if context and context.bot else "") or "Riya_Stories_Bot"
+        deep_link = f"https://t.me/{bot_uname}?start=guide"
+        
+        preview_txt = tut_text[:200] + ("..." if len(tut_text) > 200 else "") if tut_text else "<i>(Using Default Riya Tutorial Text)</i>"
+        
+        text = (
+            "<b>📖 Tutorial & Guide Configuration</b>\n"
+            f"{_CFG_DIV}\n\n"
+            f"▪ <b>Button Label:</b> <code>{html.escape(btn_text)}</code>\n"
+            f"▪ <b>Deep Link:</b> <code>{deep_link}</code>\n"
+            f"▪ <b>External Video URL:</b> <code>{ext_url or 'None (Using Deep Link)'}</code>\n\n"
+            f"<b>Current Tutorial Content:</b>\n{preview_txt}\n\n"
+            "<i>This deep-link and button are automatically used in paid posts, story links, and search results!</i>"
+        )
+        markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton("✏️ Set Tutorial Text", callback_data=f"cfg|tut_text||{caller_id}")],
+            [InlineKeyboardButton("🏷️ Set Button Label", callback_data=f"cfg|tut_btnlabel||{caller_id}")],
+            [InlineKeyboardButton("🔗 Set External Video URL", callback_data=f"cfg|tut_url||{caller_id}")],
+            [InlineKeyboardButton("↺ Reset to Default", callback_data=f"cfg|tut_reset||{caller_id}")],
+            _cfg_nav(caller_id, back="main")
+        ])
+        await _edit_cfg(query, text, markup)
+        await query.answer()
+        return
+
+    if section == "tut_text":
+        context.chat_data["config_state"] = "waiting_tut_text"
+        await query.answer()
+        await query.message.reply_text(
+            "<b>📖 Set Custom Tutorial Text</b>\n\n"
+            "Send your formatted HTML tutorial text (e.g. how to open links, how to read paid stories, etc.):\n\n"
+            "<i>(Send <code>clear</code> to reset to default)</i>",
+            parse_mode="HTML"
+        )
+        return
+
+    if section == "tut_btnlabel":
+        context.chat_data["config_state"] = "waiting_tut_btnlabel"
+        await query.answer()
+        await query.message.reply_text(
+            "<b>🏷️ Set Tutorial Button Label</b>\n\n"
+            "Send the button label to display on posts (e.g. <code>📖 How to Open Link / Tutorial</code>):\n\n"
+            "<i>(Send <code>clear</code> to reset to default)</i>",
+            parse_mode="HTML"
+        )
+        return
+
+    if section == "tut_url":
+        context.chat_data["config_state"] = "waiting_tut_url"
+        await query.answer()
+        await query.message.reply_text(
+            "<b>🔗 Set External Video Tutorial URL</b>\n\n"
+            "Send an external video link or channel link (e.g. <code>https://t.me/YourGuideChannel</code>):\n\n"
+            "<i>(Send <code>clear</code> to use the bot's internal Deep-Link <code>https://t.me/BotUsername?start=guide</code>)</i>",
+            parse_mode="HTML"
+        )
+        return
+
+    if section == "tut_reset":
+        bot_config["tutorial_guide"] = {}
+        save_config(bot_config)
+        await query.answer("Tutorial reset to default!", show_alert=True)
+        query.data = f"cfg|tutorial_guide||{caller_id}"
+        return await handle_config_callback(update, context)
+
     # ── AI: Voice TTS key setters ────────────────────────────────────────────
     if section == "ai_sarvamkey":
         context.chat_data["config_state"] = "waiting_ai_sarvamkey"
@@ -7246,6 +7377,28 @@ async def handle_config_input(update: Update, context: ContextTypes.DEFAULT_TYPE
             context.chat_data.pop("config_state", None)
             context.chat_data.pop("prem_login_data", None)
             await msg_wait.edit_text(f"❌ 2FA verification failed: <code>{e}</code>", parse_mode="HTML")
+        return
+
+    # ── Tutorial / Guide Config Input Handlers ────────────────────────────────
+    if state in ("waiting_tut_text", "waiting_tut_btnlabel", "waiting_tut_url"):
+        tut_cfg = bot_config.get("tutorial_guide", {})
+        val = text.strip()
+        is_clear = val.lower() == "clear"
+
+        if state == "waiting_tut_text":
+            tut_cfg["text"] = "" if is_clear else val
+            action_text = "Tutorial text reset to default." if is_clear else "✅ Custom Tutorial guide text saved!"
+        elif state == "waiting_tut_btnlabel":
+            tut_cfg["button_text"] = "📖 How to Open Link / Tutorial" if is_clear else val
+            action_text = f"✅ Tutorial button label set to: <code>{html.escape(val)}</code>"
+        elif state == "waiting_tut_url":
+            tut_cfg["external_url"] = "" if is_clear else val
+            action_text = "External URL cleared. Using Bot Deep-Link!" if is_clear else f"✅ External video URL set to: <code>{html.escape(val)}</code>"
+
+        bot_config["tutorial_guide"] = tut_cfg
+        save_config(bot_config)
+        context.chat_data.pop("config_state", None)
+        await update.message.reply_text(f"<b>📖 Tutorial Config Updated</b>\n{action_text}", parse_mode="HTML")
         return
 
     if state == "waiting_sp_republish_dest":
@@ -8779,7 +8932,7 @@ async def check_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
 
         lang = get_chat_lang(chat.id)
-        tutorial_kb = InlineKeyboardMarkup([[InlineKeyboardButton("「How to Use The Bot 」", url="https://t.me/StoriesLinkopningguide")]])
+        tutorial_kb = InlineKeyboardMarkup([[get_tutorial_inline_button()]])
         if lang == "hi":
             warn = await cmd_msg.reply_text(
                 "कृपया /check <स्टोरी का नाम> का उपयोग करें या किसी संदेश का उत्तर दें।",
@@ -8819,7 +8972,7 @@ async def check_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         elif result["status"] == "not_found":
             lang = get_chat_lang(chat.id)
-            tutorial_kb = InlineKeyboardMarkup([[InlineKeyboardButton("「How to Use The Bot 」", url="https://t.me/StoriesLinkopningguide")]])
+            tutorial_kb = InlineKeyboardMarkup([[get_tutorial_inline_button()]])
             if lang == "hi":
                 resp = (
                     "<b>☆ स्टोरी नहीं मिली</b>\n\n"

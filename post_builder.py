@@ -201,18 +201,31 @@ def get_light_kb(data, is_alt=False):
         return None
     
     is_paid = data.get("is_paid", False)
-    second_btn_text = "ᴛᴜᴛᴏʀɪᴀʟ" if is_paid else "ʙᴀᴄᴋᴜᴘ"
+    if is_paid:
+        second_btn_text = "📖 ᴛᴜᴛᴏʀɪᴀʟ"
+        try:
+            from database import load_config
+            cfg = load_config()
+            tut_cfg = cfg.get("tutorial_guide", {})
+            ext_url = tut_cfg.get("external_url", "").strip()
+            bot_uname = data.get("bot_username", "") or cfg.get("bot_username", "Riya_Stories_Bot")
+            second_btn_url = ext_url if ext_url else f"https://t.me/{bot_uname}?start=guide"
+        except Exception:
+            second_btn_url = backup_link or "https://t.me/Riya_Stories_Bot?start=guide"
+    else:
+        second_btn_text = "ʙᴀᴄᴋᴜᴘ"
+        second_btn_url = backup_link or "https://t.me/Riya_Stories_Bot?start=guide"
     
     if is_alt:
         return InlineKeyboardMarkup([[
             InlineKeyboardButton("Mᴏʀᴇ ‽", url="https://t.me/StoriesLightX"),
-            InlineKeyboardButton(second_btn_text,   url=backup_link),
+            InlineKeyboardButton(second_btn_text,   url=second_btn_url),
         ]])
     
     play_text = "ʙᴜʏ ɴᴏᴡ" if is_paid else "ᴘʟᴀʏ ɴᴏᴡ"
     return InlineKeyboardMarkup([[
         InlineKeyboardButton(play_text, url=link),
-        InlineKeyboardButton(second_btn_text,   url=backup_link),
+        InlineKeyboardButton(second_btn_text,   url=second_btn_url),
     ]])
 
 # ── Light Pro helpers ──────────────────────────────────────────────────────────
@@ -360,18 +373,31 @@ def get_light_pro_kb(data, is_alt=False):
         return None
     
     is_paid = data.get("is_paid", False)
-    second_btn_text = "ᴛᴜᴛᴏʀɪᴀʟ" if is_paid else "ʙᴀᴄᴋᴜᴘ"
+    if is_paid:
+        second_btn_text = "📖 ᴛᴜᴛᴏʀɪᴀʟ"
+        try:
+            from database import load_config
+            cfg = load_config()
+            tut_cfg = cfg.get("tutorial_guide", {})
+            ext_url = tut_cfg.get("external_url", "").strip()
+            bot_uname = data.get("bot_username", "") or cfg.get("bot_username", "Riya_Stories_Bot")
+            second_btn_url = ext_url if ext_url else f"https://t.me/{bot_uname}?start=guide"
+        except Exception:
+            second_btn_url = backup_link or "https://t.me/Riya_Stories_Bot?start=guide"
+    else:
+        second_btn_text = "ʙᴀᴄᴋᴜᴘ"
+        second_btn_url = backup_link or "https://t.me/Riya_Stories_Bot?start=guide"
     
     if is_alt:
         return InlineKeyboardMarkup([[
             InlineKeyboardButton("Mᴏʀᴇ ‽", url="https://t.me/StoriesLightX"),
-            InlineKeyboardButton(second_btn_text,   url=backup_link),
+            InlineKeyboardButton(second_btn_text,   url=second_btn_url),
         ]])
     
     play_text = "ʙᴜʏ ɴᴏᴡ" if is_paid else "ᴘʟᴀʏ ɴᴏᴡ"
     return InlineKeyboardMarkup([[
         InlineKeyboardButton(play_text, url=link),
-        InlineKeyboardButton(second_btn_text,   url=backup_link),
+        InlineKeyboardButton(second_btn_text,   url=second_btn_url),
     ]])
 
 
