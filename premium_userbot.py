@@ -118,40 +118,53 @@ async def send_premium_reaction(chat_id: int, message_id: int, emoji_id: str) ->
 
 
 async def react_with_emoji(chat_id: int, message_id: int, emoji: str,
+                            custom_emoji_id: Optional[str] = None,
                             big: bool = True) -> bool:
     """
-    Send a standard emoji reaction via the premium userbot.
-    Premium account gives the full-screen 'big' animation.
-    Returns False (silently) if userbot is not in that chat or message is invalid.
+    Send an animated custom emoji reaction via the premium userbot.
+    Premium account renders animated custom emoji reactions for all users in the chat.
     """
     if not is_connected():
         return False
     try:
         from telethon.tl.functions.messages import SendReactionRequest
-        from telethon.tl.types import ReactionEmoji
+        from telethon.tl.types import ReactionEmoji, ReactionCustomEmoji
 
-        # Resolve peer — userbot must be a member of the chat
         peer = await _userbot_client.get_entity(int(chat_id))
+
+        if custom_emoji_id and str(custom_emoji_id).isdigit():
+            reaction_item = ReactionCustomEmoji(document_id=int(custom_emoji_id))
+        else:
+            custom_id = CUSTOM_EMOJI_MAP.get(emoji, CUSTOM_EMOJI_MAP.get("heart"))
+            if custom_id and custom_id.isdigit():
+                reaction_item = ReactionCustomEmoji(document_id=int(custom_id))
+            else:
+                reaction_item = ReactionEmoji(emoticon=emoji)
 
         await _userbot_client(SendReactionRequest(
             peer=peer,
             msg_id=message_id,
-            reaction=[ReactionEmoji(emoticon=emoji)],
+            reaction=[reaction_item],
             big=big,
         ))
-        logger.debug(f"[Premium] ✅ Big reaction '{emoji}' on msg {message_id}")
+        logger.debug(f"[Premium] ✅ Sent animated reaction on msg {message_id}")
         return True
 
     except Exception as e:
-        err = str(e).lower()
-        # These are expected when userbot is not in the chat — silent fallback
-        if any(k in err for k in ("invalid", "forbidden", "not found",
-                                   "peer", "access", "can't", "cannot",
-                                   "user not participant")):
-            logger.debug(f"[Premium] Reaction skipped (not in chat / invalid msg): {e}")
-        else:
-            logger.debug(f"[Premium] Reaction failed: {e}")
-        return False
+        try:
+            from telethon.tl.functions.messages import SendReactionRequest
+            from telethon.tl.types import ReactionEmoji
+            peer = await _userbot_client.get_entity(int(chat_id))
+            await _userbot_client(SendReactionRequest(
+                peer=peer,
+                msg_id=message_id,
+                reaction=[ReactionEmoji(emoticon=emoji)],
+                big=big,
+            ))
+            return True
+        except Exception as e2:
+            logger.debug(f"[Premium] Reaction failed: {e2}")
+            return False
 
 
 
