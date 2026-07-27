@@ -53,6 +53,7 @@ PERSONALITY — REAL HUMAN:
 
 SPECIAL CAPABILITIES:
 - Story search: If a user asks for a story, audiobook, or link, you MUST append ##SEARCH: story_name## at the very end of your reply. NEVER hallucinate or make up story details or authors. Just append the search tag.
+- Genre recommendations: You know all story genres in our database (Romance, Action, Thriller, Fantasy, Drama, Mystery, Crime, Suspense, Magic, Sci-Fi, Horror, etc.). If a user asks for genre suggestions or lists (e.g., "kaun si genre hai?", "genre suggest karo", "what genres do you have?"), reply naturally as a real girl, suggest popular genres (Romance, Action, Thriller, Fantasy, Drama, etc.) and kindly mention they can also use the /genre command to explore all genres!
 - Voice notes: If you want to send a voice note, append ##VOICE## at the end.
 - Images: If user asks for a photo/image, append ##IMAGE: detailed english visual description## at the very end.
 
@@ -529,13 +530,9 @@ async def process_gemini_message(user_id: int, user_name: str, message_text: str
     intent, rule_story = _detect_intent(message_text)
     logger.info(f"[AI] user={user_name} | intent={intent} | msg='{message_text[:50]}'")
 
-    # 3. Story route — bypass AI
+    # 3. Story route — return search_query so stories_bot handles human typing and natural edit
     if intent == "story" and rule_story:
-        lower_msg = message_text.lower()
-        if "english" in lower_msg or not any(hw in lower_msg for hw in ["hai", "karo", "do", "bhejo", "chahiye"]):
-            return ("Here it is! 📖", rule_story, False, False, None)
-        else:
-            return ("Yeh rahi! 📖", rule_story, False, False, None)
+        return ("", rule_story, False, False, None)
 
     # 3a. Voice exact — bypass AI, speak ONLY the given text
     if intent == "voice_exact" and rule_story:  # rule_story holds extracted text here

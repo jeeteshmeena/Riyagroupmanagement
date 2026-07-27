@@ -7510,42 +7510,77 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             # ── Story search ──────────────────────────────────────────────────
             if search_query:
-                # Use the proper search engine (handles case, aliases, fuzzy)
+                # Detect language (English vs Hinglish/Hindi)
+                lower_in = actual_input.lower()
+                is_english = "english" in lower_in or not any(w in lower_in for w in ["hai", "karo", "do", "bhejo", "chahiye", "main", "ko", "par", "se", "naam", "btao", "dhoondh"])
+
+                if is_english:
+                    init_text = f"Searching for <b>{html.escape(search_query)}</b> right now... Give me a second! 🌸"
+                else:
+                    init_text = f"Aapki story <b>{html.escape(search_query)}</b> main dhoondh rahi hoon... 1 sec! 🌸"
+
+                # Send initial human typing chat message
+                sent_msg = await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=init_text,
+                    parse_mode="HTML"
+                )
+
+                # Realistic human typing feel
+                await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+                await asyncio.sleep(1.8)
+
                 story_result = search_story_exact_or_alias(search_query)
                 if story_result:
                     link = story_result.get("link", "")
                     name = story_result.get("text") or story_result.get("name") or search_query
-                    eps  = story_result.get("episodes", "")
-                    eps_line = f"\n<i>Episodes: {eps}</i>" if eps else ""
-                    reply_text = (
-                        f"{reply_text}\n\n"
-                        f"╔══ <b>{html.escape(name)}</b> ══╗"
-                        f"{eps_line}\n"
-                        f"╚══ <a href='{link}'>📖 Yahan se suno/padho</a> ══╝"
-                    )
+                    if is_english:
+                        final_text = (
+                            f"Found it! Here is <b>{html.escape(name)}</b> ♡\n\n"
+                            f"Link: <a href='{link}'>Click Here to Listen/Read 🎧</a>\n\n"
+                            f"Enjoy listening! Let me know if you want another story 😊"
+                        )
+                    else:
+                        final_text = (
+                            f"Yeh lo! <b>{html.escape(name)}</b> dhoondh li hai maine ♡\n\n"
+                            f"Link: <a href='{link}'>Click Here to Listen/Read 🎧</a>\n\n"
+                            f"Enjoy karo! Agar koi aur story chahiye ho toh batana 😊"
+                        )
                 else:
                     suggestions = get_suggestions(search_query, limit=1)
                     if suggestions:
-                        sname  = suggestions[0]
-                        sres   = search_story_exact_or_alias(sname)
+                        sname = suggestions[0]
+                        sres  = search_story_exact_or_alias(sname)
                         if sres:
                             link = sres.get("link", "")
-                            reply_text = (
-                                f"{reply_text}\n\n"
-                                f"╔══ <b>{html.escape(sname)}</b> ══╗\n"
-                                f"<i>Exact match nahi, yeh sahi lahga?</i>\n"
-                                f"╚══ <a href='{link}'>📖 Yahan se suno/padho</a> ══╝"
-                            )
+                            if is_english:
+                                final_text = (
+                                    f"I couldn't find exact match for <b>{html.escape(search_query)}</b>, but did you mean <b>{html.escape(sname)}</b>? ♡\n\n"
+                                    f"Link: <a href='{link}'>Click Here to Listen/Read 🎧</a>"
+                                )
+                            else:
+                                final_text = (
+                                    f"Exact <b>{html.escape(search_query)}</b> toh nahi mili, par kya aap <b>{html.escape(sname)}</b> ki baat kar rahe the? ♡\n\n"
+                                    f"Link: <a href='{link}'>Click Here to Listen/Read 🎧</a>\n\n"
+                                    f"Ek baar check kar lo!"
+                                )
                         else:
-                            reply_text += (
-                                f"\n\n<i>◌ '{html.escape(search_query)}' abhi nahi hai — "
-                                f"/request se maang lo! 📩</i>"
-                            )
+                            if is_english:
+                                final_text = f"Aww, <b>{html.escape(search_query)}</b> is not available in our database yet 🙁\n\nYou can submit a request using <code>/request {html.escape(search_query)}</code>!"
+                            else:
+                                final_text = f"Aww, <b>{html.escape(search_query)}</b> abhi mere database mein nahi mili 🙁\n\nAap <code>/request {html.escape(search_query)}</code> karke request submit kar do, main try karungi jald add karne ki!"
                     else:
-                        reply_text += (
-                            f"\n\n<i>◌ '{html.escape(search_query)}' database mein nahi mili. "
-                            f"Spelling check karo ya /request karo</i>"
-                        )
+                        if is_english:
+                            final_text = f"Aww, <b>{html.escape(search_query)}</b> is not available in our database yet 🙁\n\nYou can submit a request using <code>/request {html.escape(search_query)}</code>!"
+                        else:
+                            final_text = f"Aww, <b>{html.escape(search_query)}</b> abhi mere database mein nahi mili 🙁\n\nAap <code>/request {html.escape(search_query)}</code> karke request submit kar do, main try karungi jald add karne ki!"
+
+                # Edit initial chat message with final natural reply
+                try:
+                    await sent_msg.edit_text(final_text, parse_mode="HTML", disable_web_page_preview=True)
+                except Exception:
+                    await context.bot.send_message(chat_id=update.effective_chat.id, text=final_text, parse_mode="HTML", disable_web_page_preview=True)
+                return
 
             # ── Session end ────────────────────────────────────────────────────
             if wants_stop:
@@ -8806,35 +8841,13 @@ def start_bot():
     init_search_index()
 
     async def _post_init(application):
-        try:
-            loop = asyncio.get_running_loop()
-            def _handle_asyncio_exception(loop, context):
-                exc = context.get("exception")
-                msg = context.get("message")
-                logger.warning(f"[Asyncio Exception Handler] Ignored background error: {exc or msg}")
-            loop.set_exception_handler(_handle_asyncio_exception)
-        except Exception:
-            pass
-
         if str(AUTO_SCAN).lower() == "true" and CHANNEL_ID:
             asyncio.create_task(auto_scan_loop(application.bot))
-        try:
-            asyncio.create_task(start_link_checker())
-        except Exception as _e:
-            logger.error(f"[Init] link_checker launch error: {_e}")
-        try:
-            asyncio.create_task(poll_timeout_manager(application))
-        except Exception as _e:
-            logger.error(f"[Init] poll_timeout launch error: {_e}")
-        try:
-            asyncio.create_task(schedule_loop_task(application))
-        except Exception as _e:
-            logger.error(f"[Init] schedule_loop launch error: {_e}")
-        try:
-            from plugins.ads_manager import auto_ads_loop_task
-            asyncio.create_task(auto_ads_loop_task(application))
-        except Exception as _e:
-            logger.error(f"[Init] auto_ads launch error: {_e}")
+        asyncio.create_task(start_link_checker())
+        asyncio.create_task(poll_timeout_manager(application))
+        asyncio.create_task(schedule_loop_task(application))
+        from plugins.ads_manager import auto_ads_loop_task
+        asyncio.create_task(auto_ads_loop_task(application))
 
         # ── Premium userbot auto-connect ──────────────────────────────────────
         p_cfg = bot_config.get("premium_account", {})
