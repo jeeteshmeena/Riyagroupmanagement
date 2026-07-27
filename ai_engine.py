@@ -75,7 +75,7 @@ PROVIDERS = {
     },
     "cerebras": {
         "name": "Cerebras",
-        "model": "llama3.1-8b",
+        "model": "llama-3.3-70b",
         "type": "openai_compat",
         "base_url": "https://api.cerebras.ai/v1",
         "env_key": "CEREBRAS_API_KEY",
@@ -266,13 +266,33 @@ async def _call_openai_compat(client, user_id: int, payload: str, model: str) ->
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages.extend(history)
     messages.append({"role": "user", "content": payload})
-    resp = await client.chat.completions.create(
-        model=model,
-        messages=messages,
-        temperature=0.78,
-        max_tokens=700,
-    )
-    return resp.choices[0].message.content.strip()
+
+    # Candidate models for fallback if requested model returns 404
+    candidates = [model]
+    if "cerebras" in str(client.base_url).lower():
+        candidates = [model, "llama-3.3-70b", "llama3.1-8b", "llama-3.1-8b"]
+        # Remove duplicates while preserving order
+        seen = set()
+        candidates = [m for m in candidates if not (m in seen or seen.add(m))]
+
+    last_err = None
+    for target_model in candidates:
+        try:
+            resp = await client.chat.completions.create(
+                model=target_model,
+                messages=messages,
+                temperature=0.78,
+                max_tokens=700,
+            )
+            return resp.choices[0].message.content.strip()
+        except Exception as e:
+            last_err = e
+            if "404" in str(e) or "model_not_found" in str(e):
+                continue
+            raise e
+    if last_err:
+        raise last_err
+    return ""
 
 async def _call_provider(pid: str, user_id: int, payload: str) -> Optional[str]:
     client = _clients.get(pid)
