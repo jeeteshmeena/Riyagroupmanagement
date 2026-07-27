@@ -3700,7 +3700,7 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard.append(action_row)
     keyboard.append([
         InlineKeyboardButton("🗑️ Delete", callback_data="delete"),
-        InlineKeyboardButton("📖 Tutorial", url=tut_url)
+        InlineKeyboardButton("Tutorial", url=tut_url)
     ])
 
     photo = result.get("photo") or result.get("image")
@@ -4414,7 +4414,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             action_row,
             [
                 InlineKeyboardButton("🗑️ Delete", callback_data="delete"),
-                InlineKeyboardButton("📖 Tutorial", url=tut_url)
+                InlineKeyboardButton("Tutorial", url=tut_url)
             ]
         ]
 

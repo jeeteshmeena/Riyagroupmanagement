@@ -202,7 +202,7 @@ def get_light_kb(data, is_alt=False):
     
     is_paid = data.get("is_paid", False)
     if is_paid:
-        second_btn_text = "📖 ᴛᴜᴛᴏʀɪᴀʟ"
+        second_btn_text = "ᴛᴜᴛᴏʀɪᴀʟ"
         try:
             from database import load_config
             cfg = load_config()
@@ -374,7 +374,7 @@ def get_light_pro_kb(data, is_alt=False):
     
     is_paid = data.get("is_paid", False)
     if is_paid:
-        second_btn_text = "📖 ᴛᴜᴛᴏʀɪᴀʟ"
+        second_btn_text = "ᴛᴜᴛᴏʀɪᴀʟ"
         try:
             from database import load_config
             cfg = load_config()
