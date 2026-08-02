@@ -48,11 +48,20 @@ def _extract_all_urls(text: str) -> list:
 
 def _is_nsfw(text: str) -> bool:
     t = text.lower()
-    return any(kw in t for kw in _NSFW_KEYWORDS)
+    # Replace witch variants ("chudail", "chudali", etc.) to prevent false positive match on "chudai"
+    t = re.sub(r'\bchudai[li]\w*', 'witch', t)
+    for kw in _NSFW_KEYWORDS:
+        if re.search(r"\b" + re.escape(kw) + r"\b", t):
+            return True
+    return False
 
 
-async def _take_action(context, chat_id: int, user, msg, reason: str):
+async def _take_action(context, chat_id: int, user, msg, reason: str, action_taken: str = "Message Deleted • User Muted"):
     """Delete message, permanently mute user, send alert."""
+    # Never act on system accounts (777000 / channel posts / bots)
+    if user.id in (777000, 1087742242, context.bot.id) or user.is_bot:
+        return
+
     # 1. Delete
     try:
         await msg.delete()
@@ -70,23 +79,32 @@ async def _take_action(context, chat_id: int, user, msg, reason: str):
 
     # 3. Alert
     try:
-        mention = f"<a href='tg://user?id={user.id}'>{user.first_name}</a>"
+        import html
+        mention = f"<a href='tg://user?id={user.id}'>{html.escape(user.first_name)}</a>"
+        alert_text = (
+            "<b>❈ 𝗦𝗲𝗰𝘂𝗿𝗶𝘁𝘆 𝗔𝗹𝗲𝗿𝘁</b>\n\n"
+            f"<b>𝗨𝘀𝗲𝗿</b>                ➠ {mention}\n"
+            f"<b>𝗧𝗲𝗹𝗲𝗴𝗿𝗮𝗺 𝗜𝗗</b>       ➠ <code>{user.id}</code>\n"
+            f"<b>𝗩𝗶𝗼𝗹𝗮𝘁𝗶𝗼𝗻 𝗥𝗲𝗮𝘀𝗼𝗻</b> ➠ {reason}\n\n"
+            f"<b>𝗔𝗰𝘁𝗶𝗼𝗻</b>             ➠ {action_taken}\n\n"
+            "If you believe this action was taken in error,\n"
+            "please contact an <b>administrator</b> using the button below."
+        )
+
+        admin_url = "https://t.me/ItsNewtonPlanet"
+        try:
+            from database import load_config
+            cfg = load_config()
+            admin_url = cfg.get("admin_contact", "https://t.me/ItsNewtonPlanet")
+        except Exception:
+            pass
+
         await context.bot.send_message(
             chat_id,
-            text=(
-                f"<b>» Security Alert</b>\n"
-                f"<code>──────────────────</code>\n"
-                f"<b>User  »</b> {mention}\n"
-                f"<b>ID     »</b> <code>{user.id}</code>\n"
-                f"<code>──────────────────</code>\n"
-                f"<b>Reason »</b> {reason}\n"
-                f"<code>──────────────────</code>\n"
-                f"<i>Message deleted · User muted\n"
-                f"If this was a mistake, contact admin via button below.</i>"
-            ),
+            text=alert_text,
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("Contact Admin", url="https://t.me/ItsNewtonPlanet")
+                InlineKeyboardButton("「 𝗖𝗼𝗻𝘁𝗮𝗰𝘁 𝗔𝗱𝗺𝗶𝗻 」", url=admin_url)
             ]])
         )
     except Exception as e:
@@ -103,6 +121,13 @@ async def strict_spam_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         if not msg or not chat or not user:
             return
         if chat.type not in ("group", "supergroup"):
+            return
+
+        # Skip Telegram System Accounts, Channel Linked Posts (777000), Bots, Admins & Creator
+        if user.id in (777000, 1087742242, context.bot.id) or user.is_bot:
+            return
+
+        if msg.is_automatic_forward or getattr(msg, "sender_chat", None):
             return
 
         chat_id = chat.id

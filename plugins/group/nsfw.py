@@ -66,9 +66,18 @@ async def nsfw_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         if not s.get("nsfw", True):
             return
 
-        # Skip admins and bots
+        user = update.effective_user
+        msg  = update.message
+        if not user or not msg:
+            return
+        if user.id in (777000, 1087742242, context.bot.id) or user.is_bot:
+            return
+        if msg.is_automatic_forward or getattr(msg, "sender_chat", None):
+            return
+
+        # Skip admins and creators
         try:
-            cm = await context.bot.get_chat_member(chat_id, update.effective_user.id)
+            cm = await context.bot.get_chat_member(chat_id, user.id)
             if cm.status in ("administrator", "creator"):
                 return
         except Exception:

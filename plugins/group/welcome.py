@@ -108,7 +108,7 @@ async def new_member_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             spam_indicators = [
                 r"t\.me/\+", r"t\.me/joinchat", r"bit\.ly", r"sliceurl", r"tinyurl", 
                 r"earn", r"money", r"crypto", r"free", r"porn", r"sex", r"xxx", r"nude",
-                r"chudai", r"randi", r"\+18", r"🔞"
+                r"\bchudai\b", r"\brandi\b", r"\+18", r"🔞"
             ]
             import re
             is_spam_name = False
