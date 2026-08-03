@@ -2,15 +2,13 @@
 ai_engine.py — Riya Bot Multi-Provider AI Engine
 =================================================
 Providers (in order of priority):
-  1. Gemini  (google.generativeai)
-  2. Cerebras (openai-compatible)
-  3. Together AI (openai-compatible)
-  4. OpenRouter (openai-compatible)
-  5. Mistral (openai-compatible)
+  1. Cerebras (openai-compatible)
+  2. Together AI (openai-compatible)
+  3. OpenRouter (openai-compatible)
+  4. Mistral (openai-compatible)
 
 - Primary + Backup model system
 - Per-provider ON/OFF toggle stored in config_db
-- Groq completely removed
 - Hindi & English optimized system prompt
 """
 import os
@@ -67,13 +65,6 @@ DO NOT:
 
 # ── Provider Configs ──────────────────────────────────────────────────────────
 PROVIDERS = {
-    "gemini": {
-        "name": "Google Gemini",
-        "model": "gemini-1.5-flash",
-        "type": "gemini",
-        "env_key": "GEMINI_API_KEY",
-        "free": True,
-    },
     "cerebras": {
         "name": "Cerebras",
         "model": "llama-3.3-70b",
@@ -162,26 +153,6 @@ def _default_ai_config() -> dict:
         cfg["backup"] = enabled[1]
     return cfg
 
-# ── Client init ───────────────────────────────────────────────────────────────
-def _init_gemini(api_key: str, model: str):
-    try:
-        import google.generativeai as genai
-        genai.configure(api_key=api_key)
-        gen_cfg = {
-            "temperature": 0.78, "top_p": 0.92, "top_k": 40,
-            "max_output_tokens": 700, "response_mime_type": "text/plain",
-        }
-        client = genai.GenerativeModel(
-            model_name=model,
-            generation_config=gen_cfg,
-            system_instruction=SYSTEM_PROMPT,
-        )
-        logger.info(f"✅ Gemini ready ({model})")
-        return client
-    except Exception as e:
-        logger.error(f"[AI] Gemini init failed: {e}")
-        return None
-
 def _init_openai_compat(api_key: str, base_url: str, name: str):
     try:
         from openai import AsyncOpenAI
@@ -227,10 +198,7 @@ def init_all():
         if not key:
             continue
         model = pcfg.get("model", info["model"])
-        if info["type"] == "gemini":
-            c = _init_gemini(key, model)
-        else:
-            c = _init_openai_compat(key, info["base_url"], info["name"])
+        c = _init_openai_compat(key, info["base_url"], info["name"])
         if c:
             _clients[pid] = c
 
@@ -252,16 +220,6 @@ def init_all():
     logger.info(f"[AI] Clients ready: {list(_clients.keys())} | Primary: {_ai_config.get('primary')} | Backup: {_ai_config.get('backup')}")
 
 # ── API Calls ─────────────────────────────────────────────────────────────────
-async def _call_gemini(client, user_id: int, payload: str) -> str:
-    history = _get_history(user_id)
-    gemini_history = [
-        {"role": "user" if t["role"] == "user" else "model", "parts": [t["content"]]}
-        for t in history
-    ]
-    chat = client.start_chat(history=gemini_history)
-    resp = await asyncio.to_thread(chat.send_message, payload)
-    return resp.text.strip()
-
 async def _call_openai_compat(client, user_id: int, payload: str, model: str) -> str:
     history = _get_history(user_id)
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
@@ -307,15 +265,12 @@ async def _call_provider(pid: str, user_id: int, payload: str) -> Optional[str]:
     client = _clients.get(pid)
     if not client:
         return None
-    info = PROVIDERS[pid]
-    # Always use PROVIDERS dict model as authoritative source
-    # (DB-stored model may be stale/wrong from a previous code version)
+    info = PROVIDERS.get(pid)
+    if not info:
+        return None
     model = info["model"]
     try:
-        if info["type"] == "gemini":
-            return await _call_gemini(client, user_id, payload)
-        else:
-            return await _call_openai_compat(client, user_id, payload, model)
+        return await _call_openai_compat(client, user_id, payload, model)
     except Exception as e:
         logger.warning(f"[AI] {pid} call failed: {e}")
         return None
@@ -685,97 +640,56 @@ def toggle_provider(pid: str, enabled: bool):
     _ai_config = cfg
     init_all()
 
-async def classify_content_with_gemini(text: str = None, photo_bytes: bytes = None) -> str:
+async def classify_content_with_ai(text: str = None, photo_bytes: bytes = None) -> str:
     """
-    Analyzes text or image bytes using the configured Gemini API key.
+    Analyzes text using the primary configured OpenAI-compatible AI provider.
     Returns: 'SPAM', 'NSFW', or 'CLEAN'.
     """
     cfg = get_ai_config()
-    gemini_cfg = cfg.get("providers", {}).get("gemini", {})
-    api_key = gemini_cfg.get("api_key", "").strip()
-    if not api_key:
-        import os
-        api_key = os.getenv("GEMINI_API_KEY", "").strip()
-
-    if not api_key:
-        logger.warning("[AI-Moderator] Gemini API Key not found for content classification!")
+    primary = cfg.get("primary")
+    if not primary or primary not in _clients:
         return "CLEAN"
 
+    client = _clients[primary]
+    info = PROVIDERS.get(primary, {})
+    model = info.get("model", "")
+
+    if not text or not text.strip():
+        return "CLEAN"
+
+    mod_sys_prompt = (
+        "You are a strict content moderator. "
+        "Analyze the message and reply with EXACTLY ONE word: 'SPAM', 'NSFW', or 'CLEAN'.\n"
+        "- SPAM: Advertisements, promo links, scams.\n"
+        "- NSFW: Pornography, explicit sexual content, nudity.\n"
+        "- CLEAN: Normal conversation."
+    )
+
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=api_key)
-
-        mod_sys_prompt = (
-            "You are a strict, precise content moderator for a Telegram group.\n"
-            "Analyze the user's message text or image content.\n"
-            "Respond with exactly one word: 'SPAM', 'NSFW', or 'CLEAN'.\n"
-            "Do not output any other text, markdown, explanation, or punctuation.\n\n"
-            "Definitions:\n"
-            "- SPAM: Any advertisements, promotional text, links (especially invite links, shorteners), selling/buying services, or cryptocurrency scams.\n"
-            "- NSFW: Pornographic, highly suggestive, explicit sexual content, nudity, or extreme vulgarity.\n"
-            "- CLEAN: Safe, normal friendly conversation, greeting, or legitimate user query."
+        resp = await client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": mod_sys_prompt},
+                {"role": "user", "content": text.strip()}
+            ],
+            temperature=0.0,
+            max_tokens=10,
         )
-
-        model_name = gemini_cfg.get("model", "gemini-2.5-flash")
-        if model_name == "gemini-1.5-flash":
-            model_name = "gemini-2.5-flash"
-        try:
-            mod_model = genai.GenerativeModel(
-                model_name=model_name,
-                system_instruction=mod_sys_prompt
-            )
-        except Exception:
-            mod_model = genai.GenerativeModel(
-                model_name="gemini-2.0-flash",
-                system_instruction=mod_sys_prompt
-            )
-
-        safety_settings = [
-            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-        ]
-
-        if photo_bytes:
-            contents = []
-            if text:
-                contents.append(text)
-            contents.append({'data': photo_bytes, 'mime_type': 'image/jpeg'})
-            resp = await asyncio.to_thread(mod_model.generate_content, contents, safety_settings=safety_settings)
-        else:
-            if not text or not text.strip():
-                return "CLEAN"
-            resp = await asyncio.to_thread(mod_model.generate_content, text.strip(), safety_settings=safety_settings)
-
-        try:
-            result = resp.text.strip().upper()
-        except ValueError as ve:
-            # If `resp.text` throws ValueError, it is usually blocked by safety ratings.
-            err_str = str(ve).lower()
-            if "safety" in err_str or "blocked" in err_str or "none was returned" in err_str:
-                logger.warning(f"[AI-Moderator] Gemini safety block triggered, returning NSFW. Details: {ve}")
-                return "NSFW"
-            raise ve
-
-        # Exact matching logic to avoid minor variation failures
-        if "SPAM" in result:
+        res = resp.choices[0].message.content.strip().upper()
+        if "SPAM" in res:
             return "SPAM"
-        elif "NSFW" in result:
+        elif "NSFW" in res:
             return "NSFW"
-        else:
-            return "CLEAN"
-
+        return "CLEAN"
     except Exception as e:
-        logger.error(f"[AI-Moderator] Gemini classification failed: {e}", exc_info=True)
-        # If the API blocked it at the root level, assume it's dangerous/NSFW.
-        if "safety" in str(e).lower() or "blocked" in str(e).lower():
-            return "NSFW"
-        return "CLEAN"  # Safe default on other errors
+        logger.warning(f"[AI-Moderator] Classification failed: {e}")
+        return "CLEAN"
 
-# ── Reinit shims (backward compat for stories_bot.py) ────────────────────────
+# Backward compatibility aliases
+classify_content_with_gemini = classify_content_with_ai
+
 def reinit_gemini(key: str):
-    set_provider_key("gemini", key, bool(key))
+    pass
 
 # ── Startup ─────────────────────────────────────────────────────────────
 if __name__ != "__main__":

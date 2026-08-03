@@ -8400,7 +8400,7 @@ async def guide_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "▸ /pb — Create &amp; publish posts\n"
             "▸ Config → 📑 Saved Posts — Re-publish old posts\n\n"
             "<b>◈ AI &amp; Voice</b>\n"
-            "▸ Config → 🤖 AI — Gemini / Cerebras / Together / OpenRouter / Mistral\n"
+            "▸ Config → 🤖 AI — Cerebras / Together / OpenRouter / Mistral\n"
             "▸ Voice model selection (male/female)\n\n"
             "<b>◈ Moderation</b>\n"
             "▸ /gban [user_id] — Global ban\n"

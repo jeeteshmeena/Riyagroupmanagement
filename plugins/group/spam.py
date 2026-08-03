@@ -164,7 +164,7 @@ async def strict_spam_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 )
                 return
 
-        # ── Check 3: AI Smart Moderation (Gemini-powered) ─────────────────────
+        # ── Check 3: AI Smart Moderation (AI-powered) ─────────────────────
         words_count = len(full_text.strip().split())
         # To optimize and avoid API overhead, we only scan messages containing 4 or more words
         if words_count >= 4:

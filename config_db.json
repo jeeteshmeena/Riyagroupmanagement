@@ -1,0 +1,37 @@
+{
+  "start_text": "",
+  "force_sub_channels": [],
+  "moderators": [],
+  "auto_delete": {},
+  "sources": [
+    -1002737616327,
+    -1003720660734
+  ],
+  "formats": {},
+  "ai_config": {
+    "primary": null,
+    "backup": null,
+    "providers": {
+      "cerebras": {
+        "enabled": false,
+        "api_key": "",
+        "model": "llama3.1-8b"
+      },
+      "together": {
+        "enabled": false,
+        "api_key": "",
+        "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free"
+      },
+      "openrouter": {
+        "enabled": false,
+        "api_key": "",
+        "model": "meta-llama/llama-3.1-8b-instruct:free"
+      },
+      "mistral": {
+        "enabled": false,
+        "api_key": "",
+        "model": "mistral-small-latest"
+      }
+    }
+  }
+}
