@@ -1250,13 +1250,16 @@ def _menu_lang(caller_id: int) -> tuple:
 
 
 DEFAULT_TUTORIAL_TEXT = (
-    "<b>📖 How to Use Riya Bot & Open Story Links</b>\n"
-    "━━━━━━━━━━━━━━━━━━━━\n\n"
-    "1️⃣ <b>Search Any Story:</b> Type the story name directly in chat (e.g. <i>Malang</i>, <i>Beggar Husband</i>).\n"
-    "2️⃣ <b>Listen / Read:</b> Click the story link provided by Riya to start listening.\n"
-    "3️⃣ <b>Genres:</b> Send <code>/genre</code> or ask Riya <i>'Romance genre ki story do'</i> for recommendations!\n"
-    "4️⃣ <b>Request Stories:</b> If a story is missing, use <code>/request Story Name</code>.\n\n"
-    "<i>Enjoy listening to your favorite stories! 🎧🌸</i>"
+    "<b>📖 How to Use Riya Bot & Open Story Links</b>\n\n"
+    "1️⃣ <b>Search Any Story</b>\n"
+    "Type the story name directly in chat (e.g. <b>Malang</b>, <b>Beggar Husband</b>).\n\n"
+    "2️⃣ <b>Listen / Read</b>\n"
+    "Click the story link provided by Riya to start listening immediately.\n\n"
+    "3️⃣ <b>Genres & Categories</b>\n"
+    "Send <code>/genre</code> or ask Riya <b>Romance genre ki story do</b> for recommendations!\n\n"
+    "4️⃣ <b>Request Missing Stories</b>\n"
+    "If a story is not available, use <code>/request Story Name</code> to request it.\n\n"
+    "Enjoy listening to your favorite stories! 🎧🌸"
 )
 
 def get_tutorial_url(bot_username: str = "") -> str:
@@ -1265,12 +1268,12 @@ def get_tutorial_url(bot_username: str = "") -> str:
     ext_url = tut_cfg.get("external_url", "").strip()
     if ext_url:
         return ext_url
-    uname = bot_username or (context.bot.username if 'context' in locals() and hasattr(context, 'bot') else "") or os.getenv("BOT_USERNAME", "") or "Riya_Stories_Bot"
+    uname = bot_username or bot_config.get("bot_username", "") or os.getenv("BOT_USERNAME", "") or "Riya_Stories_Bot"
     return f"https://t.me/{uname}?start=guide"
 
 def get_tutorial_button_text() -> str:
     tut_cfg = bot_config.get("tutorial_guide", {})
-    return tut_cfg.get("button_text") or "📖 How to Open Link / Tutorial"
+    return tut_cfg.get("button_text") or "Tutorial"
 
 def get_tutorial_inline_button(bot_username: str = "") -> InlineKeyboardButton:
     return InlineKeyboardButton(get_tutorial_button_text(), url=get_tutorial_url(bot_username))
@@ -1308,11 +1311,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
     chat = update.effective_chat
     
-    if context.args:
-        arg_lower = context.args[0].lower()
-        if arg_lower in ("guide", "tutorial", "help", "link_guide"):
+    # Extract deep link arguments safely from context.args or raw message text
+    args_list = list(context.args) if context and context.args else []
+    if not args_list and update.message and update.message.text:
+        parts = update.message.text.strip().split()
+        if len(parts) > 1:
+            args_list = parts[1:]
+
+    if args_list:
+        raw_param = args_list[0].strip().lower()
+        if raw_param.startswith("guide") or raw_param.startswith("tut") or raw_param in ("help", "link_guide"):
             return await send_tutorial_guide(update, context)
-        elif arg_lower == "request":
+        elif raw_param == "request":
             kb = ReplyKeyboardMarkup([
                 ["✦ sᴛᴀʀᴛ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ ✦"]
             ], resize_keyboard=True, one_time_keyboard=True)
@@ -6756,22 +6766,21 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
     if section == "tutorial_guide":
         tut_cfg  = bot_config.get("tutorial_guide", {})
         tut_text = tut_cfg.get("text", "").strip()
-        btn_text = tut_cfg.get("button_text", "📖 How to Open Link / Tutorial")
+        btn_text = tut_cfg.get("button_text", "Tutorial")
         ext_url  = tut_cfg.get("external_url", "").strip()
         
-        bot_uname = (context.bot.username if context and context.bot else "") or "Riya_Stories_Bot"
+        bot_uname = bot_config.get("bot_username", "") or (context.bot.username if context and context.bot else "") or "Riya_Stories_Bot"
         deep_link = f"https://t.me/{bot_uname}?start=guide"
         
-        preview_txt = tut_text[:200] + ("..." if len(tut_text) > 200 else "") if tut_text else "<i>(Using Default Riya Tutorial Text)</i>"
+        preview_txt = tut_text[:250] + ("..." if len(tut_text) > 250 else "") if tut_text else "(Using Default Riya Tutorial Text)"
         
         text = (
-            "<b>📖 Tutorial & Guide Configuration</b>\n"
-            f"{_CFG_DIV}\n\n"
-            f"▪ <b>Button Label:</b> <code>{html.escape(btn_text)}</code>\n"
-            f"▪ <b>Deep Link:</b> <code>{deep_link}</code>\n"
-            f"▪ <b>External Video URL:</b> <code>{ext_url or 'None (Using Deep Link)'}</code>\n\n"
+            "<b>📖 Tutorial & Guide Configuration</b>\n\n"
+            f"<b>Button Label:</b> <code>{html.escape(btn_text)}</code>\n"
+            f"<b>Deep Link:</b> <code>{deep_link}</code>\n"
+            f"<b>External Video URL:</b> <code>{ext_url or 'None (Using Deep Link)'}</code>\n\n"
             f"<b>Current Tutorial Content:</b>\n{preview_txt}\n\n"
-            "<i>This deep-link and button are automatically used in paid posts, story links, and search results!</i>"
+            "This deep-link and button are automatically used in paid posts, story links, and search results."
         )
         markup = InlineKeyboardMarkup([
             [InlineKeyboardButton("✏️ Set Tutorial Text", callback_data=f"cfg|tut_text||{caller_id}")],
