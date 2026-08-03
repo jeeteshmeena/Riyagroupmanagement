@@ -269,27 +269,26 @@ async def clean_broadcast_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
                 await status_msg.edit_text("❌ Telethon user session not authorized. Cannot scan history.")
                 return
 
-            try:
-                await status_msg.edit_text("🔍 Fetching Telegram channels to clean matching messages...")
-            except Exception:
-                pass
+            # Fetch dialogs to populate Telethon's internal entity cache
+            await status_msg.edit_text("🔍 Fetching Telegram dialogs to resolve channel links...")
+            await client.get_dialogs()
+            await status_msg.edit_text("🔍 Scanning channels to clean matching messages...")
 
             for cid in scan_chats:
                 parsed_chat, _ = _parse_chat_target(cid)
                 try:
                     entity = await client.get_entity(parsed_chat)
                     async for message in client.iter_messages(entity, limit=50):
-                        if not message or not message.date:
-                            continue
                         age_seconds = (datetime.now(timezone.utc) - message.date).total_seconds()
                         if age_seconds > seconds:
-                            break  # stop scanning older messages
+                            break # stop scanning older messages
 
                         match = False
                         if keyword:
                             if message.text and keyword.lower() in message.text.lower():
                                 match = True
                         else:
+                            # Fallback: identify Riya Bot posts by inline buttons
                             if message.reply_markup:
                                 btn_text = str(message.reply_markup).lower()
                                 if "play now" in btn_text or "backup" in btn_text or "more?" in btn_text:
@@ -299,27 +298,20 @@ async def clean_broadcast_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
                             try:
                                 await message.delete()
                                 success += 1
-                                await asyncio.sleep(0.1)  # small pause to respect Telegram rate limits
                             except Exception as del_err:
                                 logger.warning(f"Failed to delete message {message.id} in {cid} via Telethon: {del_err}")
                                 failed += 1
                 except Exception as ch_err:
                     logger.warning(f"Failed to scan/delete in {cid} via Telethon: {ch_err}")
         except Exception as client_err:
-            logger.error(f"Telethon client error during cleanup: {client_err}")
+            logger.error(f"Telethon client error: {client_err}")
         finally:
-            try:
-                await client.disconnect()
-            except Exception:
-                pass
+            await client.disconnect()
 
-    try:
-        await status_msg.edit_text(
-            f"🧹 <b>Cleanup Complete!</b>\n\n"
-            f"✔ Messages Deleted: <b>{success}</b>\n"
-            f"✘ Failed Deletions : <b>{failed}</b>",
-            parse_mode="HTML"
-        )
-    except Exception:
-        pass
+    await status_msg.edit_text(
+        f"🧹 <b>Cleanup Complete!</b>\n\n"
+        f"✔ Messages Deleted: <b>{success}</b>\n"
+        f"✘ Failed Deletions : <b>{failed}</b>",
+        parse_mode="HTML"
+    )
 
