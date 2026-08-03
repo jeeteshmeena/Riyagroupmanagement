@@ -1283,18 +1283,18 @@ async def send_tutorial_guide(update: Update, context: ContextTypes.DEFAULT_TYPE
     tut_cfg = bot_config.get("tutorial_guide", {})
     tut_text = tut_cfg.get("text", "").strip() or DEFAULT_TUTORIAL_TEXT
     ext_url  = tut_cfg.get("external_url", "").strip()
-    
+
     tut_text = inject_premium_emojis(tut_text)
 
     buttons = []
     if ext_url:
         buttons.append([InlineKeyboardButton("🎥 Watch Video Tutorial", url=ext_url)])
-    
+
     caller_id = update.effective_user.id if update.effective_user else 0
     buttons.append([InlineKeyboardButton("🏠 Main Menu", callback_data=f"cfg|main||{caller_id}")])
-    
+
     markup = InlineKeyboardMarkup(buttons)
-    
+
     if update.callback_query:
         try:
             await update.callback_query.message.edit_text(tut_text, parse_mode="HTML", reply_markup=markup, disable_web_page_preview=True)
@@ -1305,18 +1305,16 @@ async def send_tutorial_guide(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if await _enforce_cooldown(update, context):
-        return
-
     u = update.effective_user
     chat = update.effective_chat
-    
-    # Extract deep link arguments safely from context.args or raw message text
+
+    # ── Deep-link arg check FIRST — before any cooldown or maintenance gate ──
+    # Telegram sends ?start=guide as `/start guide`; context.args = ["guide"]
     args_list = list(context.args) if context and context.args else []
     if not args_list and update.message and update.message.text:
-        parts = update.message.text.strip().split()
+        parts = update.message.text.strip().split(maxsplit=1)
         if len(parts) > 1:
-            args_list = parts[1:]
+            args_list = [parts[1].strip()]
 
     if args_list:
         raw_param = args_list[0].strip().lower()
@@ -1334,6 +1332,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=kb
             )
             return
+
+    # Normal /start — apply cooldown gate only here
+    if await _enforce_cooldown(update, context):
+        return
 
     lang = get_chat_lang(chat.id)
     caller_id = u.id

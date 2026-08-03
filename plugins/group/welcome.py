@@ -38,17 +38,15 @@ def welcome_panel(chat_id: int) -> tuple:
     return text, markup
 
 
-DEFAULT_WELCOME_TEMPLATE = """♡ <b>𝗪𝗲'𝗿𝗲 𝗴𝗹𝗮𝗱 𝘁𝗼 𝗵𝗮𝘃𝗲 𝘆𝗼𝘂 𝗵𝗲𝗿𝗲</b>, {mention}.
+DEFAULT_WELCOME_TEMPLATE = """♡ <b>We're glad to have you here</b>, {mention}.
 
 Welcome to <b>{group_name}</b>, a community created for story lovers, readers, and listeners.
 
-Discover a growing collection of Free and Premium stories from leading storytelling platforms. Explore content across multiple genres and languages, with fresh stories added regularly for everyone to enjoy.
+<blockquote>Discover a growing collection of Free and Premium stories from leading storytelling platforms. Explore content across multiple genres and languages, with fresh stories added regularly for everyone to enjoy.</blockquote>
 
-Before getting started, please take a moment to review the community rules below.
+<blockquote expandable>Before getting started, please take a moment to review the community rules.
 
-❥ <b>𝗖𝗼𝗺𝗺𝘂𝗻𝗶𝘁𝘆 𝗥𝘂𝗹𝗲𝘀</b>
-
-<blockquote expandable>➠ Respect all members. Harassment, hate speech, discrimination, threats, bullying, personal attacks, and abusive behavior are strictly prohibited.
+➠ Respect all members. Harassment, hate speech, discrimination, threats, bullying, personal attacks, and abusive behavior are strictly prohibited.
 
 ➠ Spam, flooding, repetitive messages, excessive mentions, unsolicited advertisements, and other disruptive activities are not allowed.
 
@@ -68,19 +66,19 @@ Before getting started, please take a moment to review the community rules below
 
 <u>L̲o̲o̲k̲i̲n̲g̲ ̲f̲o̲r̲ ̲t̲h̲e̲ ̲u̲l̲t̲i̲m̲a̲t̲e̲ ̲s̲t̲o̲r̲y̲ ̲m̲a̲r̲k̲e̲t̲p̲l̲a̲c̲e̲?̲</u>
 
-<b>𝗔𝗿𝘆𝗮 𝗣𝗿𝗲𝗺𝗶𝘂𝗺</b> gives you instant access to 250+ premium stories from popular platforms—all in one place at affordable prices.
+<b>Arya Premium</b> gives you instant access to 250+ premium stories from popular platforms—all in one place at affordable prices.
 
-➠ <b>𝗟𝗶𝗳𝗲𝘁𝗶𝗺𝗲 𝗔𝗰𝗰𝗲𝘀𝘀</b> (T&C Apply)
+➠ <b>Lifetime Access</b> (T&C Apply)
 
-➠ <b>𝗙𝗼𝗿𝘄𝗮𝗿𝗱𝗶𝗻𝗴 & 𝗗𝗼𝘄𝗻𝗹𝗼𝗮𝗱 𝗔𝗹𝗹𝗼𝘄𝗲𝗱</b> • <b>𝗛𝗶𝗴𝗵-𝗤𝘂𝗮𝗹𝗶𝘁𝘆 𝗔𝘂𝗱𝗶𝗼</b>
+➠ <b>Forwarding & Download Allowed</b> • <b>High-Quality Audio</b>
 
-➠ <b>𝗦𝗺𝗼𝗼𝘁𝗵 & 𝗦𝗲𝗰𝘂𝗿𝗲 𝗣𝗮𝘆𝗺𝗲𝗻𝘁𝘀</b> via UPI, Cards & International Payment Methods
+➠ <b>Smooth & Secure Payments</b> via UPI, Cards & International Payment Methods
 
-➠ <b>𝟮𝟱𝟬+ 𝗦𝘁𝗼𝗿𝗶𝗲𝘀</b> • <b>𝗠𝘂𝗹𝘁𝗶𝗽𝗹𝗲 𝗚𝗲𝗻𝗿𝗲𝘀</b> • <b>𝗠𝘂𝗹𝘁𝗶𝗽𝗹𝗲 𝗟𝗮𝗻𝗴𝘂𝗮𝗴𝗲𝘀</b>
+➠ <b>250+ Stories</b> • <b>Multiple Genres</b> • <b>Multiple Languages</b>
 
 Tap the Open AP button below to browse the marketplace, explore the complete collection, and purchase your favorite stories in just a few taps.
 
-♡ <b>𝗘𝗻𝗷𝗼𝘆 𝘆𝗼𝘂𝗿 𝘀𝘁𝗮𝘆 𝗮𝗻𝗱 𝗵𝗮𝗽𝗽𝘆 𝗹𝗶𝘀𝘁𝗲𝗻𝗶𝗻𝗴!</b>"""
+♡ <b>Enjoy your stay and happy listening!</b>"""
 
 DEFAULT_WELCOME_MARKUP = InlineKeyboardMarkup([
     [
