@@ -1268,7 +1268,7 @@ def get_tutorial_url(bot_username: str = "") -> str:
     ext_url = tut_cfg.get("external_url", "").strip()
     if ext_url:
         return ext_url
-    uname = bot_username or bot_config.get("bot_username", "") or os.getenv("BOT_USERNAME", "") or "Riya_Stories_Bot"
+    uname = bot_username or bot_config.get("bot_username", "") or os.getenv("BOT_USERNAME", "") or "StoriesFinderBot"
     return f"https://t.me/{uname}?start=guide"
 
 def get_tutorial_button_text() -> str:
@@ -6771,7 +6771,7 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
         btn_text = tut_cfg.get("button_text", "Tutorial")
         ext_url  = tut_cfg.get("external_url", "").strip()
         
-        bot_uname = bot_config.get("bot_username", "") or (context.bot.username if context and context.bot else "") or "Riya_Stories_Bot"
+        bot_uname = bot_config.get("bot_username", "") or (context.bot.username if context and context.bot else "") or "StoriesFinderBot"
         deep_link = f"https://t.me/{bot_uname}?start=guide"
         
         preview_txt = tut_text[:250] + ("..." if len(tut_text) > 250 else "") if tut_text else "(Using Default Riya Tutorial Text)"
