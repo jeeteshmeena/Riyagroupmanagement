@@ -361,9 +361,11 @@ voting_queue = voting_db.get("queue", [])
 # active_polls: {poll_id: {message_id, chat_id, options, votes, created_at}}
 active_polls = voting_db.get("polls", {})
 
-VOTING_THRESHOLD = 5 # 5 votes to win
-VOTING_SIZE_FOR_POLL = 10 # 10 unique stories to start a poll
-POLL_TIMEOUT_SEC = 86400 # 24 hours
+VOTING_THRESHOLD = 5  # 5 votes to win
+_poll_cfg            = bot_config.get("poll_settings", {})
+VOTING_SIZE_FOR_POLL = int(_poll_cfg.get("request_limit", 10))   # stories needed to trigger a poll
+POLL_TIMEOUT_SEC     = int(_poll_cfg.get("poll_duration_hours", 24)) * 3600  # poll closes after N hours
+POLL_CHANNEL         = str(_poll_cfg.get("poll_channel", "")).strip()  # channel where poll is posted
 
 _maint_cfg = bot_config.get("maintenance", {})
 if _maint_cfg.get("enabled") and (_maint_cfg.get("until", 0) == 0 or _maint_cfg.get("until", 0) > time.time()):
@@ -3069,8 +3071,26 @@ async def trigger_community_poll(context: ContextTypes.DEFAULT_TYPE, chat_id: in
         seen.add(opt)
         options.append(opt)
     
-    # Send poll to the public channel directly
-    target_chat = -1003097953020
+    # Send poll to the configured poll channel
+    _pc_raw = bot_config.get("poll_settings", {}).get("poll_channel", "") or POLL_CHANNEL
+    if not _pc_raw:
+        await log(context, "POLL SKIPPED | poll_channel not configured in Poll Settings")
+        voting_queue = to_poll + voting_queue
+        save_voting_db({"queue": voting_queue, "polls": active_polls})
+        if ADMIN_ID:
+            try:
+                await context.bot.send_message(
+                    chat_id=ADMIN_ID,
+                    text="<b>Poll Settings</b>\n\nPoll channel is not configured. Please set it via /config → Poll Settings.",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
+        return
+    try:
+        target_chat = int(_pc_raw)
+    except (ValueError, TypeError):
+        target_chat = _pc_raw  # username like @channelname
     
     try:
         poll_msg = await context.bot.send_poll(
@@ -3163,37 +3183,23 @@ async def _declare_poll_winner(context, poll_id, winner_idx):
     except Exception:
         pass
 
-    # Announce winner — bilingual collapsible blockquote
+    # Announce winner — clean, no emojis
     win_text = (
-        f"🎊 <b>Community Voting Result / कम्युनिटी वोटिंग रिजल्ट</b>\n\n"
-        f"<b>𝐒𝐭𝐨𝐫𝐲 𝐀𝐩𝐩𝐫𝐨𝐯𝐞𝐝 ✅</b>\n"
-        f"<b>अप्रूव्ड स्टोरी:</b> <i>{html.escape(winner_name)}</i>\n\n"
+        f"<b>❈ Community Voting Result</b>\n\n"
+        f"<b>Story Approved</b>\n\n"
+        f"<b>Story Name</b>    ➠ {html.escape(winner_name)}\n\n"
         f"<blockquote expandable>"
-        f"🇬🇧 <b>English:</b>\n"
-        f"This story has been approved by community voting and will be prioritized for upload. "
-        f"Please note: community voting does not guarantee 100% availability — it only means the story will be searched for first. "
-        f"If found, it will be uploaded soon. Please wait patiently. 🙏\n\n"
-        f"🇮🇳 <b>हिन्दी:</b>\n"
-        f"यह स्टोरी कम्युनिटी वोटिंग द्वारा अप्रूव की गई है और इसे अपलोड के लिए प्राथमिकता दी जाएगी। "
-        f"ध्यान दें: कम्युनिटी वोटिंग 100% उपलब्धता की गारंटी नहीं देती — इसका मतलब सिर्फ यह है कि इस स्टोरी को पहले खोजा जाएगा। "
-        f"अगर मिली, तो जल्द अपलोड कर दी जाएगी। कृपया धैर्य रखें। 🙏"
+        f"This story has been approved by community voting and will be prioritized for upload.\n\n"
+        f"Please note: community voting does not guarantee 100% availability. "
+        f"It means the story will be searched for first. If found, it will be uploaded as soon as possible. "
+        f"Please wait patiently.\n\n"
+        f"यह स्टोरी कम्युनिटी वोटिंग द्वारा अप्रूव की गई है और इसे अपलोड के लिए प्राथमिकता दी जाएगी।\n"
+        f"ध्यान दें: यह 100% उपलब्धता की गारंटी नहीं है। अगर मिली, तो जल्द अपलोड होगी। कृपया धैर्य रखें।"
         f"</blockquote>"
     )
     await context.bot.send_message(chat_id=chat_id, text=win_text, parse_mode="HTML")
 
-    # Notify request channel
-    if REQUEST_GROUP:
-        await context.bot.send_message(
-            chat_id=REQUEST_GROUP,
-            text=(
-                f"✅ <b>Story Approved via Community Voting</b>\n\n"
-                f"📖 <b>Story:</b> {html.escape(winner_name)}\n"
-                f"🗳 <b>Poll ID:</b> {poll_id}"
-            ),
-            parse_mode="HTML"
-        )
-
-    # Notify requesters with Riya-styled message using full clickable name
+    # Notify requesters — clean, no emojis
     requesters = poll_data.get("requesters", {}).get(winner_name, {})
     for rid_chat, uids in requesters.items():
         for uid in uids:
@@ -3202,11 +3208,10 @@ async def _declare_poll_winner(context, poll_id, winner_idx):
                 await context.bot.send_message(
                     chat_id=int(rid_chat),
                     text=(
-                        f"👋 {mention}, your requested story <b>𝘭𝘰𝘷𝘦 𝘳𝘦𝘷𝘦𝘯𝘨𝘦</b>... "
-                        f"actually: <b>{html.escape(winner_name)}</b> has been approved via community voting! "
-                        f"It will be uploaded soon. 🌸\n\n"
-                        f"<i>👋 {mention}, आपकी रिक्वेस्ट की हुई स्टोरी <b>{html.escape(winner_name)}</b> "
-                        f"कम्युनिटी वोटिंग द्वारा अप्रूव हो गई है! जल्द ही अपलोड होगी। 🌸</i>"
+                        f"<b>Story Request Update</b>\n\n"
+                        f"{mention}, the story you requested — "
+                        f"<b>{html.escape(winner_name)}</b> — has been approved via community voting.\n\n"
+                        f"It will be uploaded soon. Please wait patiently."
                     ),
                     parse_mode="HTML"
                 )
@@ -3256,48 +3261,30 @@ async def poll_timeout_manager(context: ContextTypes.DEFAULT_TYPE):
             winners = options_with_votes[:2]
             
             if winners:
-                winner_lines_en = ""
-                winner_lines_hi = ""
+                winner_lines = ""
                 for rank, (name, votes) in enumerate(winners, 1):
-                    winner_lines_en += f"🏆 <b>#{rank}</b>: <i>{html.escape(name)}</i> ({votes} votes)\n"
-                    winner_lines_hi += f"🏆 <b>#{rank}</b>: <i>{html.escape(name)}</i> ({votes} वोट)\n"
-                
+                    winner_lines += f"<b>#{rank}</b>  {html.escape(name)}  ({votes} votes)\n"
+
                 win_text = (
-                    f"🎊 <b>Community Voting Results / कम्युनिटी वोटिंग रिजल्ट</b>\n\n"
-                    f"<b>Top {len(winners)} Stories Approved ✅</b>\n\n"
-                    f"<blockquote expandable>\n"
-                    f"🇬🇧 <b>English Winners:</b>\n"
-                    f"{winner_lines_en}\n"
-                    f"These stories have been approved by community voting and will be prioritized for upload. "
-                    f"If found, they will be uploaded soon. Please wait patiently. 🙏\n\n"
-                    f"🇮🇳 <b>हिन्दी विजेता:</b>\n"
-                    f"{winner_lines_hi}\n"
-                    f"ये स्टोरीज़ कम्युनिटी वोटिंग द्वारा अप्रूव की गई हैं और इन्हें अपलोड के लिए प्राथमिकता दी जाएगी। "
-                    f"अगर मिलीं, तो जल्द ही अपलोड कर दी जाएंगी। कृपया धैर्य रखें। 🙏\n"
+                    f"<b>❈ Community Voting Results</b>\n\n"
+                    f"<b>Approved Stories</b>\n\n"
+                    f"{winner_lines}\n"
+                    f"<blockquote expandable>"
+                    f"These stories have been approved by community voting and will be prioritized for upload.\n\n"
+                    f"Please note: community voting does not guarantee 100% availability. "
+                    f"It means these stories will be searched for first. If found, they will be uploaded as soon as possible. "
+                    f"Please wait patiently.\n\n"
+                    f"ये स्टोरीज़ कम्युनिटी वोटिंग द्वारा अप्रूव की गई हैं।\n"
+                    f"अगर मिलीं, तो जल्द अपलोड होंगी। कृपया धैर्य रखें।"
                     f"</blockquote>"
                 )
                 try:
                     await context.bot.send_message(chat_id=data["chat_id"], text=win_text, parse_mode="HTML")
                 except Exception:
                     pass
-                
+
                 for name, votes in winners:
-                    # Notify REQUEST_GROUP
-                    if REQUEST_GROUP:
-                        try:
-                            await context.bot.send_message(
-                                chat_id=REQUEST_GROUP,
-                                text=(
-                                    f"✅ <b>Story Approved via Community Voting</b>\n\n"
-                                    f"📖 <b>Story:</b> {html.escape(name)}\n"
-                                    f"🗳 <b>Votes:</b> {votes}"
-                                ),
-                                parse_mode="HTML"
-                            )
-                        except Exception:
-                            pass
-                    
-                    # Notify requesters
+                    # Notify requesters — clean, no emojis
                     requesters = data.get("requesters", {}).get(name, {})
                     for rid_chat, uids in requesters.items():
                         for uid in uids:
@@ -3306,10 +3293,10 @@ async def poll_timeout_manager(context: ContextTypes.DEFAULT_TYPE):
                                 await context.bot.send_message(
                                     chat_id=int(rid_chat),
                                     text=(
-                                        f"👋 {mention}, your requested story <b>{html.escape(name)}</b> has been approved via community voting! "
-                                        f"It will be uploaded soon. 🌸\n\n"
-                                        f"<i>👋 {mention}, आपकी रिक्वेस्ट की हुई स्टोरी <b>{html.escape(name)}</b> "
-                                        f"कम्युनिटी वोटिंग द्वारा अप्रूव हो गई है! जल्द ही अपलोड होगी। 🌸</i>"
+                                        f"<b>Story Request Update</b>\n\n"
+                                        f"{mention}, the story you requested — "
+                                        f"<b>{html.escape(name)}</b> — has been approved via community voting.\n\n"
+                                        f"It will be uploaded soon. Please wait patiently."
                                     ),
                                     parse_mode="HTML"
                                 )
@@ -5390,12 +5377,15 @@ def _cfg_main_panel(caller_id: int, lang: str = "en") -> tuple:
             InlineKeyboardButton("◎ AI & Voice",  callback_data=f"cfg|aiconfig||{caller_id}"),
         ],
         [
-            InlineKeyboardButton("✦ Premium",     callback_data=f"cfg|premium_account||{caller_id}"),
-            InlineKeyboardButton("📖 Tutorial",    callback_data=f"cfg|tutorial_guide||{caller_id}"),
+            InlineKeyboardButton("✦ Premium",      callback_data=f"cfg|premium_account||{caller_id}"),
+            InlineKeyboardButton("📖 Tutorial",     callback_data=f"cfg|tutorial_guide||{caller_id}"),
         ],
         [
-            InlineKeyboardButton("▤ Saved Posts", callback_data=f"cfg|savedposts||{caller_id}"),
-            InlineKeyboardButton("↺ Refresh",     callback_data=f"cfg|main||{caller_id}"),
+            InlineKeyboardButton("📊 Poll Settings", callback_data=f"cfg|poll_settings||{caller_id}"),
+            InlineKeyboardButton("▤ Saved Posts",   callback_data=f"cfg|savedposts||{caller_id}"),
+        ],
+        [
+            InlineKeyboardButton("↺ Refresh",       callback_data=f"cfg|main||{caller_id}"),
         ],
         [
             InlineKeyboardButton("✖ Close",       callback_data=f"cfg|close||{caller_id}"),
@@ -6795,6 +6785,81 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
         await query.answer()
         return
 
+    # ── Poll Settings Config ──────────────────────────────────────────────────
+    if section == "poll_settings":
+        ps = bot_config.get("poll_settings", {})
+        pc = ps.get("poll_channel", "")
+        rl = int(ps.get("request_limit", 10))
+        pd_h = int(ps.get("poll_duration_hours", 24))
+        text = (
+            "<b>📊 Poll Settings</b>\n\n"
+            f"<b>Poll Channel:</b> <code>{html.escape(str(pc)) if pc else 'Not Set'}</code>\n"
+            f"<b>Request Limit:</b> <code>{rl}</code> stories\n"
+            f"<b>Poll Duration:</b> <code>{pd_h}</code> hours\n\n"
+            "Changes take effect from the next poll."
+        )
+        markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📢 Set Poll Channel",   callback_data=f"cfg|ps_channel||{caller_id}")],
+            [InlineKeyboardButton("🔢 Set Request Limit",  callback_data=f"cfg|ps_limit||{caller_id}")],
+            [InlineKeyboardButton("⏱ Set Poll Duration",  callback_data=f"cfg|ps_duration||{caller_id}")],
+            [InlineKeyboardButton("↺ Reset to Default",   callback_data=f"cfg|ps_reset||{caller_id}")],
+            _cfg_nav(caller_id, back="main")
+        ])
+        await _edit_cfg(query, text, markup)
+        await query.answer()
+        return
+
+    if section == "ps_channel":
+        context.chat_data["config_state"] = "waiting_ps_channel"
+        await query.answer()
+        await query.message.reply_text(
+            "<b>Set Poll Channel</b>\n\n"
+            "Send the channel ID (e.g. <code>-1001234567890</code>) or username (e.g. <code>@channelname</code>) "
+            "where community polls should be posted.\n\n"
+            "Send <code>clear</code> to remove the current channel.",
+            parse_mode="HTML"
+        )
+        return
+
+    if section == "ps_limit":
+        context.chat_data["config_state"] = "waiting_ps_limit"
+        await query.answer()
+        await query.message.reply_text(
+            "<b>Set Request Limit</b>\n\n"
+            "Send the number of unique story requests required before a community poll is triggered.\n"
+            "Default is <code>10</code>.\n\n"
+            "Send <code>clear</code> to reset to default (10).",
+            parse_mode="HTML"
+        )
+        return
+
+    if section == "ps_duration":
+        context.chat_data["config_state"] = "waiting_ps_duration"
+        await query.answer()
+        await query.message.reply_text(
+            "<b>Set Poll Duration</b>\n\n"
+            "Send the number of <b>hours</b> a poll should remain open before it closes automatically.\n"
+            "Default is <code>24</code> hours.\n\n"
+            "Send <code>clear</code> to reset to default (24 hours).",
+            parse_mode="HTML"
+        )
+        return
+
+    if section == "ps_reset":
+        ps = bot_config.get("poll_settings", {})
+        ps.update({"request_limit": 10, "poll_duration_hours": 24})
+        bot_config["poll_settings"] = ps
+        save_config(bot_config)
+        global VOTING_SIZE_FOR_POLL, POLL_TIMEOUT_SEC
+        VOTING_SIZE_FOR_POLL = 10
+        POLL_TIMEOUT_SEC = 86400
+        await query.answer("Reset to defaults.", show_alert=True)
+        await _edit_cfg(query,
+            "<b>📊 Poll Settings</b>\n\nReset to defaults: Limit = 10, Duration = 24 hours.",
+            InlineKeyboardMarkup([_cfg_nav(caller_id, back="poll_settings")])
+        )
+        return
+
     if section == "tut_text":
         context.chat_data["config_state"] = "waiting_tut_text"
         await query.answer()
@@ -7397,6 +7462,42 @@ async def handle_config_input(update: Update, context: ContextTypes.DEFAULT_TYPE
             await msg_wait.edit_text(f"❌ 2FA verification failed: <code>{e}</code>", parse_mode="HTML")
         return
 
+    # ── Poll Settings Input Handlers ──────────────────────────────────────────
+    if state in ("waiting_ps_channel", "waiting_ps_limit", "waiting_ps_duration"):
+        global VOTING_SIZE_FOR_POLL, POLL_TIMEOUT_SEC, POLL_CHANNEL
+        ps = bot_config.get("poll_settings", {})
+        val = text.strip()
+        is_clear = val.lower() == "clear"
+
+        if state == "waiting_ps_channel":
+            ps["poll_channel"] = "" if is_clear else val
+            POLL_CHANNEL = "" if is_clear else val
+            action_text = "Poll channel cleared." if is_clear else f"Poll channel set to: <code>{html.escape(val)}</code>"
+        elif state == "waiting_ps_limit":
+            try:
+                lim = max(2, int(val)) if not is_clear else 10
+                ps["request_limit"] = lim
+                VOTING_SIZE_FOR_POLL = lim
+                action_text = f"Request limit set to <code>{lim}</code> stories." if not is_clear else "Request limit reset to <code>10</code>."
+            except ValueError:
+                await update.message.reply_text("Invalid number. Send a valid integer (e.g. 10).", parse_mode="HTML")
+                return
+        elif state == "waiting_ps_duration":
+            try:
+                hrs = max(1, int(val)) if not is_clear else 24
+                ps["poll_duration_hours"] = hrs
+                POLL_TIMEOUT_SEC = hrs * 3600
+                action_text = f"Poll duration set to <code>{hrs}</code> hours." if not is_clear else "Poll duration reset to <code>24</code> hours."
+            except ValueError:
+                await update.message.reply_text("Invalid number. Send hours as an integer (e.g. 24).", parse_mode="HTML")
+                return
+
+        bot_config["poll_settings"] = ps
+        save_config(bot_config)
+        context.chat_data.pop("config_state", None)
+        await update.message.reply_text(f"<b>📊 Poll Settings Updated</b>\n\n{action_text}", parse_mode="HTML")
+        return
+
     # ── Tutorial / Guide Config Input Handlers ────────────────────────────────
     if state in ("waiting_tut_text", "waiting_tut_btnlabel", "waiting_tut_url"):
         tut_cfg = bot_config.get("tutorial_guide", {})
@@ -7407,7 +7508,7 @@ async def handle_config_input(update: Update, context: ContextTypes.DEFAULT_TYPE
             tut_cfg["text"] = "" if is_clear else val
             action_text = "Tutorial text reset to default." if is_clear else "✅ Custom Tutorial guide text saved!"
         elif state == "waiting_tut_btnlabel":
-            tut_cfg["button_text"] = "📖 How to Open Link / Tutorial" if is_clear else val
+            tut_cfg["button_text"] = "Tutorial" if is_clear else val
             action_text = f"✅ Tutorial button label set to: <code>{html.escape(val)}</code>"
         elif state == "waiting_tut_url":
             tut_cfg["external_url"] = "" if is_clear else val
