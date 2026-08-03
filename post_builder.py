@@ -211,10 +211,10 @@ def get_light_kb(data, is_alt=False):
             bot_uname = data.get("bot_username", "") or cfg.get("bot_username", "Riya_Stories_Bot")
             second_btn_url = ext_url if ext_url else f"https://t.me/{bot_uname}?start=guide"
         except Exception:
-            second_btn_url = backup_link or "https://t.me/Riya_Stories_Bot?start=guide"
+            second_btn_url = backup_link or "https://t.me/StoriesFinderBot?start=guide"
     else:
         second_btn_text = "ʙᴀᴄᴋᴜᴘ"
-        second_btn_url = backup_link or "https://t.me/Riya_Stories_Bot?start=guide"
+        second_btn_url = backup_link or "https://t.me/StoriesFinderBot?start=guide"
     
     if is_alt:
         return InlineKeyboardMarkup([[
@@ -383,10 +383,10 @@ def get_light_pro_kb(data, is_alt=False):
             bot_uname = data.get("bot_username", "") or cfg.get("bot_username", "Riya_Stories_Bot")
             second_btn_url = ext_url if ext_url else f"https://t.me/{bot_uname}?start=guide"
         except Exception:
-            second_btn_url = backup_link or "https://t.me/Riya_Stories_Bot?start=guide"
+            second_btn_url = backup_link or "https://t.me/StoriesFinderBot?start=guide"
     else:
         second_btn_text = "ʙᴀᴄᴋᴜᴘ"
-        second_btn_url = backup_link or "https://t.me/Riya_Stories_Bot?start=guide"
+        second_btn_url = backup_link or "https://t.me/StoriesFinderBot?start=guide"
     
     if is_alt:
         return InlineKeyboardMarkup([[
