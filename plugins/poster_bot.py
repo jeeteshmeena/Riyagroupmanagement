@@ -580,6 +580,15 @@ def build_poster_panel_markup(settings: Dict[str, Any], caller_id: int) -> tuple
     return text, InlineKeyboardMarkup(keyboard)
 
 
+async def _safe_edit_message_text(query, text: str, parse_mode: str = "HTML", reply_markup=None):
+    """Safely edit message text ignoring BadRequest 'Message is not modified' error."""
+    try:
+        await query.edit_message_text(text=text, parse_mode=parse_mode, reply_markup=reply_markup)
+    except Exception as e:
+        if "Message is not modified" not in str(e):
+            logger.warning(f"[PosterBot] Edit message error: {e}")
+
+
 async def handle_poster_callbacks(query, context: ContextTypes.DEFAULT_TYPE, parts: list, caller_id: int):
     """Handle all Poster Bot callback query interactions."""
     user = query.from_user
@@ -595,7 +604,7 @@ async def handle_poster_callbacks(query, context: ContextTypes.DEFAULT_TYPE, par
     # 1. Main Menu
     if action in ("main", "back"):
         text, markup = build_poster_panel_markup(settings, caller_id)
-        await query.edit_message_text(text=text, parse_mode="HTML", reply_markup=markup)
+        await _safe_edit_message_text(query, text=text, parse_mode="HTML", reply_markup=markup)
         return
 
     # 2. Toggle Status (ON/OFF)
@@ -606,7 +615,7 @@ async def handle_poster_callbacks(query, context: ContextTypes.DEFAULT_TYPE, par
         status_word = "Activated 🟢" if settings["active"] else "Paused 🔴"
         await query.answer(f"Poster Bot is now {status_word}!")
         text, markup = build_poster_panel_markup(settings, caller_id)
-        await query.edit_message_text(text=text, parse_mode="HTML", reply_markup=markup)
+        await _safe_edit_message_text(query, text=text, parse_mode="HTML", reply_markup=markup)
         return
 
     # 3. Post Now (Manual Trigger)
@@ -618,14 +627,15 @@ async def handle_poster_callbacks(query, context: ContextTypes.DEFAULT_TYPE, par
         else:
             await query.answer(f"❌ Post failed: {msg}", show_alert=True)
         text, markup = build_poster_panel_markup(settings, caller_id)
-        await query.edit_message_text(text=text, parse_mode="HTML", reply_markup=markup)
+        await _safe_edit_message_text(query, text=text, parse_mode="HTML", reply_markup=markup)
         return
 
     # 4. Target Channel Prompt
     if action == "ch_prompt":
         context.user_data["poster_waiting"] = "target_channel"
         markup = InlineKeyboardMarkup([[InlineKeyboardButton("« Cancel", callback_data=f"cfg|poster|main||{caller_id}")]])
-        await query.edit_message_text(
+        await _safe_edit_message_text(
+            query,
             "📢 <b>Set Target Channel</b>\n\n"
             "Please send the Telegram Channel ID or Username in chat.\n"
             "<i>Examples: <code>@my_stories_channel</code> or <code>-1001234567890</code></i>\n\n"
@@ -661,7 +671,8 @@ async def handle_poster_callbacks(query, context: ContextTypes.DEFAULT_TYPE, par
             ],
         ])
         cur = settings.get("interval_minutes", 30)
-        await query.edit_message_text(
+        await _safe_edit_message_text(
+            query,
             f"⏱ <b>Set Post Interval</b>\n"
             f"Current interval: <b>{cur} minutes</b>\n\n"
             f"Select a preset post interval or set custom minutes:",
@@ -679,13 +690,14 @@ async def handle_poster_callbacks(query, context: ContextTypes.DEFAULT_TYPE, par
         except Exception as e:
             await query.answer(f"Invalid interval: {e}", show_alert=True)
         text, markup = build_poster_panel_markup(settings, caller_id)
-        await query.edit_message_text(text=text, parse_mode="HTML", reply_markup=markup)
+        await _safe_edit_message_text(query, text=text, parse_mode="HTML", reply_markup=markup)
         return
 
     if action == "custom_int":
         context.user_data["poster_waiting"] = "custom_interval"
         markup = InlineKeyboardMarkup([[InlineKeyboardButton("« Cancel", callback_data=f"cfg|poster|main||{caller_id}")]])
-        await query.edit_message_text(
+        await _safe_edit_message_text(
+            query,
             "✏ <b>Set Custom Post Interval</b>\n\n"
             "Please send the post interval in <b>minutes</b> (e.g. <code>45</code> or <code>180</code>).",
             parse_mode="HTML",
@@ -713,7 +725,8 @@ async def handle_poster_callbacks(query, context: ContextTypes.DEFAULT_TYPE, par
             ],
         ])
         cur_h = settings.get("delete_delay_hours", 0)
-        await query.edit_message_text(
+        await _safe_edit_message_text(
+            query,
             f"🗑 <b>Set Auto-Delete Delay</b>\n"
             f"Current delete delay: <b>{cur_h} hours</b>\n\n"
             f"Select when published story posts should be automatically deleted from the channel:",
@@ -732,7 +745,7 @@ async def handle_poster_callbacks(query, context: ContextTypes.DEFAULT_TYPE, par
         except Exception as e:
             await query.answer(f"Invalid delay: {e}", show_alert=True)
         text, markup = build_poster_panel_markup(settings, caller_id)
-        await query.edit_message_text(text=text, parse_mode="HTML", reply_markup=markup)
+        await _safe_edit_message_text(query, text=text, parse_mode="HTML", reply_markup=markup)
         return
 
     # 7. Watermark Manager Panel
@@ -771,7 +784,8 @@ async def handle_poster_callbacks(query, context: ContextTypes.DEFAULT_TYPE, par
                 InlineKeyboardButton("« Back", callback_data=f"cfg|poster|main||{caller_id}"),
             ],
         ])
-        await query.edit_message_text(
+        await _safe_edit_message_text(
+            query,
             "🎨 <b>Watermark Manager</b>\n\n"
             f"▸ <b>Status:</b> <code>{'🟢 Enabled' if wm_enabled else '🔴 Disabled'}</code>\n"
             f"▸ <b>Position:</b> <code>{pos}</code>\n"
@@ -816,7 +830,8 @@ async def handle_poster_callbacks(query, context: ContextTypes.DEFAULT_TYPE, par
     if action == "wm_upload":
         context.user_data["poster_waiting"] = "watermark_png"
         markup = InlineKeyboardMarkup([[InlineKeyboardButton("« Cancel", callback_data=f"cfg|poster|wm_menu||{caller_id}")]])
-        await query.edit_message_text(
+        await _safe_edit_message_text(
+            query,
             "🖼 <b>Upload Watermark PNG File</b>\n\n"
             "Please send/upload the <b>PNG watermark image</b> in DM.\n"
             "<i>Transparent PNG images work best for watermarking.</i>",
@@ -844,7 +859,8 @@ async def handle_poster_callbacks(query, context: ContextTypes.DEFAULT_TYPE, par
                 InlineKeyboardButton("« Back", callback_data=f"cfg|poster|main||{caller_id}"),
             ],
         ])
-        await query.edit_message_text(
+        await _safe_edit_message_text(
+            query,
             "🍃 <b>MongoDB Connection Settings (READ-ONLY)</b>\n\n"
             f"▸ <b>Mongo URI:</b> <code>{html.escape(masked_uri)}</code>\n"
             f"▸ <b>Database Name:</b> <code>{html.escape(db_n)}</code>\n"
@@ -858,7 +874,8 @@ async def handle_poster_callbacks(query, context: ContextTypes.DEFAULT_TYPE, par
     if action == "mongo_uri_prompt":
         context.user_data["poster_waiting"] = "mongo_uri"
         markup = InlineKeyboardMarkup([[InlineKeyboardButton("« Cancel", callback_data=f"cfg|poster|mongo_menu||{caller_id}")]])
-        await query.edit_message_text(
+        await _safe_edit_message_text(
+            query,
             "🍃 <b>Set MongoDB Connection URI</b>\n\n"
             "Please send your MongoDB connection string (<code>MONGO_URI</code>) in chat.\n"
             "<i>Example: <code>mongodb+srv://user:password@cluster.mongodb.net</code></i>",
@@ -870,7 +887,8 @@ async def handle_poster_callbacks(query, context: ContextTypes.DEFAULT_TYPE, par
     if action == "mongo_db_prompt":
         context.user_data["poster_waiting"] = "database_name"
         markup = InlineKeyboardMarkup([[InlineKeyboardButton("« Cancel", callback_data=f"cfg|poster|mongo_menu||{caller_id}")]])
-        await query.edit_message_text(
+        await _safe_edit_message_text(
+            query,
             "🍃 <b>Set Database Name</b>\n\n"
             "Please send your MongoDB database name (e.g. <code>arya_premium</code>).",
             parse_mode="HTML",
@@ -883,7 +901,8 @@ async def handle_poster_callbacks(query, context: ContextTypes.DEFAULT_TYPE, par
         context.user_data["poster_waiting"] = "miniapp_url"
         markup = InlineKeyboardMarkup([[InlineKeyboardButton("« Cancel", callback_data=f"cfg|poster|main||{caller_id}")]])
         cur_url = settings.get("miniapp_url") or "Auto / Default"
-        await query.edit_message_text(
+        await _safe_edit_message_text(
+            query,
             "🔗 <b>Set MiniApp / Deep-Link URL</b>\n\n"
             f"Current Link: <code>{html.escape(str(cur_url))}</code>\n\n"
             "Send the custom Telegram MiniApp URL or Bot link for the inline button.\n"

@@ -270,6 +270,21 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def _safe_api_id(val) -> int:
+    try:
+        res = int(str(val).strip())
+        if res > 0:
+            return res
+    except Exception:
+        pass
+    return 6
+
+
+def _safe_api_hash(val) -> str:
+    s = str(val or "").strip()
+    return s if s else "eb06630096315a4d3563c4e6465e92d4"
+
+
 # -----------------------
 # Optional HTTP server (Render needs it for health checks; GCP VPS usually doesn't)
 # -----------------------
