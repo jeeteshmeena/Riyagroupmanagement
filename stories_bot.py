@@ -1339,11 +1339,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return await send_tutorial_guide(update, context)
         elif raw_param == "request":
             kb = ReplyKeyboardMarkup([
-                ["✦ sᴛᴀʀᴛ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ ✦"]
+                ["『 Start Request Form 』"]
             ], resize_keyboard=True, one_time_keyboard=True)
             await update.message.reply_text(
-                "✦ <b>sᴛᴏʀʏ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ</b>\n\n"
-                "ᴡᴇʟᴄᴏᴍᴇ! ᴄʟɪᴄᴋ ᴛʜᴇ ʙᴜᴛᴛᴏɴ ʙᴇʟᴏᴡ ᴛᴏ sᴛᴀʀᴛ ꜰɪʟʟɪɴɢ ᴏᴜᴛ ʏᴏᴜʀ sᴛᴏʀʏ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ / "
+                "『 <b>Start Request Form</b> 』\n\n"
+                "Welcome! Click the button below to start filling out your story request form / "
                 "आपका स्वागत है! अपनी स्टोरी रिक्वेस्ट फ़ॉर्म भरने के लिए नीचे दिए गए बटन पर क्लिक करें:",
                 parse_mode="HTML",
                 reply_markup=kb
@@ -2314,8 +2314,7 @@ async def start_request_form(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "◎ <b>𝗦𝗧𝗢𝗥𝗬 𝗥𝗘𝗤𝗨𝗘𝗦𝗧 𝗙𝗢𝗥𝗠</b>\n\n"
         "◈ Step 1: Story Name\n\n"
         "◑ Please enter the correct story name.\n\n"
-        "▸ You can type \"cancel\" anytime to exit.\n\n"
-        "━━━━━━━━━━━━━━━━━━"
+        "▸ You can type \"cancel\" anytime to exit."
     )
     await update.effective_chat.send_message(
         text=text, 
@@ -2343,8 +2342,7 @@ async def handle_req_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "◎ 𝗦𝗧𝗢𝗥𝗬 𝗥𝗘𝗤𝗨𝗘𝗦𝗧 𝗙𝗢𝗥𝗠\n\n"
         f"◈ Story Name: {html.escape(name_input)}\n\n"
-        "◑ Step 2: Select the platform.\n\n"
-        "━━━━━━━━━━━━━━━━━━"
+        "◑ Step 2: Select the platform."
     )
     await update.message.reply_text(text=text, parse_mode="HTML", reply_markup=kb)
     return REQ_PLATFORM
@@ -2374,8 +2372,7 @@ async def handle_req_platform(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text(
             "◎ 𝗦𝗧𝗢𝗥𝗬 𝗥𝗘𝗤𝗨𝗘𝗦𝗧 𝗙𝗢𝗥𝗠\n\n"
             "◈ Step 2: Custom Platform\n\n"
-            "◑ Please type the platform name manually:\n\n"
-            "━━━━━━━━━━━━━━━━━━",
+            "◑ Please type the platform name manually:",
             parse_mode="HTML",
             reply_markup=ReplyKeyboardRemove()
         )
@@ -2397,8 +2394,7 @@ async def handle_req_platform(update: Update, context: ContextTypes.DEFAULT_TYPE
         f"◈ Platform: {html.escape(matched_plat)}\n\n"
         "◑ Step 3: Upload the story image.\n\n"
         "▸ This step is mandatory.\n\n"
-        "⧉ Send it as a standard photo, not as a document.\n\n"
-        "━━━━━━━━━━━━━━━━━━"
+        "⧉ Send it as a standard photo, not as a document."
     )
     await update.message.reply_text(text=prompt_text, parse_mode="HTML", reply_markup=ReplyKeyboardRemove())
     return REQ_IMAGE
@@ -2419,8 +2415,7 @@ async def handle_req_cust_platform(update: Update, context: ContextTypes.DEFAULT
         f"◈ Platform: {html.escape(plat_input)}\n\n"
         "◑ Step 3: Upload the story image.\n\n"
         "▸ This step is mandatory.\n\n"
-        "⧉ Send it as a standard photo, not as a document.\n\n"
-        "━━━━━━━━━━━━━━━━━━"
+        "⧉ Send it as a standard photo, not as a document."
     )
     await update.message.reply_text(text=prompt_text, parse_mode="HTML", reply_markup=ReplyKeyboardRemove())
     return REQ_IMAGE
@@ -2446,8 +2441,7 @@ async def handle_req_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "▣ Image saved successfully.\n\n"
         "◈ Step 4: Story Link\n\n"
         "◑ Please paste the story link.\n\n"
-        "▸ Optional — tap \"Skip\" if unavailable.\n\n"
-        "━━━━━━━━━━━━━━━━━━"
+        "▸ Optional — tap \"Skip\" if unavailable."
     )
     await update.message.reply_text(text=text, parse_mode="HTML", reply_markup=kb)
     return REQ_LINK
@@ -2472,8 +2466,7 @@ async def handle_req_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "◎ 𝗦𝗧𝗢𝗥𝗬 𝗥𝗘𝗤𝗨𝗘𝗦𝗧 𝗙𝗢𝗥𝗠\n\n"
         "◈ Step 5: Story Status\n\n"
-        "◑ Please select the current story status.\n\n"
-        "━━━━━━━━━━━━━━━━━━"
+        "◑ Please select the current story status."
     )
     await update.message.reply_text(text=text, parse_mode="HTML", reply_markup=kb)
     return REQ_STATUS
@@ -2526,8 +2519,7 @@ async def handle_req_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"<b>{mention}</b>\n\n"
                     f"◎ <b>𝗔𝗟𝗥𝗘𝗔𝗗𝗬 𝗔𝗩𝗔𝗜𝗟𝗔𝗕𝗟𝗘</b>\n\n"
                     f"▣ This story is already in our database!\n\n"
-                    f"◈ Link: <tg-spoiler>{ex_link}</tg-spoiler>\n\n"
-                    f"━━━━━━━━━━━━━━━━━━"
+                    f"◈ Link: <tg-spoiler>{ex_link}</tg-spoiler>"
                 ),
                 parse_mode="HTML",
                 reply_markup=ReplyKeyboardRemove()
@@ -2547,8 +2539,7 @@ async def handle_req_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"<b>{mention}</b>\n\n"
                 f"◎ <b>𝗗𝗨𝗣𝗟𝗜𝗖𝗔𝗧𝗘 𝗥𝗘𝗤𝗨𝗘𝗦𝗧</b>\n\n"
                 f"▣ You have already requested <b>{story}</b>.\n"
-                f"◑ Please avoid duplicate requests!\n\n"
-                f"━━━━━━━━━━━━━━━━━━"
+                f"◑ Please avoid duplicate requests!"
             ),
             parse_mode="HTML",
             reply_markup=ReplyKeyboardRemove()
@@ -2617,35 +2608,37 @@ async def handle_req_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _req_msg_cache[safe_story] = sent_req.message_id
     
     queue_len = len(voting_queue)
+    target_limit = get_current_voting_size()
+
+    # Trigger poll creation if threshold reached
+    if queue_len >= target_limit:
+        asyncio.create_task(trigger_community_poll(context, int(chat_id)))
     
-    text = (
-        "◎ 𝗥𝗘𝗤𝗨𝗘𝗦𝗧 𝗦𝗨𝗕𝗠𝗜𝗧𝗧𝗘𝗗\n\n"
-        f"▣ Your request for <b>{html.escape(story_name)}</b> has been submitted successfully.\n\n"
-    )
+    body_parts = [
+        f"▣ Your request for <b>{html.escape(story_name)}</b> has been submitted successfully.\n"
+    ]
     
     if count == 1:
-        text += (
-            "◑ We will do our best to provide this story.\n\n"
-            "◈ The story will be uploaded as soon as it becomes available.\n\n"
+        body_parts.append("◑ We will do our best to provide this story.\n◈ The story will be uploaded as soon as it becomes available.\n")
+    else:
+        body_parts.append(f"◑ You and {count - 1} others have requested this story.\n◈ The story will be uploaded as soon as it becomes available.\n")
+        
+    if queue_len < target_limit:
+        body_parts.append(
+            f"⧉ Voting queue: <code>{queue_len}/{target_limit}</code> stories\n"
+            f"▸ A poll will start once {target_limit} unique stories are requested."
         )
     else:
-        text += (
-            f"◑ You and {count - 1} others have requested this story.\n\n"
-            "◈ The story will be uploaded as soon as it becomes available.\n\n"
+        body_parts.append(
+            "⧉ Voting queue is currently full.\n"
+            "▸ A new poll will be posted shortly in the request channel."
         )
         
-    if queue_len < VOTING_SIZE_FOR_POLL:
-        text += (
-            f"⧉ Voting queue: {queue_len}/{VOTING_SIZE_FOR_POLL} stories\n\n"
-            f"▸ A poll will start once {VOTING_SIZE_FOR_POLL} unique stories are requested.\n\n"
-        )
-    else:
-        text += (
-            "⧉ Voting queue is currently full.\n\n"
-            "▸ A new poll will be posted shortly in the request channel.\n\n"
-        )
-        
-    text += "━━━━━━━━━━━━━━━━━━"
+    body_text = "\n".join(body_parts)
+    text = (
+        "◎ <b>𝗥𝗘𝗤𝗨𝗘𝗦𝗧 𝗦𝗨𝗕𝗠𝗜𝗧𝗧𝗘𝗗</b>\n\n"
+        f"<blockquote>{body_text}</blockquote>"
+    )
             
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
@@ -2662,9 +2655,8 @@ async def cancel_req_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=(
-            "◎ 𝗦𝗧𝗢𝗥𝗬 𝗥𝗘𝗤𝗨𝗘𝗦𝗧 𝗙𝗢𝗥𝗠\n\n"
-            "▣ Form cancelled.\n\n"
-            "━━━━━━━━━━━━━━━━━━"
+            "◎ <b>𝗦𝗧𝗢𝗥𝗬 𝗥𝗘𝗤𝗨𝗘𝗦𝗧 𝗙𝗢𝗥𝗠</b>\n\n"
+            "▣ Form cancelled."
         ),
         parse_mode="HTML",
         reply_markup=ReplyKeyboardRemove()
@@ -3048,9 +3040,31 @@ request_form_handler = ConversationHandler(
 
 # --- Voting System Logic ---
 
-async def trigger_community_poll(context: ContextTypes.DEFAULT_TYPE, chat_id: int):
+def get_current_voting_size() -> int:
+    try:
+        cfg_lim = bot_config.get("poll_settings", {}).get("request_limit")
+        if cfg_lim is not None and str(cfg_lim).isdigit() and int(cfg_lim) > 0:
+            return max(2, int(cfg_lim))
+    except Exception:
+        pass
+    return max(2, VOTING_SIZE_FOR_POLL)
+
+
+def get_current_poll_channel():
+    p_ch = bot_config.get("poll_settings", {}).get("poll_channel", "") or POLL_CHANNEL
+    if p_ch:
+        try:
+            return int(p_ch)
+        except (ValueError, TypeError):
+            return p_ch
+    return ""
+
+
+async def trigger_community_poll(context: ContextTypes.DEFAULT_TYPE, chat_id: int = None):
     """Create a community poll if the queue has enough unique stories."""
     global voting_queue, active_polls
+    
+    target_limit = get_current_voting_size()
     
     # Remove empty/whitespace invalid targets that cause "Poll Creation Failed: Text must be non-empty"
     valid_queue = [q for q in voting_queue if str(q.get("name", "")).strip()]
@@ -3058,12 +3072,12 @@ async def trigger_community_poll(context: ContextTypes.DEFAULT_TYPE, chat_id: in
         voting_queue = valid_queue
         save_voting_db({"queue": voting_queue, "polls": active_polls})
         
-    if len(voting_queue) < VOTING_SIZE_FOR_POLL:
+    if len(voting_queue) < target_limit:
         return
 
-    # Take the first 3 stories
-    to_poll = voting_queue[:VOTING_SIZE_FOR_POLL]
-    voting_queue = voting_queue[VOTING_SIZE_FOR_POLL:]
+    # Take the stories for the poll
+    to_poll = voting_queue[:target_limit]
+    voting_queue = voting_queue[target_limit:]
     
     # Aggressively format options to prevent Telegram rejection
     options = []
@@ -3086,9 +3100,12 @@ async def trigger_community_poll(context: ContextTypes.DEFAULT_TYPE, chat_id: in
         seen.add(opt)
         options.append(opt)
     
+    if len(options) < 2:
+        options.append("More Stories Coming Soon")
+    
     # Send poll to the configured poll channel
-    _pc_raw = bot_config.get("poll_settings", {}).get("poll_channel", "") or POLL_CHANNEL
-    if not _pc_raw:
+    target_chat = get_current_poll_channel()
+    if not target_chat:
         await log(context, "POLL SKIPPED | poll_channel not configured in Poll Settings")
         voting_queue = to_poll + voting_queue
         save_voting_db({"queue": voting_queue, "polls": active_polls})
@@ -3096,16 +3113,12 @@ async def trigger_community_poll(context: ContextTypes.DEFAULT_TYPE, chat_id: in
             try:
                 await context.bot.send_message(
                     chat_id=ADMIN_ID,
-                    text="<b>Poll Settings</b>\n\nPoll channel is not configured. Please set it via /config → Poll Settings.",
+                    text="<b>Poll Settings Alert:</b> Poll channel is not configured. Please set it via /config → Poll Settings.",
                     parse_mode="HTML"
                 )
             except Exception:
                 pass
         return
-    try:
-        target_chat = int(_pc_raw)
-    except (ValueError, TypeError):
-        target_chat = _pc_raw  # username like @channelname
     
     try:
         poll_msg = await context.bot.send_poll(
@@ -3463,6 +3476,11 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     raw_text = (msg.text or "").strip()
 
     if not raw_text or len(raw_text) < 2:
+        return
+
+    # Ignore URLs / Telegram links from triggering story searches
+    lower_raw = raw_text.lower()
+    if any(x in lower_raw for x in ["http://", "https://", "t.me/", "telegram.me/", "www."]):
         return
 
     # ignore obvious small talk / random messages
