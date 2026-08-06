@@ -5386,6 +5386,7 @@ def _cfg_main_panel(caller_id: int, lang: str = "en") -> tuple:
         ],
         [
             InlineKeyboardButton("↺ Refresh",       callback_data=f"cfg|main||{caller_id}"),
+            InlineKeyboardButton("🚀 Poster Bot",   callback_data=f"cfg|poster|main||{caller_id}"),
         ],
         [
             InlineKeyboardButton("✖ Close",       callback_data=f"cfg|close||{caller_id}"),
@@ -6090,6 +6091,11 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
     if section.startswith("ads_"):
         from plugins.ads_manager import handle_ads_callbacks
         await handle_ads_callbacks(query, context, parts, caller_id)
+        return
+
+    if section == "poster":
+        from plugins.poster_bot import handle_poster_callbacks
+        await handle_poster_callbacks(query, context, parts, caller_id)
         return
 
     if section == "broadcast":
@@ -9414,6 +9420,14 @@ def start_bot():
             except Exception as e:
                 logger.error(f"[Premium] Startup connect error: {e}")
 
+        # Launch Poster Bot 24/7 background worker loop
+        try:
+            from plugins.poster_bot import poster_bot_worker_loop
+            asyncio.create_task(poster_bot_worker_loop(application))
+            logger.info("[PosterBot] Background worker task launched in _post_init ✅")
+        except Exception as e:
+            logger.error(f"[PosterBot] Failed to start worker loop: {e}")
+
     app = Application.builder().token(BOT_TOKEN).post_init(_post_init).build()
 
     app.add_handler(PollAnswerHandler(poll_answer_handler))
@@ -9438,6 +9452,9 @@ def start_bot():
     app.add_handler(CommandHandler("status", status_cmd))
     app.add_handler(CommandHandler("config", config_cmd))
     app.add_handler(CommandHandler("guide", guide_cmd))
+    from plugins.poster_bot import poster_cmd
+    app.add_handler(CommandHandler("poster", poster_cmd))
+    app.add_handler(CommandHandler("posterbot", poster_cmd))
 
     # Premium feature commands
     app.add_handler(CommandHandler("saved", saved_cmd))
@@ -9492,6 +9509,17 @@ def start_bot():
     from plugins.ads_manager import get_ads_creator_handler
     app.add_handler(get_ads_creator_handler())
     
+    async def poster_input_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        from plugins.poster_bot import poster_input_handler
+        if await poster_input_handler(update, context):
+            from telegram.ext import ApplicationHandlerStop
+            raise ApplicationHandlerStop
+
+    app.add_handler(
+        MessageHandler((filters.TEXT | filters.PHOTO | filters.Document.ALL) & ~filters.COMMAND, poster_input_wrapper),
+        group=0
+    )
+
     from plugins.broadcast import broadcast_wait_handler, broadcast_filter_instance
     app.add_handler(
         MessageHandler(broadcast_filter_instance & ~filters.COMMAND, broadcast_wait_handler),
