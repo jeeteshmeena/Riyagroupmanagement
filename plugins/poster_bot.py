@@ -177,6 +177,21 @@ def format_description(desc: str) -> str:
     return to_monospace(truncated)
 
 
+def extract_field(story: Dict[str, Any], keys: list, default: str = "") -> str:
+    """Extract field value checking multiple case-insensitive key aliases."""
+    if not isinstance(story, dict):
+        return default
+    for k in keys:
+        if k in story and story[k] is not None and str(story[k]).strip() != "":
+            return str(story[k]).strip()
+    lower_story = {str(k).lower(): v for k, v in story.items() if v is not None}
+    for k in keys:
+        lk = k.lower()
+        if lk in lower_story and str(lower_story[lk]).strip() != "":
+            return str(lower_story[lk]).strip()
+    return default
+
+
 def build_post_caption(story: Dict[str, Any]) -> str:
     """
     Build HTML caption for story post matching exact specification format:
@@ -192,27 +207,29 @@ def build_post_caption(story: Dict[str, Any]) -> str:
     <b>Story Description :</b>
     <blockquote>{desc_monospace}</blockquote>
     """
-    story_name = html.escape(str(story.get("name") or story.get("story_name") or story.get("title") or "Untitled Story"))
-    status = html.escape(str(story.get("status") or "Completed"))
-    platform = html.escape(str(story.get("platform") or "Audiobook"))
+    story_name = html.escape(extract_field(story, ["name", "story_name", "storyName", "title", "story_title", "Name", "Title", "Story"], default="Untitled Story"))
+    status = html.escape(extract_field(story, ["status", "Status", "state", "State"], default="Completed"))
+    platform = html.escape(extract_field(story, ["platform", "Platform", "source", "Source"], default="Audiobook"))
 
-    genres = story.get("genre") or story.get("genres") or story.get("category") or ["Drama"]
-    if isinstance(genres, list):
-        first_genre = genres[0] if genres else "Drama"
+    raw_genre = story.get("genre") or story.get("genres") or story.get("Genre") or story.get("Genres") or story.get("category") or story.get("Category")
+    if isinstance(raw_genre, list) and raw_genre:
+        first_genre = str(raw_genre[0]).strip()
+    elif raw_genre:
+        first_genre = str(raw_genre).split(",")[0].strip()
     else:
-        first_genre = str(genres).split(",")[0].strip() if genres else "Drama"
-    first_genre = html.escape(str(first_genre))
+        first_genre = "Drama"
+    first_genre = html.escape(first_genre)
 
-    episodes = story.get("episodes") or story.get("total_episodes") or "Full Story"
+    episodes = extract_field(story, ["episodes", "Episodes", "total_episodes", "totalEpisodes", "eps"], default="Full Story")
     episodes_str = f"{episodes} Episodes" if str(episodes).isdigit() else str(episodes)
     episodes_str = html.escape(episodes_str)
 
-    price = story.get("price", "Free")
-    if price is None or price == "" or str(price) == "0":
+    price = extract_field(story, ["price", "Price", "cost", "Cost"], default="Free")
+    if price == "0" or price.lower() in ("", "none", "null"):
         price = "Free"
-    price = html.escape(str(price))
+    price = html.escape(price)
 
-    raw_desc = str(story.get("description") or story.get("desc") or story.get("synopsis") or story.get("about") or "")
+    raw_desc = extract_field(story, ["description", "Description", "desc", "Desc", "synopsis", "Synopsis", "about", "About", "summary", "Summary"], default="")
     desc_monospace = format_description(raw_desc)
 
     caption = (
@@ -240,6 +257,7 @@ def apply_watermark_to_image(
 ) -> io.BytesIO:
     """
     Resizes image & overlays PNG watermark with customizable position & opacity.
+    Auto-cleans white/black solid backgrounds if watermark was uploaded via Telegram photo.
     Returns JPEG image in BytesIO buffer.
     """
     # 1. Load Base Image
@@ -270,30 +288,37 @@ def apply_watermark_to_image(
         out.seek(0)
         return out
 
-    # 3. Load & Resize Watermark
+    # 3. Load & Process Watermark Transparency
     wm_img = Image.open(wm_path).convert("RGBA")
+    datas = wm_img.getdata()
+    # Check if image has solid white background (e.g. from Telegram photo conversion), make white transparent
+    white_count = sum(1 for p in datas if p[0] > 235 and p[1] > 235 and p[2] > 235)
+    if white_count > len(datas) * 0.25:
+        new_data = []
+        for item in datas:
+            if item[0] > 235 and item[1] > 235 and item[2] > 235:
+                new_data.append((255, 255, 255, 0))
+            else:
+                new_data.append(item)
+        wm_img.putdata(new_data)
 
-    max_wm_w = int(base_img.width * 0.35)
-    max_wm_h = int(base_img.height * 0.35)
-
+    # 4. Resize Watermark cleanly to ~20% of base image width
+    target_wm_w = max(40, int(base_img.width * 0.20))
     wm_w, wm_h = wm_img.size
-    ratio = min(max_wm_w / wm_w if wm_w > max_wm_w else 1.0, max_wm_h / wm_h if wm_h > max_wm_h else 1.0)
-    if ratio < 1.0:
-        new_w = max(10, int(wm_w * ratio))
-        new_h = max(10, int(wm_h * ratio))
-        wm_img = wm_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-        wm_w, wm_h = new_w, new_h
+    scale = target_wm_w / max(1, wm_w)
+    target_wm_h = max(20, int(wm_h * scale))
+    wm_img = wm_img.resize((target_wm_w, target_wm_h), Image.Resampling.LANCZOS)
+    wm_w, wm_h = target_wm_w, target_wm_h
 
-    # 4. Adjust Opacity
+    # 5. Adjust Opacity
     opacity = max(0.1, min(1.0, float(opacity)))
     if opacity < 1.0:
         alpha = wm_img.split()[3].point(lambda p: int(p * opacity))
         wm_img.putalpha(alpha)
 
-    # 5. Position Calculation
-    margin = 20
+    # 6. Position Calculation
+    margin = 25
     w_base, h_base = base_img.size
-
     pos_lower = (position or "bottom_right").lower()
     if pos_lower == "bottom_left":
         x, y = margin, h_base - wm_h - margin
@@ -309,8 +334,8 @@ def apply_watermark_to_image(
     x = max(0, min(x, w_base - wm_w))
     y = max(0, min(y, h_base - wm_h))
 
-    # 6. Overlay Watermark & Save
-    base_img.paste(wm_img, (x, y), wm_img)
+    # 7. Overlay Watermark & Save
+    base_img.paste(wm_img, (x, y), mask=wm_img)
 
     out = io.BytesIO()
     base_img.convert("RGB").save(out, format="JPEG", quality=95)
@@ -349,7 +374,7 @@ async def publish_next_story(app) -> Tuple[bool, str]:
     ])
 
     # Handle Photo & Watermark
-    cover_url = story.get("cover") or story.get("image") or story.get("poster") or story.get("photo") or story.get("thumb") or ""
+    cover_val = extract_field(story, ["cover", "Cover", "image", "Image", "poster", "Poster", "photo", "Photo", "banner", "Banner", "thumb", "Thumb", "file_id"], default="")
     wm_settings = settings.get("watermark", {})
     wm_enabled = wm_settings.get("enabled", True)
     wm_path = wm_settings.get("path", "watermark.png")
@@ -357,16 +382,32 @@ async def publish_next_story(app) -> Tuple[bool, str]:
     wm_opacity = float(wm_settings.get("opacity", 0.8))
 
     photo_bytes = None
-    if cover_url:
+    if cover_val:
         try:
-            if wm_enabled:
-                photo_bytes = await asyncio.to_thread(apply_watermark_to_image, cover_url, wm_path, wm_pos, wm_opacity)
+            if cover_val.startswith("http://") or cover_val.startswith("https://"):
+                if wm_enabled:
+                    photo_bytes = await asyncio.to_thread(apply_watermark_to_image, cover_val, wm_path, wm_pos, wm_opacity)
+                else:
+                    resp = await asyncio.to_thread(requests.get, cover_val, timeout=12)
+                    if resp.status_code == 200:
+                        photo_bytes = io.BytesIO(resp.content)
+            elif os.path.exists(cover_val):
+                if wm_enabled:
+                    photo_bytes = await asyncio.to_thread(apply_watermark_to_image, cover_val, wm_path, wm_pos, wm_opacity)
+                else:
+                    with open(cover_val, "rb") as f:
+                        photo_bytes = io.BytesIO(f.read())
             else:
-                resp = await asyncio.to_thread(requests.get, cover_url, timeout=12)
-                if resp.status_code == 200:
-                    photo_bytes = io.BytesIO(resp.content)
+                # Telegram file_id! Download file from Telegram servers using Bot API
+                tg_file = await app.bot.get_file(cover_val)
+                raw_bytes = await tg_file.download_as_bytearray()
+                raw_bytes = bytes(raw_bytes)
+                if wm_enabled:
+                    photo_bytes = await asyncio.to_thread(apply_watermark_to_image, raw_bytes, wm_path, wm_pos, wm_opacity)
+                else:
+                    photo_bytes = io.BytesIO(raw_bytes)
         except Exception as e:
-            logger.warning(f"[PosterBot] Failed to process image '{cover_url}': {e}")
+            logger.warning(f"[PosterBot] Failed to process image '{cover_val}': {e}")
 
     # Fallback to default cover if photo_bytes is None
     if not photo_bytes:
@@ -417,7 +458,7 @@ async def publish_next_story(app) -> Tuple[bool, str]:
             settings["pending_deletions"] = pending
 
         save_poster_settings(settings)
-        story_name = story.get("name") or story.get("story_name") or "Story"
+        story_name = extract_field(story, ["name", "story_name", "storyName", "title", "story_title", "Name", "Title", "Story"], default="Story")
         return True, f"Story '{story_name}' posted to {target_channel}!"
 
     except Exception as e:
