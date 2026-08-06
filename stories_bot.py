@@ -7972,6 +7972,12 @@ def inject_premium_emojis(text: str) -> str:
 
 
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # ── Poster Bot Admin Input Hook ──────────────────────────────────────────
+    if context.user_data and context.user_data.get("poster_waiting"):
+        from plugins.poster_bot import poster_input_handler
+        if await poster_input_handler(update, context):
+            return
+
     if (context.chat_data and context.chat_data.get("config_state")) or \
        (context.user_data and context.user_data.get("bc_add_waiting")):
         return await handle_config_input(update, context)
@@ -9524,14 +9530,13 @@ def start_bot():
     from plugins.ads_manager import get_ads_creator_handler
     app.add_handler(get_ads_creator_handler())
     
-    async def poster_input_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        from plugins.poster_bot import poster_input_handler
-        if await poster_input_handler(update, context):
-            from telegram.ext import ApplicationHandlerStop
-            raise ApplicationHandlerStop
+    async def poster_media_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if context.user_data and context.user_data.get("poster_waiting") == "watermark_png":
+            from plugins.poster_bot import poster_input_handler
+            await poster_input_handler(update, context)
 
     app.add_handler(
-        MessageHandler((filters.TEXT | filters.PHOTO | filters.Document.ALL) & ~filters.COMMAND, poster_input_wrapper),
+        MessageHandler((filters.PHOTO | filters.Document.ALL) & ~filters.COMMAND, poster_media_wrapper),
         group=0
     )
 
