@@ -489,17 +489,16 @@ async def publish_next_story(app) -> Tuple[bool, str]:
         except Exception as e:
             logger.warning(f"[PosterBot] Failed to process image URL '{img_url}': {e}")
 
-    # Fallback to default cover if photo_bytes is None
+    # Fallback to default cover if photo_bytes is None (WITHOUT watermark)
     if not photo_bytes:
         default_cover = "default_cover.png"
         if not os.path.exists(default_cover):
             default_cover = os.path.join(DATA_DIR, "default_cover.png")
+        if not os.path.exists(default_cover):
+            default_cover = "default_cover.jpg"
         if os.path.exists(default_cover):
-            if wm_enabled:
-                photo_bytes = await asyncio.to_thread(apply_watermark_to_image, default_cover, wm_path, wm_pos, wm_opacity)
-            else:
-                with open(default_cover, "rb") as f:
-                    photo_bytes = io.BytesIO(f.read())
+            with open(default_cover, "rb") as f:
+                photo_bytes = io.BytesIO(f.read())
 
     # Send message to channel
     target_chat = int(target_channel) if (target_channel.startswith("-") or target_channel.isdigit()) else target_channel
