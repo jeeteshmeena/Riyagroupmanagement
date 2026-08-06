@@ -177,6 +177,83 @@ def format_description(desc: str) -> str:
     return to_monospace(truncated)
 
 
+def extract_smart_field(story: Dict[str, Any], field_type: str, default: str = "") -> str:
+    """Smartly extract fields (name, cover, status, etc.) from story dict regardless of schema format."""
+    if not isinstance(story, dict):
+        return default
+
+    # Flatten / normalize dictionary keys to lowercase without underscores or hyphens
+    flat = {}
+    for k, v in story.items():
+        if v is not None and str(v).strip() != "":
+            flat[str(k).lower().replace("_", "").replace("-", "")] = v
+
+    if field_type == "name":
+        # Check specific key aliases first
+        name_keys = [
+            "name", "storyname", "title", "storytitle", "bookname", "audiobookname",
+            "seriesname", "heading", "story", "sname", "maintitle", "novelname", "novel",
+            "namehi", "nameen", "hindiname", "englishname", "caption"
+        ]
+        for k in name_keys:
+            if k in flat:
+                val = flat[k]
+                if isinstance(val, str) and val.strip():
+                    return val.strip()
+                elif isinstance(val, dict):
+                    res = extract_smart_field(val, "name")
+                    if res: return res
+
+        # Fuzzy search: find any key containing 'name', 'title', 'story', or 'book' (excluding description/synopsis/id/channel/link)
+        for k, v in flat.items():
+            if ("name" in k or "title" in k or "story" in k or "book" in k) and not any(x in k for x in ["desc", "synopsis", "about", "summary", "id", "channel", "link"]):
+                if isinstance(v, str) and v.strip():
+                    return v.strip()
+
+    elif field_type == "cover":
+        cover_keys = [
+            "cover", "coverurl", "coverimage", "banner", "bannerurl", "poster", "posterurl",
+            "image", "imageurl", "photo", "photourl", "thumbnail", "thumb", "fileid", "img",
+            "imgurl", "pic", "picture", "photoid", "telegramfileid", "telefileid"
+        ]
+        for k in cover_keys:
+            if k in flat:
+                val = flat[k]
+                if isinstance(val, str) and val.strip():
+                    return val.strip()
+                elif isinstance(val, list) and val:
+                    first = val[0]
+                    if isinstance(first, str) and first.strip():
+                        return first.strip()
+                    elif isinstance(first, dict):
+                        for sub_k in ["url", "file_id", "path", "src", "link"]:
+                            if sub_k in first and str(first[sub_k]).strip():
+                                return str(first[sub_k]).strip()
+                elif isinstance(val, dict):
+                    for sub_k in ["url", "file_id", "path", "src", "link"]:
+                        if sub_k in val and str(val[sub_k]).strip():
+                            return str(val[sub_k]).strip()
+
+        # Fuzzy search for cover image
+        for k, v in flat.items():
+            if any(x in k for x in ["cover", "banner", "poster", "image", "photo", "thumb", "pic"]) and not any(x in k for x in ["id_num", "count"]):
+                if isinstance(v, str) and v.strip():
+                    return v.strip()
+
+    elif field_type == "status":
+        return extract_field(story, ["status", "Status", "state", "State"], default=default)
+    elif field_type == "platform":
+        return extract_field(story, ["platform", "Platform", "source", "Source"], default=default)
+    elif field_type == "episodes":
+        return extract_field(story, ["episodes", "Episodes", "total_episodes", "totalEpisodes", "eps"], default=default)
+    elif field_type == "price":
+        return extract_field(story, ["price", "Price", "cost", "Cost"], default=default)
+    elif field_type == "description":
+        return extract_field(story, ["description", "Description", "desc", "Desc", "synopsis", "Synopsis", "about", "About", "summary", "Summary"], default=default)
+
+    return default
+
+
 def extract_field(story: Dict[str, Any], keys: list, default: str = "") -> str:
     """Extract field value checking multiple case-insensitive key aliases."""
     if not isinstance(story, dict):
@@ -207,9 +284,9 @@ def build_post_caption(story: Dict[str, Any]) -> str:
     <b>Story Description :</b>
     <blockquote>{desc_monospace}</blockquote>
     """
-    story_name = html.escape(extract_field(story, ["name", "story_name", "storyName", "title", "story_title", "Name", "Title", "Story"], default="Untitled Story"))
-    status = html.escape(extract_field(story, ["status", "Status", "state", "State"], default="Completed"))
-    platform = html.escape(extract_field(story, ["platform", "Platform", "source", "Source"], default="Audiobook"))
+    story_name = html.escape(extract_smart_field(story, "name", default="Untitled Story"))
+    status = html.escape(extract_smart_field(story, "status", default="Completed"))
+    platform = html.escape(extract_smart_field(story, "platform", default="Audiobook"))
 
     raw_genre = story.get("genre") or story.get("genres") or story.get("Genre") or story.get("Genres") or story.get("category") or story.get("Category")
     if isinstance(raw_genre, list) and raw_genre:
@@ -220,16 +297,16 @@ def build_post_caption(story: Dict[str, Any]) -> str:
         first_genre = "Drama"
     first_genre = html.escape(first_genre)
 
-    episodes = extract_field(story, ["episodes", "Episodes", "total_episodes", "totalEpisodes", "eps"], default="Full Story")
+    episodes = extract_smart_field(story, "episodes", default="Full Story")
     episodes_str = f"{episodes} Episodes" if str(episodes).isdigit() else str(episodes)
     episodes_str = html.escape(episodes_str)
 
-    price = extract_field(story, ["price", "Price", "cost", "Cost"], default="Free")
+    price = extract_smart_field(story, "price", default="Free")
     if price == "0" or price.lower() in ("", "none", "null"):
         price = "Free"
     price = html.escape(price)
 
-    raw_desc = extract_field(story, ["description", "Description", "desc", "Desc", "synopsis", "Synopsis", "about", "About", "summary", "Summary"], default="")
+    raw_desc = extract_smart_field(story, "description", default="")
     desc_monospace = format_description(raw_desc)
 
     caption = (
@@ -291,22 +368,33 @@ def apply_watermark_to_image(
     # 3. Load & Process Watermark Transparency
     wm_img = Image.open(wm_path).convert("RGBA")
     datas = wm_img.getdata()
-    # Check if image has solid white background (e.g. from Telegram photo conversion), make white transparent
-    white_count = sum(1 for p in datas if p[0] > 235 and p[1] > 235 and p[2] > 235)
-    if white_count > len(datas) * 0.25:
+
+    # Check if image has solid white OR solid black background (from Telegram photo conversion), make background transparent
+    white_count = sum(1 for p in datas if p[0] > 225 and p[1] > 225 and p[2] > 225)
+    black_count = sum(1 for p in datas if p[0] < 30 and p[1] < 30 and p[2] < 30)
+
+    if white_count > len(datas) * 0.20:
         new_data = []
         for item in datas:
-            if item[0] > 235 and item[1] > 235 and item[2] > 235:
+            if item[0] > 225 and item[1] > 225 and item[2] > 225:
                 new_data.append((255, 255, 255, 0))
             else:
                 new_data.append(item)
         wm_img.putdata(new_data)
+    elif black_count > len(datas) * 0.20:
+        new_data = []
+        for item in datas:
+            if item[0] < 30 and item[1] < 30 and item[2] < 30:
+                new_data.append((0, 0, 0, 0))
+            else:
+                new_data.append(item)
+        wm_img.putdata(new_data)
 
-    # 4. Resize Watermark cleanly to ~20% of base image width
-    target_wm_w = max(40, int(base_img.width * 0.20))
+    # 4. Resize Watermark cleanly to ~16% of base image width (compact & elegant)
+    target_wm_w = max(30, int(base_img.width * 0.16))
     wm_w, wm_h = wm_img.size
     scale = target_wm_w / max(1, wm_w)
-    target_wm_h = max(20, int(wm_h * scale))
+    target_wm_h = max(15, int(wm_h * scale))
     wm_img = wm_img.resize((target_wm_w, target_wm_h), Image.Resampling.LANCZOS)
     wm_w, wm_h = target_wm_w, target_wm_h
 
@@ -358,6 +446,12 @@ async def publish_next_story(app) -> Tuple[bool, str]:
     if not story or total == 0:
         return False, "No stories found in MongoDB collection 'premium_stories'."
 
+    # Extract fields cleanly
+    story_name = extract_smart_field(story, "name", default="Story")
+    cover_val = extract_smart_field(story, "cover", default="")
+
+    logger.info(f"[PosterBot] Story fetched from MongoDB: name='{story_name}' | cover='{cover_val[:30]}' | keys={list(story.keys())}")
+
     # Build Caption & Buttons
     caption = build_post_caption(story)
 
@@ -374,7 +468,6 @@ async def publish_next_story(app) -> Tuple[bool, str]:
     ])
 
     # Handle Photo & Watermark
-    cover_val = extract_field(story, ["cover", "Cover", "image", "Image", "poster", "Poster", "photo", "Photo", "banner", "Banner", "thumb", "Thumb", "file_id"], default="")
     wm_settings = settings.get("watermark", {})
     wm_enabled = wm_settings.get("enabled", True)
     wm_path = wm_settings.get("path", "watermark.png")
@@ -407,7 +500,7 @@ async def publish_next_story(app) -> Tuple[bool, str]:
                 else:
                     photo_bytes = io.BytesIO(raw_bytes)
         except Exception as e:
-            logger.warning(f"[PosterBot] Failed to process image '{cover_val}': {e}")
+            logger.warning(f"[PosterBot] Failed to process image '{cover_val[:30]}': {e}")
 
     # Fallback to default cover if photo_bytes is None
     if not photo_bytes:
