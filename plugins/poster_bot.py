@@ -336,15 +336,17 @@ async def publish_next_story(app) -> Tuple[bool, str]:
     # Build Caption & Buttons
     caption = build_post_caption(story)
 
-    # Build Inline Keyboard button
-    miniapp_url = settings.get("miniapp_url") or story.get("link") or story.get("mini_app_url") or story.get("url") or ""
-    bot_un = (await app.bot.get_me()).username
-    if not miniapp_url:
-        story_id = str(story.get("_id", ""))
-        miniapp_url = f"https://t.me/{bot_un}?start=story_{story_id}" if story_id else f"https://t.me/{bot_un}"
+    # Build Inline Keyboard buttons (Row 1: Buy Now | Tutorial)
+    story_id = str(story.get("_id", ""))
+    buy_url = f"https://t.me/UseAryaBot/apminibyarya?startapp=story_{story_id}"
+    tutorial_url = "https://t.me/StoriesFinderBot?start=guide"
 
-    btn_text = story.get("link_btn_text") or "🚀 Read Story / Play Mini App"
-    markup = InlineKeyboardMarkup([[InlineKeyboardButton(text=btn_text, url=miniapp_url)]])
+    markup = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("Buy Now", url=buy_url),
+            InlineKeyboardButton("Tutorial", url=tutorial_url)
+        ]
+    ])
 
     # Handle Photo & Watermark
     cover_url = story.get("cover") or story.get("image") or story.get("poster") or story.get("photo") or story.get("thumb") or ""
