@@ -284,7 +284,14 @@ def build_post_caption(story: Dict[str, Any]) -> str:
     <b>Story Description :</b>
     <blockquote>{desc_monospace}</blockquote>
     """
-    story_name = html.escape(extract_smart_field(story, "name", default="Untitled Story"))
+    raw_name = (
+        story.get("story_name_en") or
+        story.get("story_name_hi") or
+        story.get("story_name") or
+        story.get("title") or
+        extract_smart_field(story, "name", default="Untitled Story")
+    )
+    story_name = html.escape(str(raw_name))
     status = html.escape(extract_smart_field(story, "status", default="Completed"))
     platform = html.escape(extract_smart_field(story, "platform", default="Audiobook"))
 
@@ -446,11 +453,25 @@ async def publish_next_story(app) -> Tuple[bool, str]:
     if not story or total == 0:
         return False, "No stories found in MongoDB collection 'premium_stories'."
 
-    # Extract fields cleanly
-    story_name = extract_smart_field(story, "name", default="Story")
-    cover_val = extract_smart_field(story, "cover", default="")
+    # 1. Story Name Resolution Formula:
+    story_name = (
+        story.get("story_name_en") or
+        story.get("story_name_hi") or
+        story.get("story_name") or
+        story.get("title") or
+        extract_smart_field(story, "name", default="Story")
+    )
 
-    logger.info(f"[PosterBot] Story fetched from MongoDB: name='{story_name}' | cover='{cover_val[:30]}' | keys={list(story.keys())}")
+    # 2. Image URL Resolution Formula:
+    # Prioritize HTTP image URLs from image, poster_url, banner_url fields (do not use getFile on file IDs)
+    img_url = ""
+    for field in ["image", "poster_url", "banner_url", "cover_url", "photo_url", "cover", "poster", "banner"]:
+        val = str(story.get(field) or "").strip()
+        if val.startswith("http://") or val.startswith("https://"):
+            img_url = val
+            break
+
+    logger.info(f"[PosterBot] Story fetched from MongoDB: name='{story_name}' | img_url='{img_url}' | keys={list(story.keys())}")
 
     # Build Caption & Buttons
     caption = build_post_caption(story)
@@ -475,32 +496,16 @@ async def publish_next_story(app) -> Tuple[bool, str]:
     wm_opacity = float(wm_settings.get("opacity", 0.8))
 
     photo_bytes = None
-    if cover_val:
+    if img_url:
         try:
-            if cover_val.startswith("http://") or cover_val.startswith("https://"):
-                if wm_enabled:
-                    photo_bytes = await asyncio.to_thread(apply_watermark_to_image, cover_val, wm_path, wm_pos, wm_opacity)
-                else:
-                    resp = await asyncio.to_thread(requests.get, cover_val, timeout=12)
-                    if resp.status_code == 200:
-                        photo_bytes = io.BytesIO(resp.content)
-            elif os.path.exists(cover_val):
-                if wm_enabled:
-                    photo_bytes = await asyncio.to_thread(apply_watermark_to_image, cover_val, wm_path, wm_pos, wm_opacity)
-                else:
-                    with open(cover_val, "rb") as f:
-                        photo_bytes = io.BytesIO(f.read())
+            if wm_enabled:
+                photo_bytes = await asyncio.to_thread(apply_watermark_to_image, img_url, wm_path, wm_pos, wm_opacity)
             else:
-                # Telegram file_id! Download file from Telegram servers using Bot API
-                tg_file = await app.bot.get_file(cover_val)
-                raw_bytes = await tg_file.download_as_bytearray()
-                raw_bytes = bytes(raw_bytes)
-                if wm_enabled:
-                    photo_bytes = await asyncio.to_thread(apply_watermark_to_image, raw_bytes, wm_path, wm_pos, wm_opacity)
-                else:
-                    photo_bytes = io.BytesIO(raw_bytes)
+                resp = await asyncio.to_thread(requests.get, img_url, timeout=12)
+                if resp.status_code == 200:
+                    photo_bytes = io.BytesIO(resp.content)
         except Exception as e:
-            logger.warning(f"[PosterBot] Failed to process image '{cover_val[:30]}': {e}")
+            logger.warning(f"[PosterBot] Failed to process image URL '{img_url}': {e}")
 
     # Fallback to default cover if photo_bytes is None
     if not photo_bytes:
