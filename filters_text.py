@@ -4,6 +4,9 @@ def is_valid_query(text):
     lower_t = text.lower().strip()
     if lower_t.isdigit():
         return True
+    # Ignore request form button texts from triggering searches
+    if "start request form" in lower_t or "sᴛᴀʀᴛ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ" in lower_t:
+        return False
     # Ignore URLs / Telegram links from triggering story searches
     if any(url_kw in lower_t for url_kw in ["http://", "https://", "t.me/", "telegram.me/", "www."]):
         return False

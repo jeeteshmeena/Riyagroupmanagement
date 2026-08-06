@@ -3010,7 +3010,7 @@ request_form_handler = ConversationHandler(
     entry_points=[
         CommandHandler("request", request_story),
         CallbackQueryHandler(start_request_form, pattern=r"^formreq_start_form$"),
-        MessageHandler(filters.Regex(r"^✦ sᴛᴀʀᴛ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ ✦$"), start_request_form),
+        MessageHandler(filters.Regex(r"(?i)(start request form|sᴛᴀʀᴛ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ|『\s*start request form\s*』|✦\s*sᴛᴀʀᴛ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ\s*✦)"), start_request_form),
     ],
     states={
         REQ_NAME:      [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_req_name)],
