@@ -15,7 +15,11 @@ import os
 import time
 from typing import Tuple, Dict, Any, Optional
 
-import pymongo
+try:
+    import pymongo
+except ImportError:
+    pymongo = None
+
 import requests
 from PIL import Image
 from telegram import (
@@ -93,6 +97,10 @@ def _fetch_mongo_story_sync(mongo_uri: str, db_name: str, col_name: str, rot_idx
     Only count_documents({}) and find().skip().limit() are used.
     NO write, insert, update, or delete operations are ever performed.
     """
+    if pymongo is None:
+        logger.error("[PosterBot] pymongo library is missing. Install with 'pip install pymongo motor'")
+        return None, 0
+
     if not mongo_uri:
         return None, 0
 
