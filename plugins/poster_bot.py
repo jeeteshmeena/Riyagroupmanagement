@@ -372,44 +372,26 @@ def apply_watermark_to_image(
         out.seek(0)
         return out
 
-    # 3. Load & Process Watermark Transparency
+    # 3. Load Watermark preserving native PNG RGBA alpha channel
     wm_img = Image.open(wm_path).convert("RGBA")
-    datas = wm_img.getdata()
-
-    # Check if image has solid white OR solid black background (from Telegram photo conversion), make background transparent
-    white_count = sum(1 for p in datas if p[0] > 225 and p[1] > 225 and p[2] > 225)
-    black_count = sum(1 for p in datas if p[0] < 30 and p[1] < 30 and p[2] < 30)
-
-    if white_count > len(datas) * 0.20:
-        new_data = []
-        for item in datas:
-            if item[0] > 225 and item[1] > 225 and item[2] > 225:
-                new_data.append((255, 255, 255, 0))
-            else:
-                new_data.append(item)
-        wm_img.putdata(new_data)
-    elif black_count > len(datas) * 0.20:
-        new_data = []
-        for item in datas:
-            if item[0] < 30 and item[1] < 30 and item[2] < 30:
-                new_data.append((0, 0, 0, 0))
-            else:
-                new_data.append(item)
-        wm_img.putdata(new_data)
-
-    # 4. Resize Watermark cleanly to ~16% of base image width (compact & elegant)
-    target_wm_w = max(30, int(base_img.width * 0.16))
     wm_w, wm_h = wm_img.size
-    scale = target_wm_w / max(1, wm_w)
-    target_wm_h = max(15, int(wm_h * scale))
-    wm_img = wm_img.resize((target_wm_w, target_wm_h), Image.Resampling.LANCZOS)
-    wm_w, wm_h = target_wm_w, target_wm_h
 
-    # 5. Adjust Opacity
+    # 4. Scale watermark proportionally if larger than 25% of poster width/height
+    max_wm_w = int(base_img.width * 0.25)
+    max_wm_h = int(base_img.height * 0.25)
+    ratio = min(max_wm_w / wm_w if wm_w > max_wm_w else 1.0, max_wm_h / wm_h if wm_h > max_wm_h else 1.0)
+    if ratio < 1.0:
+        new_w = max(10, int(wm_w * ratio))
+        new_h = max(10, int(wm_h * ratio))
+        wm_img = wm_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+        wm_w, wm_h = new_w, new_h
+
+    # 5. Adjust Opacity if < 1.0 (pure alpha multiplier)
     opacity = max(0.1, min(1.0, float(opacity)))
     if opacity < 1.0:
-        alpha = wm_img.split()[3].point(lambda p: int(p * opacity))
-        wm_img.putalpha(alpha)
+        r, g, b, a = wm_img.split()
+        a = a.point(lambda p: int(p * opacity))
+        wm_img = Image.merge("RGBA", (r, g, b, a))
 
     # 6. Position Calculation
     margin = 25
@@ -922,6 +904,9 @@ async def handle_poster_callbacks(query, context: ContextTypes.DEFAULT_TYPE, par
                 InlineKeyboardButton("1.0", callback_data=f"cfg|poster|wm_op|1.0|{caller_id}"),
             ],
             [
+                InlineKeyboardButton("🔄 Reset Default Watermark", callback_data=f"cfg|poster|wm_reset||{caller_id}"),
+            ],
+            [
                 InlineKeyboardButton("« Back", callback_data=f"cfg|poster|main||{caller_id}"),
             ],
         ])
@@ -975,10 +960,30 @@ async def handle_poster_callbacks(query, context: ContextTypes.DEFAULT_TYPE, par
             query,
             "🖼 <b>Upload Watermark PNG File</b>\n\n"
             "Please send/upload the <b>PNG watermark image</b> in DM.\n"
-            "<i>Transparent PNG images work best for watermarking.</i>",
+            "⚠️ <b>Important:</b> Send as a <b>Document / Uncompressed File</b> so Telegram does not compress it into a JPEG.\n"
+            "<i>(Transparent PNG images work best for watermarking).</i>",
             parse_mode="HTML",
             reply_markup=markup,
         )
+        return
+
+    if action == "wm_reset":
+        wm = settings.get("watermark", {})
+        wm["path"] = "watermark.png"
+        wm["enabled"] = True
+        settings["watermark"] = wm
+        save_poster_settings(settings)
+
+        custom_wm = os.path.join(DATA_DIR, "poster_watermark.png")
+        if os.path.exists(custom_wm):
+            try:
+                os.remove(custom_wm)
+            except Exception:
+                pass
+
+        await query.answer("✅ Watermark reset to default (watermark.png)!")
+        parts[2] = "wm_menu"
+        await handle_poster_callbacks(query, context, parts, caller_id)
         return
 
     # 8. MongoDB Connection Settings Menu
