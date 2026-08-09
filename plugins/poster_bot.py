@@ -537,7 +537,7 @@ async def publish_next_story(app) -> Tuple[bool, str]:
             settings["pending_deletions"] = pending
 
         save_poster_settings(settings)
-        story_name = extract_field(story, ["name", "story_name", "storyName", "title", "story_title", "Name", "Title", "Story"], default="Story")
+        story_name = extract_field(story, ["story_name_en", "story_name_hi", "name", "story_name", "storyName", "title", "story_title", "Name", "Title", "Story"], default="Story")
         return True, f"Story '{story_name}' posted to {target_channel}!"
 
     except Exception as e:

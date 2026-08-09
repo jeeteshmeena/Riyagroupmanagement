@@ -175,8 +175,11 @@ class BackgroundLinkChecker:
         except (MessageDeleteForbiddenError, MessageIdInvalidError):
             # Message deleted or invalid
             await self._mark_link_broken(story_key, story, link_flags, "Message deleted/invalid")
+        except ValueError as e:
+            # Username/Channel entity not found in Telegram
+            await self._mark_link_broken(story_key, story, link_flags, f"Username not found: {e}")
         except Exception as e:
-            logger.error(f"Unexpected error checking link {link}: {e}")
+            logger.warning(f"Error checking link {link}: {e}")
             
     async def _mark_link_broken(self, story_key, story, link_flags, reason):
         """Mark a link as broken"""
