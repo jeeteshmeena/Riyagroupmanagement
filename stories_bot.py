@@ -3125,7 +3125,7 @@ async def trigger_community_poll(context: ContextTypes.DEFAULT_TYPE, chat_id: in
             chat_id=target_chat,
             question="Which story should be uploaded next? (Community Vote)",
             options=options,
-            is_anonymous=False,
+            is_anonymous=True,
             allows_multiple_answers=False,
         )
     except Exception as e:
