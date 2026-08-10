@@ -3140,9 +3140,13 @@ async def trigger_community_poll(context: ContextTypes.DEFAULT_TYPE, chat_id: in
 
     # ── Send ONE poll with everything inside it ───────────────────────────────
     # Poll question: Hindi + English
-    poll_question = "🗳️ अगली कौन सी स्टोरी अपलोड हो? | Which story should be uploaded next?"
-    if len(poll_question) > 300:
-        poll_question = poll_question[:297] + "..."
+    poll_question = (
+        "आप सभी ने ये Stories 「 @StoriesFinderBot 」 से Request की थीं। "
+        "⟦𝗩𝗼𝘁𝗲 𝗞𝗮𝗿𝗲𝙣⟧ 〔𝙏𝙤𝙥 𝟮〕 इस Channel में Post होंगी।"
+        "\n\n"
+        "You all requested these Stories via 「 @StoriesFinderBot 」. "
+        "⟦𝗩𝗼𝘁𝗲 𝗡𝗼𝘄⟧ 〔𝙏𝙤𝙥 𝟮〕 will be posted in this channel."
+    )
 
     # Build options list — try attaching image to each option via raw Bot API
     # InputPollOption with media is a Bot API 7.3+ feature (pass via api_kwargs)
