@@ -231,6 +231,7 @@ import gemini_chat
 from scanner_client import scan_channel
 from search_engine import search_story_exact_or_alias, get_suggestions
 from filters_text import is_valid_query
+
 from link_checker import start_link_checker
 from database import (
     get_story,
@@ -2471,7 +2472,57 @@ async def handle_req_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text=text, parse_mode="HTML", reply_markup=kb)
     return REQ_STATUS
 
+
+async def _check_story_in_mongo(story_name: str) -> bool:
+    """
+    Check if a story exists in the Poster Bot's MongoDB (arya_premium.premium_stories).
+    Uses the same MONGO_URI env var as poster_bot.py.
+    Returns True if story is found, False otherwise (also False on any error).
+    """
+    try:
+        import asyncio
+        import os
+        try:
+            import pymongo
+        except ImportError:
+            return False
+        
+        mongo_uri = os.getenv("MONGO_URI", "")
+        if not mongo_uri:
+            return False
+        
+        db_name  = os.getenv("DATABASE_NAME", "arya_premium")
+        col_name = "premium_stories"
+        
+        def _sync_check():
+            client = pymongo.MongoClient(mongo_uri, serverSelectionTimeoutMS=4000)
+            try:
+                col = client[db_name][col_name]
+                # Try case-insensitive name match using regex
+                q = story_name.strip()
+                # Build a pattern that matches common variations
+                import re
+                pattern = re.compile(re.escape(q), re.IGNORECASE)
+                # Check common name fields
+                found = col.find_one({
+                    "$or": [
+                        {"name":  pattern},
+                        {"title": pattern},
+                        {"story": pattern},
+                    ]
+                })
+                return found is not None
+            except Exception:
+                return False
+            finally:
+                client.close()
+        
+        return await asyncio.to_thread(_sync_check)
+    except Exception:
+        return False
+
 async def handle_req_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     text = update.message.text.strip().lower()
     
     if text in ("cancel", "ᴄᴀɴᴄᴇʟ"):
@@ -2512,20 +2563,40 @@ async def handle_req_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     existing = search_story_exact_or_alias(story)
     if existing:
         ex_link = existing.get("link", "")
+        # Reject request even if no link — story is in Riya bot's local DB
+        # Also check poster bot's MongoDB for availability
+        mongo_found = await _check_story_in_mongo(story)
+        notice_text = (
+            f"<b>{mention}</b>\n\n"
+            f"◎ <b>𝗔𝗟𝗥𝗘𝗔𝗗𝗬 𝗔𝗩𝗔𝗜𝗟𝗔𝗕𝗟𝗘</b>\n\n"
+            f"▣ <b>{html.escape(story_name)}</b> is already in our database!\n"
+            f"◑ Please do not request stories that are already available.\n"
+        )
         if ex_link:
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text=(
-                    f"<b>{mention}</b>\n\n"
-                    f"◎ <b>𝗔𝗟𝗥𝗘𝗔𝗗𝗬 𝗔𝗩𝗔𝗜𝗟𝗔𝗕𝗟𝗘</b>\n\n"
-                    f"▣ This story is already in our database!\n\n"
-                    f"◈ Link: <tg-spoiler>{ex_link}</tg-spoiler>"
-                ),
-                parse_mode="HTML",
-                reply_markup=ReplyKeyboardRemove()
-            )
-            context.user_data.pop("req_data", None)
-            return ConversationHandler.END
+            notice_text += f"◈ Link: <tg-spoiler>{ex_link}</tg-spoiler>"
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=notice_text,
+            parse_mode="HTML",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        context.user_data.pop("req_data", None)
+        return ConversationHandler.END
+    # Also check poster bot's MongoDB even if not in local DB
+    if await _check_story_in_mongo(story):
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=(
+                f"<b>{mention}</b>\n\n"
+                f"◎ <b>𝗔𝗟𝗥𝗘𝗔𝗗𝗬 𝗔𝗩𝗔𝗜𝗟𝗔𝗕𝗟𝗘</b>\n\n"
+                f"▣ <b>{html.escape(story_name)}</b> is already available in our story collection!\n"
+                f"◑ Please do not request stories that are already uploaded."
+            ),
+            parse_mode="HTML",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        context.user_data.pop("req_data", None)
+        return ConversationHandler.END
 
     if story not in request_db:
         request_db[story] = {}
@@ -2803,10 +2874,11 @@ async def request_story(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 pass
             return
-            
-        # Send normal existing link
+
+        # Story exists in local DB — reject regardless of link status
         if lang == "hi":
-            text = f"""
+            if link:
+                text = f"""
 <b>{mention}</b>
 
 <b>☆ यह स्टोरी पहले से उपलब्ध है</b>
@@ -2814,8 +2886,16 @@ async def request_story(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 <b>Link:</b> <tg-spoiler>{link}</tg-spoiler>
 """
+            else:
+                text = f"""
+<b>{mention}</b>
+
+<b>☆ यह स्टोरी पहले से उपलब्ध है</b>
+<i>यह स्टोरी पहले से हमारे डेटाबेस में है। कृपया इसकी Request न करें।</i>
+"""
         else:
-            text = f"""
+            if link:
+                text = f"""
 <b>{mention}</b>
 
 <b>☆ Already in Database</b>
@@ -2823,7 +2903,31 @@ async def request_story(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 <b>Link:</b> <tg-spoiler>{link}</tg-spoiler>
 """
-        await update.effective_chat.send_message(text=text, parse_mode="HTML")
+            else:
+                text = f"""
+<b>{mention}</b>
+
+<b>☆ Already Available</b>
+<i>This story already exists in our database. Please do not request it.</i>
+"""
+        await context.bot.send_message(chat_id=user.id, text=text, parse_mode="HTML")
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+        return
+
+    # Check poster bot's MongoDB as well
+    story_lower = story
+    if await _check_story_in_mongo(story_lower):
+        user = update.effective_user
+        mention = user.mention_html() if user else ""
+        lang = get_chat_lang(update.effective_chat.id)
+        if lang == "hi":
+            text = f"<b>{mention}</b>\n\n<b>☆ यह स्टोरी पहले से उपलब्ध है</b>\n<i>यह स्टोरी पहले से हमारे Collection में मौजूद है। कृपया इसकी Request न करें।</i>"
+        else:
+            text = f"<b>{mention}</b>\n\n<b>☆ Already Available</b>\n<i>This story already exists in our story collection. Please do not request it.</i>"
+        await context.bot.send_message(chat_id=user.id, text=text, parse_mode="HTML")
         try:
             await update.message.delete()
         except Exception:
@@ -7069,7 +7173,8 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("📢 Set Poll Channel",   callback_data=f"cfg|ps_channel||{caller_id}")],
             [InlineKeyboardButton("🔢 Set Request Limit",  callback_data=f"cfg|ps_limit||{caller_id}")],
             [InlineKeyboardButton("⏱ Set Poll Duration",  callback_data=f"cfg|ps_duration||{caller_id}")],
-            [InlineKeyboardButton("↺ Reset to Default",   callback_data=f"cfg|ps_reset||{caller_id}")],
+            [InlineKeyboardButton("↺ Reset Settings",     callback_data=f"cfg|ps_reset||{caller_id}"),
+             InlineKeyboardButton("🔄 Reset Poll Queue",  callback_data=f"cfg|ps_queue_reset||{caller_id}")],
             _cfg_nav(caller_id, back="main")
         ])
         await _edit_cfg(query, text, markup)
@@ -7123,6 +7228,28 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("Reset to defaults.", show_alert=True)
         await _edit_cfg(query,
             "<b>📊 Poll Settings</b>\n\nReset to defaults: Limit = 10, Duration = 24 hours.",
+            InlineKeyboardMarkup([_cfg_nav(caller_id, back="poll_settings")])
+        )
+        return
+
+    if section == "ps_queue_reset":
+        """Clear voting queue and all active polls — admin hard reset."""
+        global voting_queue, active_polls
+        queue_count = len(voting_queue)
+        poll_count  = len(active_polls)
+        voting_queue = []
+        active_polls = {}
+        save_voting_db({"queue": voting_queue, "polls": active_polls})
+        await query.answer(
+            f"✅ Cleared {queue_count} queued stories and {poll_count} active poll(s).",
+            show_alert=True
+        )
+        await _edit_cfg(query,
+            f"<b>📊 Poll Settings</b>\n\n"
+            f"<b>🔄 Poll Queue Reset!</b>\n"
+            f"◈ Voting queue cleared: <code>{queue_count}</code> stories removed\n"
+            f"◈ Active polls closed: <code>{poll_count}</code> polls removed\n\n"
+            f"<i>The queue is now empty. New story requests will start a fresh queue.</i>",
             InlineKeyboardMarkup([_cfg_nav(caller_id, back="poll_settings")])
         )
         return
