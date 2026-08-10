@@ -3136,88 +3136,78 @@ async def trigger_community_poll(context: ContextTypes.DEFAULT_TYPE, chat_id: in
                 pass
         return
 
-    # ── STEP 1: Send ONE combined intro card (replaces individual per-story messages) ──
-    # Build a single bilingual caption listing all stories with their vote numbers
-    story_lines_en = ""
-    story_lines_hi = ""
-    for idx, q in enumerate(to_poll):
-        sname = options[idx]
-        req_count = sum(len(v) for v in q.get("requesters", {}).values())
-        story_lines_en += f"  <b>#{idx+1}</b>  {html.escape(sname)}  <i>({req_count} request{'s' if req_count != 1 else ''})</i>\n"
-        story_lines_hi += f"  <b>#{idx+1}</b>  {html.escape(sname)}  <i>({req_count} रिक्वेस्ट)</i>\n"
 
-    intro_caption = (
-        "🗳️ <b>Community Voting — कम्युनिटी वोटिंग</b>\n"
-        "<code>──────────────────────</code>\n\n"
-        "🇬🇧 <b>Vote for the next story to be uploaded!</b>\n"
-        f"{story_lines_en}\n"
-        "🇮🇳 <b>नीचे पोल में वोट करें — अगली स्टोरी चुनें!</b>\n"
-        f"{story_lines_hi}\n"
-        "<code>──────────────────────</code>\n"
-        "⏰ <b>Duration / अवधि:</b> <i>24 Hours / 24 घंटे</i>\n"
-        "📌 <i>1 vote per person • सिर्फ 1 वोट प्रति व्यक्ति</i>"
-    )
 
-    # Use the first available story image as cover photo for the intro card
-    cover_photo = next(
-        (q.get("photo_id") for q in to_poll if q.get("photo_id")),
-        None
-    )
-
-    intro_msg = None
-    try:
-        if cover_photo:
-            intro_msg = await context.bot.send_photo(
-                chat_id=target_chat,
-                photo=cover_photo,
-                caption=intro_caption,
-                parse_mode="HTML"
-            )
-        else:
-            intro_msg = await context.bot.send_message(
-                chat_id=target_chat,
-                text=intro_caption,
-                parse_mode="HTML"
-            )
-    except Exception as intro_err:
-        logger.warning(f"[Poll] Could not send intro card: {intro_err}")
-
-    # ── STEP 2: Create the voting poll ────────────────────────────────────────
-    # is_anonymous=True required — Telegram channels don't support non-anonymous polls.
-    # allows_multiple_answers=False ensures each user votes for exactly 1 story.
-    poll_question = "🗳️ Which story next? | अगली कौन सी स्टोरी? Vote करें! ⬇️"
-    # Telegram poll question max length is 300 chars
+    # ── Send ONE poll with everything inside it ───────────────────────────────
+    # Poll question: Hindi + English
+    poll_question = "🗳️ अगली कौन सी स्टोरी अपलोड हो? | Which story should be uploaded next?"
     if len(poll_question) > 300:
         poll_question = poll_question[:297] + "..."
 
+    # Build options list — try attaching image to each option via raw Bot API
+    # InputPollOption with media is a Bot API 7.3+ feature (pass via api_kwargs)
+    raw_options = []
+    for idx, q in enumerate(to_poll):
+        opt_text = options[idx]  # already truncated to 100 chars earlier
+        photo_id = q.get("photo_id", "")
+        opt_obj = {"text": opt_text}
+        if photo_id:
+            opt_obj["media"] = {
+                "type": "photo",
+                "media": photo_id
+            }
+        raw_options.append(opt_obj)
+
+    # Description: bilingual summary (max 120 chars for Telegram)
+    n = len(options)
+    description = f"⏱ 24 hrs • 1 vote • {n} stories | {n} स्टोरीज़ में से चुनें ⬇️"
+    if len(description) > 120:
+        description = description[:117] + "..."
+
+    # ── STEP 2: Create the voting poll ────────────────────────────────────────
+    # is_anonymous=True required — Telegram channels don't support non-anonymous polls.
+    # We pass raw options via api_kwargs so images attach to each option (Bot API 7.3+).
+    # If that fails (older Bot API), fall back to plain string options.
+    poll_msg = None
     try:
         poll_msg = await context.bot.send_poll(
             chat_id=target_chat,
             question=poll_question,
-            options=options,
-            is_anonymous=True,           # Required for Telegram channels
+            options=raw_options,          # raw dicts with optional media field
+            is_anonymous=True,
             allows_multiple_answers=False,
             open_period=int(POLL_TIMEOUT_SEC) if POLL_TIMEOUT_SEC <= 604800 else None,
+            api_kwargs={"question_parse_mode": "HTML"},
         )
-    except Exception as e:
-        import traceback
-        err_msg = traceback.format_exc()
-        # Restore queue on failure
-        voting_queue = to_poll + voting_queue
-        # Crucial: save the restored queue back to JSON so it doesn't stay out of sync if bot restarts!
-        save_voting_db({"queue": voting_queue, "polls": active_polls})
-        
-        # Ping the admin so they aren't completely blind as to why Telegram rejected the poll!
-        if ADMIN_ID:
-            try:
-                await context.bot.send_message(
-                    chat_id=ADMIN_ID,
-                    text=f"❌ <b>Poll Creation Failed!</b>\nTelegram rejected the community poll.\n\n<pre>{html.escape(str(e))}</pre>",
-                    parse_mode="HTML"
-                )
-            except Exception:
-                pass
-        return
+    except Exception as e_media:
+        logger.warning(f"[Poll] Media-option poll failed ({e_media}), retrying without images...")
+        # Fallback: plain text options without images
+        try:
+            poll_msg = await context.bot.send_poll(
+                chat_id=target_chat,
+                question=poll_question,
+                options=options,           # plain strings
+                is_anonymous=True,
+                allows_multiple_answers=False,
+                open_period=int(POLL_TIMEOUT_SEC) if POLL_TIMEOUT_SEC <= 604800 else None,
+            )
+        except Exception as e:
+            import traceback
+            # Restore queue on failure
+            voting_queue = to_poll + voting_queue
+            save_voting_db({"queue": voting_queue, "polls": active_polls})
+            if ADMIN_ID:
+                try:
+                    await context.bot.send_message(
+                        chat_id=ADMIN_ID,
+                        text=f"❌ <b>Poll Creation Failed!</b>\nTelegram rejected the community poll.\n\n<pre>{html.escape(str(e))}</pre>",
+                        parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
+            return
+
+
     
     # Pin the poll
     try:
@@ -3228,7 +3218,6 @@ async def trigger_community_poll(context: ContextTypes.DEFAULT_TYPE, chat_id: in
     poll_id = poll_msg.poll.id
     active_polls[poll_id] = {
         "message_id": poll_msg.message_id,
-        "intro_msg_id": intro_msg.message_id if intro_msg else None,
         "chat_id": target_chat,
         "options": options,
         "votes": {str(i): [] for i in range(len(options))},
@@ -3239,6 +3228,7 @@ async def trigger_community_poll(context: ContextTypes.DEFAULT_TYPE, chat_id: in
     
     save_voting_db({"queue": voting_queue, "polls": active_polls})
     await log(context, f"POLL CREATED | poll_id={poll_id} options={options}")
+
 
 
 
