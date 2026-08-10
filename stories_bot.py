@@ -3118,6 +3118,7 @@ async def trigger_community_poll(context: ContextTypes.DEFAULT_TYPE, chat_id: in
     if len(options) < 2:
         options.append("More Stories Coming Soon")
     
+
     # Send poll to the configured poll channel
     target_chat = get_current_poll_channel()
     if not target_chat:
@@ -3135,45 +3136,64 @@ async def trigger_community_poll(context: ContextTypes.DEFAULT_TYPE, chat_id: in
                 pass
         return
 
-    # ── STEP 1: Send story image cards before the poll ────────────────────────
-    # Each story gets a photo message so subscribers can visually identify each option
-    sent_preview_ids = []
+    # ── STEP 1: Send ONE combined intro card (replaces individual per-story messages) ──
+    # Build a single bilingual caption listing all stories with their vote numbers
+    story_lines_en = ""
+    story_lines_hi = ""
     for idx, q in enumerate(to_poll):
-        story_name = options[idx]  # use the sanitized/deduplicated name
-        photo_id   = q.get("photo_id", "")
-        req_count  = sum(len(v) for v in q.get("requesters", {}).values())
-        caption    = (
-            f"<b>🗳️ Vote #{idx + 1}</b>\n\n"
-            f"<b>Story:</b> {html.escape(story_name)}\n"
-            f"<b>Total Requests:</b> {req_count}\n\n"
-            f"<i>Vote for this story in the poll below ↓</i>"
-        )
-        try:
-            if photo_id:
-                msg = await context.bot.send_photo(
-                    chat_id=target_chat,
-                    photo=photo_id,
-                    caption=caption,
-                    parse_mode="HTML"
-                )
-            else:
-                msg = await context.bot.send_message(
-                    chat_id=target_chat,
-                    text=caption,
-                    parse_mode="HTML"
-                )
-            sent_preview_ids.append(msg.message_id)
-        except Exception as img_err:
-            logger.warning(f"[Poll] Could not send story preview for '{story_name}': {img_err}")
+        sname = options[idx]
+        req_count = sum(len(v) for v in q.get("requesters", {}).values())
+        story_lines_en += f"  <b>#{idx+1}</b>  {html.escape(sname)}  <i>({req_count} request{'s' if req_count != 1 else ''})</i>\n"
+        story_lines_hi += f"  <b>#{idx+1}</b>  {html.escape(sname)}  <i>({req_count} रिक्वेस्ट)</i>\n"
+
+    intro_caption = (
+        "🗳️ <b>Community Voting — कम्युनिटी वोटिंग</b>\n"
+        "<code>──────────────────────</code>\n\n"
+        "🇬🇧 <b>Vote for the next story to be uploaded!</b>\n"
+        f"{story_lines_en}\n"
+        "🇮🇳 <b>नीचे पोल में वोट करें — अगली स्टोरी चुनें!</b>\n"
+        f"{story_lines_hi}\n"
+        "<code>──────────────────────</code>\n"
+        "⏰ <b>Duration / अवधि:</b> <i>24 Hours / 24 घंटे</i>\n"
+        "📌 <i>1 vote per person • सिर्फ 1 वोट प्रति व्यक्ति</i>"
+    )
+
+    # Use the first available story image as cover photo for the intro card
+    cover_photo = next(
+        (q.get("photo_id") for q in to_poll if q.get("photo_id")),
+        None
+    )
+
+    intro_msg = None
+    try:
+        if cover_photo:
+            intro_msg = await context.bot.send_photo(
+                chat_id=target_chat,
+                photo=cover_photo,
+                caption=intro_caption,
+                parse_mode="HTML"
+            )
+        else:
+            intro_msg = await context.bot.send_message(
+                chat_id=target_chat,
+                text=intro_caption,
+                parse_mode="HTML"
+            )
+    except Exception as intro_err:
+        logger.warning(f"[Poll] Could not send intro card: {intro_err}")
 
     # ── STEP 2: Create the voting poll ────────────────────────────────────────
     # is_anonymous=True required — Telegram channels don't support non-anonymous polls.
-    # Vote tracking is done via our internal votes dict (updated in poll_answer_handler).
     # allows_multiple_answers=False ensures each user votes for exactly 1 story.
+    poll_question = "🗳️ Which story next? | अगली कौन सी स्टोरी? Vote करें! ⬇️"
+    # Telegram poll question max length is 300 chars
+    if len(poll_question) > 300:
+        poll_question = poll_question[:297] + "..."
+
     try:
         poll_msg = await context.bot.send_poll(
             chat_id=target_chat,
-            question="🗳️ Which story should be uploaded next? Vote now!",
+            question=poll_question,
             options=options,
             is_anonymous=True,           # Required for Telegram channels
             allows_multiple_answers=False,
@@ -3208,17 +3228,19 @@ async def trigger_community_poll(context: ContextTypes.DEFAULT_TYPE, chat_id: in
     poll_id = poll_msg.poll.id
     active_polls[poll_id] = {
         "message_id": poll_msg.message_id,
+        "intro_msg_id": intro_msg.message_id if intro_msg else None,
         "chat_id": target_chat,
         "options": options,
         "votes": {str(i): [] for i in range(len(options))},
         "created_at": time.time(),
         "requesters": {q["name"]: q["requesters"] for q in to_poll},
         "photo_ids": {q["name"]: q.get("photo_id", "") for q in to_poll},
-        "preview_msg_ids": sent_preview_ids,
     }
     
     save_voting_db({"queue": voting_queue, "polls": active_polls})
     await log(context, f"POLL CREATED | poll_id={poll_id} options={options}")
+
+
 
 
 async def poll_answer_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
