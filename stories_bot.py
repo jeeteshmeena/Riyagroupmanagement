@@ -2552,9 +2552,11 @@ async def handle_req_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     in_queue = any(q["name"] == story for q in voting_queue)
     in_polls = any(story in p["options"] for p in active_polls.values())
+    _photo_id = data.get("photo_id", "")
     if not in_queue and not in_polls:
         voting_queue.append({
             "name": story,
+            "photo_id": _photo_id,
             "requesters": {chat_id: [user.id]}
         })
     elif in_queue:
@@ -2565,6 +2567,9 @@ async def handle_req_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if user.id not in chat_reqs[chat_id]:
                     chat_reqs[chat_id].append(user.id)
                 q["requesters"] = chat_reqs
+                # Update photo_id if not already set
+                if not q.get("photo_id") and _photo_id:
+                    q["photo_id"] = _photo_id
                 break
     save_voting_db({"queue": voting_queue, "polls": active_polls})
     
@@ -2960,6 +2965,7 @@ Please avoid sending duplicate requests.</i>
     if not in_queue and not in_polls:
         voting_queue.append({
             "name": story,
+            "photo_id": "",   # /request cmd path has no image
             "requesters": {chat_id: [user.id]}
         })
     elif in_queue:
@@ -3060,8 +3066,11 @@ def get_current_poll_channel():
     return ""
 
 
+
 async def trigger_community_poll(context: ContextTypes.DEFAULT_TYPE, chat_id: int = None):
-    """Create a community poll if the queue has enough unique stories."""
+    """Create a community poll if the queue has enough unique stories.
+    Sends story image cards first, then the voting poll (non-anonymous for subscriber enforcement).
+    """
     global voting_queue, active_polls
     
     target_limit = get_current_voting_size()
@@ -3119,14 +3128,49 @@ async def trigger_community_poll(context: ContextTypes.DEFAULT_TYPE, chat_id: in
             except Exception:
                 pass
         return
-    
+
+    # ── STEP 1: Send story image cards before the poll ────────────────────────
+    # Each story gets a photo message so subscribers can visually identify each option
+    sent_preview_ids = []
+    for idx, q in enumerate(to_poll):
+        story_name = options[idx]  # use the sanitized/deduplicated name
+        photo_id   = q.get("photo_id", "")
+        req_count  = sum(len(v) for v in q.get("requesters", {}).values())
+        caption    = (
+            f"<b>🗳️ Vote #{idx + 1}</b>\n\n"
+            f"<b>Story:</b> {html.escape(story_name)}\n"
+            f"<b>Total Requests:</b> {req_count}\n\n"
+            f"<i>Vote for this story in the poll below ↓</i>"
+        )
+        try:
+            if photo_id:
+                msg = await context.bot.send_photo(
+                    chat_id=target_chat,
+                    photo=photo_id,
+                    caption=caption,
+                    parse_mode="HTML"
+                )
+            else:
+                msg = await context.bot.send_message(
+                    chat_id=target_chat,
+                    text=caption,
+                    parse_mode="HTML"
+                )
+            sent_preview_ids.append(msg.message_id)
+        except Exception as img_err:
+            logger.warning(f"[Poll] Could not send story preview for '{story_name}': {img_err}")
+
+    # ── STEP 2: Create the voting poll ────────────────────────────────────────
+    # Non-anonymous so we can enforce subscriber-only voting in poll_answer_handler
+    # allows_multiple_answers=False ensures each user votes for exactly 1 story
     try:
         poll_msg = await context.bot.send_poll(
             chat_id=target_chat,
-            question="Which story should be uploaded next? (Community Vote)",
+            question="🗳️ Which story should be uploaded next? (Subscribers only — 1 vote per person)",
             options=options,
-            is_anonymous=True,
+            is_anonymous=False,       # Must be False for subscriber enforcement & vote tracking
             allows_multiple_answers=False,
+            open_period=int(POLL_TIMEOUT_SEC) if POLL_TIMEOUT_SEC <= 604800 else None,
         )
     except Exception as e:
         import traceback
@@ -3161,7 +3205,9 @@ async def trigger_community_poll(context: ContextTypes.DEFAULT_TYPE, chat_id: in
         "options": options,
         "votes": {str(i): [] for i in range(len(options))},
         "created_at": time.time(),
-        "requesters": {q["name"]: q["requesters"] for q in to_poll}
+        "requesters": {q["name"]: q["requesters"] for q in to_poll},
+        "photo_ids": {q["name"]: q.get("photo_id", "") for q in to_poll},
+        "preview_msg_ids": sent_preview_ids,
     }
     
     save_voting_db({"queue": voting_queue, "polls": active_polls})
@@ -3169,7 +3215,10 @@ async def trigger_community_poll(context: ContextTypes.DEFAULT_TYPE, chat_id: in
 
 
 async def poll_answer_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle non-anonymous poll state updates."""
+    """Handle non-anonymous poll answers with subscriber-only enforcement.
+    Only subscribers of the poll channel can vote. Others get their vote silently ignored.
+    Each user can vote for only 1 option (allows_multiple_answers=False at poll level).
+    """
     global active_polls, voting_queue
     answer = update.poll_answer
     poll_id = answer.poll_id
@@ -3179,23 +3228,43 @@ async def poll_answer_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     poll_data = active_polls[poll_id]
+
+    # ── Subscriber-only enforcement ───────────────────────────────────────────
+    poll_channel = poll_data.get("chat_id") or get_current_poll_channel()
+    if poll_channel:
+        try:
+            member = await context.bot.get_chat_member(
+                chat_id=poll_channel,
+                user_id=user_id
+            )
+            # Allow only active subscribers (member, administrator, creator)
+            if member.status not in ("member", "administrator", "creator"):
+                # Non-subscriber voted — silently ignore their vote
+                logger.debug(f"[Poll] Non-subscriber {user_id} vote ignored (status={member.status})")
+                return
+        except Exception as sub_err:
+            # If we can't verify, allow the vote (don't block legitimate users)
+            logger.debug(f"[Poll] Subscriber check failed for {user_id}: {sub_err}")
     
-    # Remove user from previous vote
+    # Remove user from previous vote (handles vote change)
     for vote_list in poll_data["votes"].values():
         if user_id in vote_list:
             vote_list.remove(user_id)
             
-    # Add to new option
+    # Add to new option (if option_ids is empty, user retracted vote)
     for option_id in answer.option_ids:
         poll_data["votes"][str(option_id)].append(user_id)
         
-    # Save votes without checking for early closure
+    # Save votes
     save_voting_db({"queue": voting_queue, "polls": active_polls})
 
 
+
+
 async def _declare_poll_winner(context, poll_id, winner_idx):
-    """Declare a winner, notify, and clean up the poll."""
-    global active_polls
+    """Declare a winner, notify winner's requesters (accept DM), notify losers (reject DM),
+    post full result to channel, and clean up the poll."""
+    global active_polls, request_db
     poll_data = active_polls.pop(poll_id, None)
     if not poll_data:
         return
@@ -3203,6 +3272,7 @@ async def _declare_poll_winner(context, poll_id, winner_idx):
     winner_name = poll_data["options"][winner_idx]
     chat_id = poll_data["chat_id"]
     msg_id = poll_data["message_id"]
+    all_options = poll_data.get("options", [])
 
     # Stop and unpin
     try:
@@ -3211,128 +3281,228 @@ async def _declare_poll_winner(context, poll_id, winner_idx):
     except Exception:
         pass
 
-    # Announce winner — clean, no emojis
+    # ── Channel result announcement ───────────────────────────────────────────
     win_text = (
         f"<b>❈ Community Voting Result</b>\n\n"
-        f"<b>Story Approved</b>\n\n"
-        f"<b>Story Name</b>    ➠ {html.escape(winner_name)}\n\n"
+        f"<b>✅ Story Approved</b>\n\n"
+        f"<b>Story Name</b>  ➠  {html.escape(winner_name)}\n\n"
         f"<blockquote expandable>"
         f"This story has been approved by community voting and will be prioritized for upload.\n\n"
         f"Please note: community voting does not guarantee 100% availability. "
-        f"It means the story will be searched for first. If found, it will be uploaded as soon as possible. "
-        f"Please wait patiently.\n\n"
-        f"यह स्टोरी कम्युनिटी वोटिंग द्वारा अप्रूव की गई है और इसे अपलोड के लिए प्राथमिकता दी जाएगी।\n"
-        f"ध्यान दें: यह 100% उपलब्धता की गारंटी नहीं है। अगर मिली, तो जल्द अपलोड होगी। कृपया धैर्य रखें।"
+        f"If found, it will be uploaded as soon as possible. Please wait patiently.\n\n"
+        f"यह स्टोरी कम्युनिटी वोटिंग द्वारा अप्रूव की गई है।\n"
+        f"अगर मिली, तो जल्द अपलोड होगी। कृपया धैर्य रखें।"
         f"</blockquote>"
     )
-    await context.bot.send_message(chat_id=chat_id, text=win_text, parse_mode="HTML")
+    try:
+        await context.bot.send_message(chat_id=chat_id, text=win_text, parse_mode="HTML")
+    except Exception:
+        pass
 
-    # Notify requesters — clean, no emojis
-    requesters = poll_data.get("requesters", {}).get(winner_name, {})
-    for rid_chat, uids in requesters.items():
+    # ── DM winner requesters: ACCEPTED ────────────────────────────────────────
+    win_requesters = poll_data.get("requesters", {}).get(winner_name, {})
+    for rid_chat, uids in win_requesters.items():
         for uid in uids:
             try:
-                mention = _user_mention_by_id(uid, fallback="User")
                 await context.bot.send_message(
-                    chat_id=int(rid_chat),
+                    chat_id=uid,
                     text=(
-                        f"<b>Story Request Update</b>\n\n"
-                        f"{mention}, the story you requested — "
-                        f"<b>{html.escape(winner_name)}</b> — has been approved via community voting.\n\n"
-                        f"It will be uploaded soon. Please wait patiently."
+                        f"<b>🎉 Story Request Accepted!</b>\n\n"
+                        f"Your story request — <b>{html.escape(winner_name)}</b> — has been "
+                        f"<b>approved</b> via community voting!\n\n"
+                        f"It will be uploaded soon. Please wait patiently. 🙏\n\n"
+                        f"<b>आपकी रिक्वेस्ट अप्रूव हुई!</b>\n"
+                        f"आपकी <b>{html.escape(winner_name)}</b> की रिक्वेस्ट कम्युनिटी वोटिंग में जीत गई है!\n"
+                        f"जल्द ही अपलोड होगी। धैर्य रखें। 🙏"
                     ),
                     parse_mode="HTML"
                 )
             except Exception:
                 pass
 
+    # ── DM loser requesters: REJECTED ─────────────────────────────────────────
+    loser_names = [opt for opt in all_options if opt != winner_name]
+    all_requesters = poll_data.get("requesters", {})
+    for loser_name in loser_names:
+        loser_requesters = all_requesters.get(loser_name, {})
+        for rid_chat, uids in loser_requesters.items():
+            for uid in uids:
+                try:
+                    await context.bot.send_message(
+                        chat_id=uid,
+                        text=(
+                            f"<b>❌ Story Request — Poll Result</b>\n\n"
+                            f"Your requested story — <b>{html.escape(loser_name)}</b> — did not receive "
+                            f"enough votes in this round's community poll.\n\n"
+                            f"You can re-request it for the next poll!\n\n"
+                            f"<b>आपकी रिक्वेस्ट इस बार नहीं जीती।</b>\n"
+                            f"<b>{html.escape(loser_name)}</b> को इस पोल में पर्याप्त वोट नहीं मिले।\n"
+                            f"आप इसे अगले पोल के लिए फिर से रिक्वेस्ट कर सकते हैं!"
+                        ),
+                        parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
+
+    # ── Clean up request_db for winner story ──────────────────────────────────
+    for k in list(request_db.keys()):
+        if k == winner_name or k.startswith(winner_name[:40]):
+            request_db.pop(k, None)
+    save_requests({"requests": request_db})
+
+
+async def _process_poll_result(context, pid, data):
+    """Core logic: stop poll, compute winners/losers, post result, send DMs."""
+    global request_db
+
+    options_with_votes = []
+    try:
+        stopped_poll = await context.bot.stop_poll(
+            chat_id=data["chat_id"], message_id=data["message_id"]
+        )
+        try:
+            await context.bot.unpin_chat_message(
+                chat_id=data["chat_id"], message_id=data["message_id"]
+            )
+        except Exception:
+            pass
+        for opt in stopped_poll.options:
+            options_with_votes.append((opt.text, opt.voter_count))
+    except Exception:
+        # Fallback to local tracking data
+        for idx_str, voters in data.get("votes", {}).items():
+            try:
+                idx = int(idx_str)
+                name = data["options"][idx]
+                options_with_votes.append((name, len(voters)))
+            except Exception:
+                pass
+
+    if not options_with_votes:
+        options_with_votes = [(name, 0) for name in data.get("options", [])]
+
+    # Sort descending by votes
+    options_with_votes.sort(key=lambda x: x[1], reverse=True)
+
+    # Top entries with max votes are winners; determine cutoff
+    # Stories that tie for top vote count are all accepted
+    max_votes = options_with_votes[0][1] if options_with_votes else 0
+    winners = [(n, v) for n, v in options_with_votes if v == max_votes and v > 0]
+    # If all have 0 votes, just take top 1 as winner
+    if not winners:
+        winners = options_with_votes[:1]
+    losers = [(n, v) for n, v in options_with_votes if (n, v) not in winners]
+
+    all_requesters = data.get("requesters", {})
+    channel = data["chat_id"]
+
+    # ── Build channel result message ───────────────────────────────────────────
+    accepted_lines = ""
+    for rank, (name, votes) in enumerate(winners, 1):
+        accepted_lines += f"  <b>#{rank}</b>  {html.escape(name)}  <i>({votes} votes)</i>\n"
+
+    rejected_lines = ""
+    for name, votes in losers:
+        rejected_lines += f"  • {html.escape(name)}  <i>({votes} votes)</i>\n"
+
+    result_text = (
+        f"<b>❈ Community Voting Results</b>\n\n"
+        f"<b>✅ Approved Stories</b>\n"
+        f"{accepted_lines}\n"
+    )
+    if rejected_lines:
+        result_text += (
+            f"<b>❌ Not Selected This Round</b>\n"
+            f"{rejected_lines}\n"
+        )
+    result_text += (
+        f"<blockquote expandable>"
+        f"Approved stories will be prioritized for upload. "
+        f"Community voting does not guarantee 100% availability — "
+        f"if found, they will be uploaded as soon as possible. Please wait patiently.\n\n"
+        f"अप्रूव स्टोरीज़ को अपलोड में प्राथमिकता मिलेगी। "
+        f"अगर मिलीं, जल्द अपलोड होंगी। धैर्य रखें।"
+        f"</blockquote>"
+    )
+    try:
+        await context.bot.send_message(chat_id=channel, text=result_text, parse_mode="HTML")
+    except Exception:
+        pass
+
+    # ── DM winner requesters: ACCEPTED ────────────────────────────────────────
+    for w_name, w_votes in winners:
+        w_requesters = all_requesters.get(w_name, {})
+        for rid_chat, uids in w_requesters.items():
+            for uid in uids:
+                try:
+                    await context.bot.send_message(
+                        chat_id=uid,
+                        text=(
+                            f"<b>🎉 Story Request Accepted!</b>\n\n"
+                            f"Your story request — <b>{html.escape(w_name)}</b> — has been "
+                            f"<b>approved</b> via community voting with {w_votes} vote(s)!\n\n"
+                            f"It will be uploaded soon. Please wait patiently. 🙏\n\n"
+                            f"<b>🎉 आपकी रिक्वेस्ट अप्रूव हुई!</b>\n"
+                            f"<b>{html.escape(w_name)}</b> को {w_votes} वोट मिले और यह जीत गई!\n"
+                            f"जल्द ही अपलोड होगी। धैर्य रखें। 🙏"
+                        ),
+                        parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
+        # Clean winner from request_db
+        for k in list(request_db.keys()):
+            if k == w_name or k.startswith(w_name[:40]):
+                request_db.pop(k, None)
+
+    # ── DM loser requesters: NOT SELECTED ─────────────────────────────────────
+    for l_name, l_votes in losers:
+        l_requesters = all_requesters.get(l_name, {})
+        for rid_chat, uids in l_requesters.items():
+            for uid in uids:
+                try:
+                    await context.bot.send_message(
+                        chat_id=uid,
+                        text=(
+                            f"<b>📊 Story Request — Poll Result</b>\n\n"
+                            f"Your requested story — <b>{html.escape(l_name)}</b> — received "
+                            f"{l_votes} vote(s) but did not win this round.\n\n"
+                            f"You can re-request it for the next poll! 💪\n\n"
+                            f"<b>📊 इस बार जीत नहीं हुई।</b>\n"
+                            f"<b>{html.escape(l_name)}</b> को {l_votes} वोट मिले लेकिन यह इस बार नहीं जीती।\n"
+                            f"आप इसे अगले पोल के लिए फिर से रिक्वेस्ट कर सकते हैं! 💪"
+                        ),
+                        parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
+
+    save_requests({"requests": request_db})
+
 
 async def poll_timeout_manager(context: ContextTypes.DEFAULT_TYPE):
-    """Background task to close stale polls after 24 hours and approve the top 2 winners."""
+    """Background task: every 5 min check for expired polls and close them.
+    On expiry: announces accepted/rejected stories in channel, DMs all requesters."""
     global active_polls, voting_queue
     while True:
-        await asyncio.sleep(300) # Check every 5 minutes
+        await asyncio.sleep(300)  # Check every 5 minutes
         now = time.time()
         to_remove = []
-        for pid, data in active_polls.items():
+        for pid, data in list(active_polls.items()):
             if now - data["created_at"] > POLL_TIMEOUT_SEC:
                 to_remove.append(pid)
-        
+
         for pid in to_remove:
-            data = active_polls.pop(pid)
-            options_with_votes = []
-            
+            data = active_polls.pop(pid, {})
             try:
-                stopped_poll = await context.bot.stop_poll(chat_id=data["chat_id"], message_id=data["message_id"])
-                try:
-                    await context.bot.unpin_chat_message(chat_id=data["chat_id"], message_id=data["message_id"])
-                except Exception:
-                    pass
-                
-                for opt in stopped_poll.options:
-                    options_with_votes.append((opt.text, opt.voter_count))
-            except Exception:
-                # Fallback to local active_polls data
-                for idx_str, voters in data.get("votes", {}).items():
-                    try:
-                        idx = int(idx_str)
-                        name = data["options"][idx]
-                        options_with_votes.append((name, len(voters)))
-                    except Exception:
-                        pass
-            
-            if not options_with_votes:
-                options_with_votes = [(name, 0) for name in data.get("options", [])]
-            
-            # Sort by vote count in descending order
-            options_with_votes.sort(key=lambda x: x[1], reverse=True)
-            winners = options_with_votes[:2]
-            
-            if winners:
-                winner_lines = ""
-                for rank, (name, votes) in enumerate(winners, 1):
-                    winner_lines += f"<b>#{rank}</b>  {html.escape(name)}  ({votes} votes)\n"
+                await _process_poll_result(context, pid, data)
+            except Exception as e:
+                logger.error(f"[Poll] Error processing poll result for {pid}: {e}")
 
-                win_text = (
-                    f"<b>❈ Community Voting Results</b>\n\n"
-                    f"<b>Approved Stories</b>\n\n"
-                    f"{winner_lines}\n"
-                    f"<blockquote expandable>"
-                    f"These stories have been approved by community voting and will be prioritized for upload.\n\n"
-                    f"Please note: community voting does not guarantee 100% availability. "
-                    f"It means these stories will be searched for first. If found, they will be uploaded as soon as possible. "
-                    f"Please wait patiently.\n\n"
-                    f"ये स्टोरीज़ कम्युनिटी वोटिंग द्वारा अप्रूव की गई हैं।\n"
-                    f"अगर मिलीं, तो जल्द अपलोड होंगी। कृपया धैर्य रखें।"
-                    f"</blockquote>"
-                )
-                try:
-                    await context.bot.send_message(chat_id=data["chat_id"], text=win_text, parse_mode="HTML")
-                except Exception:
-                    pass
-
-                for name, votes in winners:
-                    # Notify requesters — clean, no emojis
-                    requesters = data.get("requesters", {}).get(name, {})
-                    for rid_chat, uids in requesters.items():
-                        for uid in uids:
-                            try:
-                                mention = _user_mention_by_id(uid, fallback="User")
-                                await context.bot.send_message(
-                                    chat_id=int(rid_chat),
-                                    text=(
-                                        f"<b>Story Request Update</b>\n\n"
-                                        f"{mention}, the story you requested — "
-                                        f"<b>{html.escape(name)}</b> — has been approved via community voting.\n\n"
-                                        f"It will be uploaded soon. Please wait patiently."
-                                    ),
-                                    parse_mode="HTML"
-                                )
-                            except Exception:
-                                pass
-        
         if to_remove:
             save_voting_db({"queue": voting_queue, "polls": active_polls})
+
+
 
 
 async def group_cleanup_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -4149,52 +4319,103 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         req_uid = int(parts[1])
         req_story = parts[2]
         
-        # Clean from request_db
-        to_delete = []
-        for db_story in list(request_db.keys()):
-            if db_story.startswith(req_story): # Matches sliced callback data
-                for chat_id_str, uids in list(request_db[db_story].items()):
-                    if req_uid in uids:
-                        uids.remove(req_uid)
-                to_delete.append(db_story)
-                
-        for k in to_delete:
-            if not any(request_db[k].values()):
-                request_db.pop(k, None)
-        save_requests({"requests": request_db})
-        
-        try:
-            await query.message.delete()
-        except:
-            pass
-            
-        # Delete from request channel if we have the message ID stored
         if action == "req_rej":
+            # ── Complete removal from request_db ───────────────────────────────
+            # Find all matching story keys (callback data may be sliced to 40 chars)
+            matched_stories = [k for k in list(request_db.keys()) if k.startswith(req_story)]
+            
+            # Collect all requesters for DM notifications before deleting
+            rejected_requesters = {}  # {chat_id_str: [user_ids]}
+            for db_story in matched_stories:
+                for cid_str, uids in request_db[db_story].items():
+                    rejected_requesters.setdefault(cid_str, [])
+                    rejected_requesters[cid_str].extend(list(uids))
+                # ── Delete entire story entry from request_db ──────────────────
+                request_db.pop(db_story, None)
+            save_requests({"requests": request_db})
+            
+            # ── Remove from voting_queue entirely ──────────────────────────────
+            before_len = len(voting_queue)
+            voting_queue[:] = [
+                q for q in voting_queue
+                if not str(q.get("name", "")).startswith(req_story)
+            ]
+            if len(voting_queue) != before_len:
+                save_voting_db({"queue": voting_queue, "polls": active_polls})
+            
+            # ── Delete the admin notification message ──────────────────────────
+            try:
+                await query.message.delete()
+            except Exception:
+                pass
+            
+            # ── Delete from request group channel if cached ────────────────────
             global _req_msg_cache
             if "_req_msg_cache" in globals() and req_story in _req_msg_cache:
                 try:
-                    await context.bot.delete_message(chat_id=REQUEST_GROUP, message_id=_req_msg_cache[req_story])
+                    await context.bot.delete_message(
+                        chat_id=REQUEST_GROUP,
+                        message_id=_req_msg_cache[req_story]
+                    )
                     _req_msg_cache.pop(req_story, None)
                 except Exception:
                     pass
 
-        # Language fallback logic for PMs since we don't have their original chat ID context here
-        # We will attempt to send them a direct message
-        if action == "req_rej":
-            msg_text = f"<b>☆ Request Rejected</b>\n\nYour request for <i>{req_story}</i> has been rejected by administrators.\n(Reason: Fake, unavailable, or violates rules)\n\n<b>☆ रिक्वेस्ट रिजेक्ट</b>\nआपकी <i>{req_story}</i> की रिक्वेस्ट रिजेक्ट कर दी गई है।"
-            try:
-                await context.bot.send_message(req_uid, msg_text, parse_mode="HTML")
-            except:
-                pass
+            # ── Notify admin who rejected ──────────────────────────────────────
+            await query.answer(f"✅ '{req_story[:30]}' rejected & fully removed from DB.", show_alert=True)
+
+            # ── DM all requesters about rejection ──────────────────────────────
+            reject_msg = (
+                f"<b>☆ Story Request Rejected / रिक्वेस्ट रिजेक्ट</b>\n\n"
+                f"Your story request for <i>{html.escape(req_story)}</i> has been <b>rejected</b> by administrators.\n"
+                f"<i>(Reason: Unavailable, fake, or violates rules)</i>\n\n"
+                f"आपकी <i>{html.escape(req_story)}</i> की रिक्वेस्ट एडमिन्स ने <b>रिजेक्ट</b> कर दी है।\n"
+                f"<i>(कारण: उपलब्ध नहीं, फेक, या नियमों के विरुद्ध)</i>"
+            )
+            for cid_str, uids in rejected_requesters.items():
+                for uid in uids:
+                    try:
+                        await context.bot.send_message(
+                            chat_id=uid,
+                            text=reject_msg,
+                            parse_mode="HTML"
+                        )
+                    except Exception:
+                        pass
+            return
 
         elif action == "req_warn":
+            # ── Warn: only remove that one user, keep story in DB ─────────────
+            to_delete = []
+            for db_story in list(request_db.keys()):
+                if db_story.startswith(req_story):
+                    for chat_id_str, uids in list(request_db[db_story].items()):
+                        if req_uid in uids:
+                            uids.discard(req_uid) if isinstance(uids, set) else (uids.remove(req_uid) if req_uid in uids else None)
+                    to_delete.append(db_story)
+            for k in to_delete:
+                if not any(request_db[k].values()):
+                    request_db.pop(k, None)
+            save_requests({"requests": request_db})
+            
+            try:
+                await query.message.delete()
+            except Exception:
+                pass
+
             _set_cooldown(req_uid, 30, f"Fake/Spam request warning for: {req_story}")
-            msg_text = f"<b>☆ WARNING / चेतावनी</b>\n\nYou have been placed on a 30-minute cooldown by administrators for sending fake or spam requests (<i>{req_story}</i>).\n\nफेक या स्पैम रिक्वेस्ट भेजने के कारण एडमिन्स ने आपको 30 मिनट के cooldown पर रखा है।"
+            msg_text = (
+                f"<b>☆ WARNING / चेतावनी</b>\n\n"
+                f"You have been placed on a 30-minute cooldown by administrators "
+                f"for sending fake or spam requests (<i>{html.escape(req_story)}</i>).\n\n"
+                f"फेक या स्पैम रिक्वेस्ट भेजने के कारण एडमिन्स ने आपको 30 मिनट के cooldown पर रखा है।"
+            )
             try:
                 await context.bot.send_message(req_uid, msg_text, parse_mode="HTML")
-            except:
+            except Exception:
                 pass
-        return
+            return
+
 
     # ── PUNISH FAKE REPORT ──────────────────────────────────────────────────
     if query.data.startswith("punish|"):
@@ -7872,18 +8093,31 @@ def _is_thanks_msg(text: str) -> bool:
 
 
 async def _try_react(bot, chat_id: int, message_id: int, emoji: str, big: bool = True):
-    """Send an animated custom emoji reaction via Premium Userbot if connected,
-    or fall back to Bot's set_message_reaction."""
+    """Send a reaction via the Bot's set_message_reaction (bot reacts, not userbot).
+    When premium userbot is connected, tries premium custom emoji first via bot API.
+    Falls back to standard emoji reaction if custom emoji is not supported."""
+    # ── Try premium custom emoji via Bot API first (bot reacts, not userbot) ──
     try:
         import premium_userbot
         if premium_userbot.is_connected():
             custom_id = premium_userbot.CUSTOM_EMOJI_MAP.get(emoji)
-            ok = await premium_userbot.react_with_emoji(chat_id, message_id, emoji, custom_emoji_id=custom_id, big=big)
-            if ok:
-                return
+            if custom_id:
+                try:
+                    from telegram import ReactionTypeCustomEmoji
+                    await bot.set_message_reaction(
+                        chat_id=chat_id,
+                        message_id=message_id,
+                        reaction=[ReactionTypeCustomEmoji(custom_emoji_id=custom_id)],
+                        is_big=big,
+                    )
+                    logger.debug("[Bot] ✅ Custom emoji reaction sent by bot on msg %s", message_id)
+                    return
+                except Exception as ce:
+                    logger.debug("[Bot] Custom emoji reaction failed, falling back: %s", ce)
     except Exception as pe:
-        logger.debug("[Premium] React via userbot skipped: %s", pe)
+        logger.debug("[Premium] Custom emoji lookup skipped: %s", pe)
 
+    # ── Fallback: standard emoji reaction via Bot API ─────────────────────────
     try:
         from telegram import ReactionTypeEmoji
         await bot.set_message_reaction(
@@ -7892,6 +8126,7 @@ async def _try_react(bot, chat_id: int, message_id: int, emoji: str, big: bool =
             reaction=[ReactionTypeEmoji(emoji=emoji)],
             is_big=big,
         )
+        logger.debug("[Bot] ✅ Standard emoji reaction sent by bot on msg %s", message_id)
     except Exception as err:
         logger.debug("Riya Bot reaction failed: %s", err)
 
@@ -9218,18 +9453,27 @@ async def auto_channel_react(update: Update, context: ContextTypes.DEFAULT_TYPE)
     chat_id = update.effective_chat.id
     msg_id  = update.channel_post.message_id
 
-    # Try Premium Userbot first for animated custom emoji reactions
+    # ── Bot reacts on channel post (premium custom emoji preferred, standard fallback) ──
     try:
         import premium_userbot
         if premium_userbot.is_connected():
             em = random.choice(emojis)
             custom_id = premium_userbot.CUSTOM_EMOJI_MAP.get(em)
-            ok = await premium_userbot.react_with_emoji(chat_id, msg_id, em, custom_emoji_id=custom_id, big=True)
-            if ok:
-                logger.info(f"[AutoReact] Sent premium animated reaction '{em}' on channel {chat_id}")
-                return
+            if custom_id:
+                try:
+                    from telegram import ReactionTypeCustomEmoji
+                    await context.bot.set_message_reaction(
+                        chat_id=chat_id,
+                        message_id=msg_id,
+                        reaction=[ReactionTypeCustomEmoji(custom_emoji_id=custom_id)],
+                        is_big=True
+                    )
+                    logger.info(f"[AutoReact] Bot reacted with premium emoji on channel {chat_id}")
+                    return
+                except Exception as ce:
+                    logger.debug(f"[AutoReact] Premium emoji via bot failed: {ce}")
     except Exception as pe:
-        logger.debug(f"[AutoReact] Premium userbot reaction skipped: {pe}")
+        logger.debug(f"[AutoReact] Premium emoji lookup skipped: {pe}")
 
     for em in emojis:
         try:
@@ -9244,6 +9488,7 @@ async def auto_channel_react(update: Update, context: ContextTypes.DEFAULT_TYPE)
             break
         except Exception:
             continue
+
 
 async def gban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin-only: globally ban a user from all authorized channels."""

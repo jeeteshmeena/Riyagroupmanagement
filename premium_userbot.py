@@ -121,8 +121,10 @@ async def react_with_emoji(chat_id: int, message_id: int, emoji: str,
                             custom_emoji_id: Optional[str] = None,
                             big: bool = True) -> bool:
     """
-    Send an animated custom emoji reaction via the premium userbot.
-    Premium account renders animated custom emoji reactions for all users in the chat.
+    Send an animated custom emoji reaction via the premium USERBOT (human) account.
+    NOTE: This reacts AS THE USER ACCOUNT, not as the bot.
+    For bot reactions, use bot.set_message_reaction() with ReactionTypeCustomEmoji instead.
+    This function is kept for edge cases where userbot-side reactions are explicitly needed.
     """
     if not is_connected():
         return False
