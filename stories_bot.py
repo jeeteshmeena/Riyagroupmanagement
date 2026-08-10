@@ -2645,12 +2645,15 @@ async def handle_req_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"<blockquote>{body_text}</blockquote>"
     )
             
+    # Always send confirmation to the user's DM (not the channel/group)
+    # This prevents request confirmation messages from appearing in the channel
     await context.bot.send_message(
-        chat_id=update.effective_chat.id,
+        chat_id=user.id,
         text=text,
         parse_mode="HTML",
         reply_markup=ReplyKeyboardRemove()
     )
+
     
     context.user_data.pop("req_data", None)
     return ConversationHandler.END
@@ -2995,11 +2998,14 @@ Please avoid sending duplicate requests.</i>
         else:
             text += f"\n\n<b>🎉 Voting Queue is full!</b>\n<i>A new poll will start shortly in the request channel.</i>"
 
-    await update.effective_chat.send_message(
+    # Always reply to user's DM to keep the channel/group clean
+    await context.bot.send_message(
+        chat_id=user.id,
         text=text,
         parse_mode="HTML",
         reply_markup=kb
     )
+
 
     # Trigger poll creation if threshold reached
     if queue_len >= VOTING_SIZE_FOR_POLL:
@@ -3161,14 +3167,15 @@ async def trigger_community_poll(context: ContextTypes.DEFAULT_TYPE, chat_id: in
             logger.warning(f"[Poll] Could not send story preview for '{story_name}': {img_err}")
 
     # ── STEP 2: Create the voting poll ────────────────────────────────────────
-    # Non-anonymous so we can enforce subscriber-only voting in poll_answer_handler
-    # allows_multiple_answers=False ensures each user votes for exactly 1 story
+    # is_anonymous=True required — Telegram channels don't support non-anonymous polls.
+    # Vote tracking is done via our internal votes dict (updated in poll_answer_handler).
+    # allows_multiple_answers=False ensures each user votes for exactly 1 story.
     try:
         poll_msg = await context.bot.send_poll(
             chat_id=target_chat,
-            question="🗳️ Which story should be uploaded next? (Subscribers only — 1 vote per person)",
+            question="🗳️ Which story should be uploaded next? Vote now!",
             options=options,
-            is_anonymous=False,       # Must be False for subscriber enforcement & vote tracking
+            is_anonymous=True,           # Required for Telegram channels
             allows_multiple_answers=False,
             open_period=int(POLL_TIMEOUT_SEC) if POLL_TIMEOUT_SEC <= 604800 else None,
         )
@@ -3215,9 +3222,10 @@ async def trigger_community_poll(context: ContextTypes.DEFAULT_TYPE, chat_id: in
 
 
 async def poll_answer_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle non-anonymous poll answers with subscriber-only enforcement.
-    Only subscribers of the poll channel can vote. Others get their vote silently ignored.
-    Each user can vote for only 1 option (allows_multiple_answers=False at poll level).
+    """Handle non-anonymous poll answers.
+    Note: Telegram channels only support anonymous polls, so poll_answer updates
+    are NOT sent for channel polls. This handler is kept for group-based polls.
+    Vote counts are taken directly from Telegram's stopped_poll data on expiry.
     """
     global active_polls, voting_queue
     answer = update.poll_answer
@@ -3229,23 +3237,6 @@ async def poll_answer_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     poll_data = active_polls[poll_id]
 
-    # ── Subscriber-only enforcement ───────────────────────────────────────────
-    poll_channel = poll_data.get("chat_id") or get_current_poll_channel()
-    if poll_channel:
-        try:
-            member = await context.bot.get_chat_member(
-                chat_id=poll_channel,
-                user_id=user_id
-            )
-            # Allow only active subscribers (member, administrator, creator)
-            if member.status not in ("member", "administrator", "creator"):
-                # Non-subscriber voted — silently ignore their vote
-                logger.debug(f"[Poll] Non-subscriber {user_id} vote ignored (status={member.status})")
-                return
-        except Exception as sub_err:
-            # If we can't verify, allow the vote (don't block legitimate users)
-            logger.debug(f"[Poll] Subscriber check failed for {user_id}: {sub_err}")
-    
     # Remove user from previous vote (handles vote change)
     for vote_list in poll_data["votes"].values():
         if user_id in vote_list:
