@@ -8687,29 +8687,11 @@ def _is_thanks_msg(text: str) -> bool:
 
 
 async def _try_react(bot, chat_id: int, message_id: int, emoji: str, big: bool = True):
-    """Send a reaction via Bot API or Premium Userbot."""
+    """Send a reaction strictly from the Riya Bot account directly (never via userbot)."""
     all_mapped = get_all_mapped_emojis()
     custom_id = all_mapped.get(emoji)
 
-    # 1. Try sending animated custom emoji reaction via connected Premium Userbot (100% works for custom animated emojis)
-    try:
-        import premium_userbot
-        if premium_userbot.is_connected():
-            cid = custom_id or premium_userbot.CUSTOM_EMOJI_MAP.get(emoji)
-            success = await premium_userbot.react_with_emoji(
-                chat_id=chat_id,
-                message_id=message_id,
-                emoji=emoji,
-                custom_emoji_id=cid,
-                big=big
-            )
-            if success:
-                logger.debug("[Premium] ✅ Animated reaction sent via userbot on msg %s", message_id)
-                return
-    except Exception as pe:
-        logger.debug("[Premium] Userbot reaction skipped: %s", pe)
-
-    # 2. Try custom emoji reaction via Bot API
+    # 1. Try custom emoji reaction via Bot API directly from Riya Bot
     if custom_id:
         try:
             from telegram import ReactionTypeCustomEmoji
@@ -8719,21 +8701,22 @@ async def _try_react(bot, chat_id: int, message_id: int, emoji: str, big: bool =
                 reaction=[ReactionTypeCustomEmoji(custom_emoji_id=custom_id)],
                 is_big=big,
             )
-            logger.debug("[Bot] ✅ Custom emoji reaction sent by bot on msg %s", message_id)
+            logger.debug("[Bot] ✅ Custom emoji reaction sent by Riya Bot on msg %s", message_id)
             return
         except Exception as ce:
-            logger.debug("[Bot] Custom emoji reaction failed, falling back: %s", ce)
+            logger.debug("[Bot] Custom emoji reaction failed on Riya Bot, falling back to standard emoji: %s", ce)
 
-    # 3. Fallback: standard emoji reaction via Bot API
+    # 2. Standard emoji reaction directly from Riya Bot
     try:
         from telegram import ReactionTypeEmoji
+        std_emoji = emoji.replace('\ufe0f', '')
         await bot.set_message_reaction(
             chat_id=chat_id,
             message_id=message_id,
-            reaction=[ReactionTypeEmoji(emoji=emoji)],
+            reaction=[ReactionTypeEmoji(emoji=std_emoji)],
             is_big=big,
         )
-        logger.debug("[Bot] ✅ Standard emoji reaction sent by bot on msg %s", message_id)
+        logger.debug("[Bot] ✅ Standard emoji reaction sent by Riya Bot on msg %s", message_id)
     except Exception as err:
         logger.debug("Riya Bot reaction failed: %s", err)
 
