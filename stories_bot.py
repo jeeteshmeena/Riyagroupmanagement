@@ -9358,22 +9358,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await _send_tts_or_text(update, context, reply_text)
                 return
 
-            # Try sending via connected Premium Userbot first so custom animated emojis render 100% on Telegram
-            try:
-                import premium_userbot
-                if premium_userbot.is_connected():
-                    sent = await premium_userbot.send_with_premium_emoji(
-                        chat_id=update.effective_chat.id,
-                        text=reply_text,
-                        reply_to=update.message.message_id,
-                        parse_mode="html"
-                    )
-                    if sent:
-                        return
-            except Exception as _eub:
-                logger.debug(f"[Userbot] send_with_premium_emoji skipped: {_eub}")
-
-            # Fallback: Bot API sends reply
+            # Bot sends the reply — <tg-emoji> tags work via parse_mode=HTML
             await update.message.reply_text(
                 reply_text, parse_mode="HTML",
                 disable_web_page_preview=True

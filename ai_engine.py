@@ -66,7 +66,7 @@ DO NOT:
 PROVIDERS = {
     "cerebras": {
         "name": "Cerebras",
-        "model": "llama-3.3-70b",
+        "model": "llama3.3-70b",
         "type": "openai_compat",
         "base_url": "https://api.cerebras.ai/v1",
         "env_key": "CEREBRAS_API_KEY",
@@ -664,25 +664,33 @@ async def classify_content_with_ai(text: str = None, photo_bytes: bytes = None) 
         "- CLEAN: Normal conversation."
     )
 
-    try:
-        resp = await client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": mod_sys_prompt},
-                {"role": "user", "content": text.strip()}
-            ],
-            temperature=0.0,
-            max_tokens=10,
-        )
-        res = resp.choices[0].message.content.strip().upper()
-        if "SPAM" in res:
-            return "SPAM"
-        elif "NSFW" in res:
-            return "NSFW"
-        return "CLEAN"
-    except Exception as e:
-        logger.warning(f"[AI-Moderator] Classification failed: {e}")
-        return "CLEAN"
+    candidate_models = [model]
+    if "cerebras" in str(client.base_url).lower():
+        candidate_models = ["llama3.3-70b", "llama3.1-8b", "llama-3.3-70b", "llama-3.1-8b", model]
+
+    for m_target in candidate_models:
+        try:
+            resp = await client.chat.completions.create(
+                model=m_target,
+                messages=[
+                    {"role": "system", "content": mod_sys_prompt},
+                    {"role": "user", "content": text.strip()}
+                ],
+                temperature=0.0,
+                max_tokens=10,
+            )
+            res = resp.choices[0].message.content.strip().upper()
+            if "SPAM" in res:
+                return "SPAM"
+            elif "NSFW" in res:
+                return "NSFW"
+            return "CLEAN"
+        except Exception as e:
+            if "404" in str(e) or "model_not_found" in str(e):
+                continue
+            logger.warning(f"[AI-Moderator] Classification failed with model {m_target}: {e}")
+            return "CLEAN"
+    return "CLEAN"
 
 # Backward compatibility aliases
 classify_content_with_gemini = classify_content_with_ai
