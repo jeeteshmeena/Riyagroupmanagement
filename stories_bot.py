@@ -4256,7 +4256,7 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
             import random as _rnd
             asyncio.create_task(_try_react(
                 context.bot, msg.chat_id, no_msg.message_id,
-                _rnd.choice(_REACTION_ON_NOT_FOUND)
+                _rnd.choice(_REACTIONS_NOT_FOUND)
             ))
         async def _del_no():
             await asyncio.sleep(30)
@@ -8687,32 +8687,44 @@ def _is_thanks_msg(text: str) -> bool:
 
 
 async def _try_react(bot, chat_id: int, message_id: int, emoji: str, big: bool = True):
-    """Send a reaction via the Bot's set_message_reaction (bot reacts, not userbot).
-    When premium userbot is connected, tries premium custom emoji first via bot API.
-    Falls back to standard emoji reaction if custom emoji is not supported."""
-    # ── Try premium custom emoji via Bot API first (bot reacts, not userbot) ──
+    """Send a reaction via Bot API or Premium Userbot."""
+    all_mapped = get_all_mapped_emojis()
+    custom_id = all_mapped.get(emoji)
+
+    # 1. Try sending animated custom emoji reaction via connected Premium Userbot (100% works for custom animated emojis)
     try:
         import premium_userbot
         if premium_userbot.is_connected():
-            all_mapped = get_all_mapped_emojis()
-            custom_id = all_mapped.get(emoji) or premium_userbot.CUSTOM_EMOJI_MAP.get(emoji)
-            if custom_id:
-                try:
-                    from telegram import ReactionTypeCustomEmoji
-                    await bot.set_message_reaction(
-                        chat_id=chat_id,
-                        message_id=message_id,
-                        reaction=[ReactionTypeCustomEmoji(custom_emoji_id=custom_id)],
-                        is_big=big,
-                    )
-                    logger.debug("[Bot] ✅ Custom emoji reaction sent by bot on msg %s", message_id)
-                    return
-                except Exception as ce:
-                    logger.debug("[Bot] Custom emoji reaction failed, falling back: %s", ce)
+            cid = custom_id or premium_userbot.CUSTOM_EMOJI_MAP.get(emoji)
+            success = await premium_userbot.react_with_emoji(
+                chat_id=chat_id,
+                message_id=message_id,
+                emoji=emoji,
+                custom_emoji_id=cid,
+                big=big
+            )
+            if success:
+                logger.debug("[Premium] ✅ Animated reaction sent via userbot on msg %s", message_id)
+                return
     except Exception as pe:
-        logger.debug("[Premium] Custom emoji lookup skipped: %s", pe)
+        logger.debug("[Premium] Userbot reaction skipped: %s", pe)
 
-    # ── Fallback: standard emoji reaction via Bot API ─────────────────────────
+    # 2. Try custom emoji reaction via Bot API
+    if custom_id:
+        try:
+            from telegram import ReactionTypeCustomEmoji
+            await bot.set_message_reaction(
+                chat_id=chat_id,
+                message_id=message_id,
+                reaction=[ReactionTypeCustomEmoji(custom_emoji_id=custom_id)],
+                is_big=big,
+            )
+            logger.debug("[Bot] ✅ Custom emoji reaction sent by bot on msg %s", message_id)
+            return
+        except Exception as ce:
+            logger.debug("[Bot] Custom emoji reaction failed, falling back: %s", ce)
+
+    # 3. Fallback: standard emoji reaction via Bot API
     try:
         from telegram import ReactionTypeEmoji
         await bot.set_message_reaction(
@@ -8724,6 +8736,125 @@ async def _try_react(bot, chat_id: int, message_id: int, emoji: str, big: bool =
         logger.debug("[Bot] ✅ Standard emoji reaction sent by bot on msg %s", message_id)
     except Exception as err:
         logger.debug("Riya Bot reaction failed: %s", err)
+
+
+# NSFW / Adult emojis filter
+ADULT_NSFW_EMOJIS = {'🍆', '🍑', '👙', '🍌', '🔞', '💦', '💋', '🖕'}
+
+# Default 88 Pre-populated Premium Custom Emojis
+DEFAULT_CUSTOM_EMOJIS = {'👎': '5348132683304156113', '🔥': '5348429250795945732', '⭐': '5348254248058503242', '💬': '5348471079482441278', '💜': '5348359010900789108', '⚪': '5348451945403137943', '⚡': '5348085958354943913', '⛔': '5348221988559143096', '🕊': '5348378913779236881', '💤': '5348110903525000368', '🔇': '5350490916702404671', '🎮': '5348214678524805365', '❓': '5348551425435646741', '📶': '5348062301675078252', '👤': '5350763436672305153', '🎸': '5350659343844916913', '♥️': '5348232622898167572', '🥸': '5348322993305044654', '📍': '5350606545811949976', '💪': '5350542134187409556', '🆓': '5348440533675031854', '🫡': '5350294155660639210', '🚨': '5348507062718445792', '✨': '5350475991691052862', '⏫': '5350305520144106741', '⏬': '5350700390847365132', '🫀': '5348455299772596273', '🌙': '5348164354392997702', '🛸': '5350837773966261947', '🔘': '5348084369217052513', '🧠': '5350445475948414299', '❤️': '5350831267090809192', '😐': '5348073936741481983', '🏴\u200d☠️': '5350448718648721280', '🐍': '5348505039788852018', '🐐': '5348308179962840272', '🎥': '5350779710303387563', '🐈': '5350734411283317897', '💉': '5350724330995074640', '👁': '5350569213956210746', '💣': '5350608263798865348', '☢️': '5348195299632364355', '⏹': '5350830335082905598', '👣': '5350480278068412818', '💱': '5350729313157135529', '🫱': '5348083845231033279', '🪱': '5350409471237570490', '🌿': '5350464257840399147', '🫗': '5348148673467398930', '🧪': '5350559275401887719', '🕷': '5350463832638643765', '🪐': '5348487726775678967', '0️⃣': '5348407054404958928', '🌱': '5348168224158530153', '☀️': '5348403541121713090', '❄️': '5348336655596016298', '🥃': '5348586287685189943', '🕺': '5348103735224581633', '🦎': '5348377994656234507', '🎵': '5350518915594209897', '🩵': '5348142170886914854', '🥺': '5348459641984530528', '☹️': '5350350527106399998', '🎼': '5348390454356359473', '🌈': '5348037786001750791', '🫶': '5350659885010797372', '👾': '5348455218168218503', '🖱️': '5350814400754236833', '👋': '5350596259365273418', '👻': '5348523151665937930', '🌴': '5348204950423880839', '🦶': '5348106952155087364', '🍴': '5350821873997332409', '🚁': '5350832400962176205', '💙': '5348466097320378895', '🤟': '5350768792496521441', '📞': '5348125437694327548', '1️⃣': '5348324054161967894', '2️⃣': '5350559846632537457', '3️⃣': '5350719542106540014', '4️⃣': '5350505304842846481', '5️⃣': '5348566874433011485', '6️⃣': '5348527025726439836', '7️⃣': '5348233322977838019', '8️⃣': '5348198830095483738', '9️⃣': '5350836180533393550'}
+
+def load_custom_premium_emojis() -> dict:
+    """Load custom emoji ID map from config_db. Initializes defaults if missing."""
+    try:
+        from database import load_config
+        cfg = load_config()
+        stored = cfg.get("custom_premium_emojis")
+        if stored is None:
+            cfg["custom_premium_emojis"] = DEFAULT_CUSTOM_EMOJIS.copy()
+            from database import save_config
+            save_config(cfg)
+            return DEFAULT_CUSTOM_EMOJIS.copy()
+        return stored
+    except Exception:
+        return DEFAULT_CUSTOM_EMOJIS.copy()
+
+def save_custom_premium_emojis(emoji_map: dict):
+    """Save custom emoji ID map to config_db."""
+    try:
+        from database import load_config, save_config
+        cfg = load_config()
+        cfg["custom_premium_emojis"] = emoji_map
+        save_config(cfg)
+    except Exception as e:
+        logger.error(f"[Emoji] Failed to save custom emojis: {e}")
+
+def parse_emoji_ids(text: str) -> dict:
+    """
+    Parse bulk text in any format containing emoji and custom document ID pairs.
+    Handles single line, multiline, numbered list formats like:
+      101)👎 [5348132683304156113]
+      102)🔥 [5350279866304445948]
+      🔥: 5350279866304445948
+    """
+    results = {}
+    if not text:
+        return results
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        m = re.search(r'(\d{15,20})', line)
+        if not m:
+            continue
+        emoji_id = m.group(1)
+        cleaned = re.sub(r'^\s*\d+[\)\.\:]\s*', '', line)
+        cleaned = re.sub(r'[\:\[\(=\-\s]*' + emoji_id + r'[\]\)]*', '', cleaned).strip()
+        if cleaned and cleaned not in ADULT_NSFW_EMOJIS:
+            results[cleaned] = emoji_id
+            stripped = cleaned.replace('\ufe0f', '')
+            if stripped and stripped not in ADULT_NSFW_EMOJIS:
+                results[stripped] = emoji_id
+    return results
+
+def get_all_mapped_emojis() -> dict:
+    """Get merged dictionary of all built-in + custom premium emojis with auto-variation expansion."""
+    custom_map = load_custom_premium_emojis()
+    all_mapped = DEFAULT_CUSTOM_EMOJIS.copy()
+    all_mapped.update(custom_map)
+
+    # Filter out adult/NSFW emojis
+    for bad_e in ADULT_NSFW_EMOJIS:
+        all_mapped.pop(bad_e, None)
+
+    # Auto-expand variation selectors (\ufe0f) so both stripped & unstripped match 100% of the time
+    expanded = {}
+    for em, eid in all_mapped.items():
+        if em in ADULT_NSFW_EMOJIS:
+            continue
+        expanded[em] = eid
+        stripped = em.replace('\ufe0f', '')
+        if stripped and stripped not in ADULT_NSFW_EMOJIS:
+            expanded[stripped] = eid
+    return expanded
+
+def inject_premium_emojis(text: str) -> str:
+    """
+    Convert standard emojis in HTML text to Telegram <tg-emoji> animated custom emoji tags.
+    Uses stateful single-pass regex replacement to ensure zero HTML tag nesting or corruption.
+    """
+    if not text:
+        return text
+    all_mapped = get_all_mapped_emojis()
+    if not all_mapped:
+        return text
+
+    sorted_chars = sorted(all_mapped.keys(), key=lambda x: len(x), reverse=True)
+    pattern = re.compile("|".join(re.escape(k) for k in sorted_chars))
+
+    def _replace_match(match):
+        emoji_char = match.group(0)
+        emoji_id = all_mapped.get(emoji_char)
+        if emoji_id:
+            return f'<tg-emoji emoji-id="{emoji_id}">{emoji_char}</tg-emoji>'
+        return emoji_char
+
+    # Split by existing HTML tags to avoid modifying inside <a href="..."> or existing <tg-emoji>
+    parts = re.split(r'(<[^>]+>)', text)
+    in_tg_emoji = False
+    for i in range(len(parts)):
+        part = parts[i]
+        if part.startswith('<'):
+            tag_lower = part.lower()
+            if '<tg-emoji' in tag_lower:
+                in_tg_emoji = True
+            elif '</tg-emoji>' in tag_lower:
+                in_tg_emoji = False
+        else:
+            if not in_tg_emoji:
+                parts[i] = pattern.sub(_replace_match, part)
+
+    return "".join(parts)
 
 
 
@@ -9227,7 +9358,22 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await _send_tts_or_text(update, context, reply_text)
                 return
 
-            # Bot sends the reply — <tg-emoji> tags work via parse_mode=HTML
+            # Try sending via connected Premium Userbot first so custom animated emojis render 100% on Telegram
+            try:
+                import premium_userbot
+                if premium_userbot.is_connected():
+                    sent = await premium_userbot.send_with_premium_emoji(
+                        chat_id=update.effective_chat.id,
+                        text=reply_text,
+                        reply_to=update.message.message_id,
+                        parse_mode="html"
+                    )
+                    if sent:
+                        return
+            except Exception as _eub:
+                logger.debug(f"[Userbot] send_with_premium_emoji skipped: {_eub}")
+
+            # Fallback: Bot API sends reply
             await update.message.reply_text(
                 reply_text, parse_mode="HTML",
                 disable_web_page_preview=True
