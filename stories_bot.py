@@ -8401,9 +8401,33 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if is_riya_mentioned:
                 gemini_chat.activate_gemini(user_id)
 
+            # Track this chat for the 24hr reminder loop
+            _riya_active_chats.add(update.effective_chat.id)
+
             user_name = update.effective_user.first_name or "User"
             reply_text, search_query, wants_voice, wants_stop, img_prompt = \
                 await gemini_chat.process_gemini_message(user_id, user_name, actual_input)
+
+            # ── Human-like typing simulation ──────────────────────────────────
+            # Calculate realistic delay based on reply length (like a human typing)
+            if reply_text and not search_query:
+                _chars = len(reply_text)
+                # ~40 chars/sec typing speed, capped between 1.5s and 4.5s
+                _typing_delay = max(1.5, min(4.5, _chars / 40))
+                # Keep showing typing... action during the delay
+                async def _keep_typing(chat_id, delay):
+                    elapsed = 0.0
+                    while elapsed < delay:
+                        try:
+                            await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+                        except Exception:
+                            break
+                        await asyncio.sleep(min(4.0, delay - elapsed))
+                        elapsed += 4.0
+                await asyncio.gather(
+                    _keep_typing(update.effective_chat.id, _typing_delay),
+                    asyncio.sleep(_typing_delay)
+                )
 
             # ── Story & Genre search ──────────────────────────────────────────────────
             if search_query:
@@ -8634,6 +8658,80 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     return await search(update, context)
+
+
+# ── 24-Hour Auto Reminder: "Riya bolkar chat kijiye" ─────────────────────────
+
+# Bilingual reminder messages (rotated randomly)
+_RIYA_REMINDERS = [
+    (
+        "💜 <b>Riya</b> यहाँ है! बस <b>Riya</b> बोलकर चैट कीजिए — मैं आपसे बात करने के लिए हमेशा तैयार हूँ।\n"
+        "<i>Just say <b>Riya</b> and I’m right here whenever you need me 🪷</i>"
+    ),
+    (
+        "🌙 अरे! <b>Riya</b> को याद है? बस लिखें “<b>Riya</b>” और बात शुरू करते हैं।\n"
+        "<i>Missing our chats? Say <b>Riya</b> and let’s talk! 🌸</i>"
+    ),
+    (
+        "✨ <b>Riya</b> आपका इंतजार कर रही है। कुछ सुनाइए, बस ‘<b>Riya</b>’ बोलिए!\n"
+        "<i><b>Riya</b> is always listening — just mention me to start chatting 💛</i>"
+    ),
+    (
+        "🤗 कैसे हैं आप? <b>Riya</b> से बात करनी हो तो बस ‘<b>Riya</b>’ लिखें — मैं पलभर में यहाँ हूँ!\n"
+        "<i>Feeling like a chat? Mention <b>Riya</b> and I’ll be right there 🌼</i>"
+    ),
+    (
+        "🌸 आपकी <b>Riya</b> यहाँ है! कोई स्टोरी ढूंढनी हो या बस बात करनी हो — बस ‘<b>Riya</b>’ लिखें!\n"
+        "<i>Need a story or just want to chat? Say <b>Riya</b> 💓</i>"
+    ),
+]
+
+# Track chats that have had at least one Riya interaction (for reminders)
+_riya_active_chats: set = set()   # chat_ids that should get reminders
+
+
+async def riya_chat_reminder_loop(app):
+    """
+    Background loop: every 20-23 hours sends a bilingual 'Riya bolkar chat kijiye'
+    reminder to all groups/chats where Riya has been used.
+    """
+    import random
+    logger.info("[RiyaReminder] Auto-reminder loop started.")
+    while True:
+        try:
+            # Wait ~22 hours between reminders (with some randomness)
+            wait_secs = random.randint(20 * 3600, 23 * 3600)
+            await asyncio.sleep(wait_secs)
+
+            if not _riya_active_chats:
+                continue
+
+            msg_text, _ = random.choice(_RIYA_REMINDERS)
+            reminder = random.choice(_RIYA_REMINDERS)
+            reminder_text = reminder[0] if isinstance(reminder, tuple) else reminder
+
+            for chat_id in list(_riya_active_chats):
+                try:
+                    await app.bot.send_chat_action(chat_id=chat_id, action="typing")
+                    await asyncio.sleep(random.uniform(1.2, 2.5))  # Human-like delay before reminder
+                    await app.bot.send_message(
+                        chat_id=chat_id,
+                        text=reminder_text,
+                        parse_mode="HTML"
+                    )
+                except Exception as e:
+                    logger.debug(f"[RiyaReminder] Could not send reminder to {chat_id}: {e}")
+                    # Remove dead chats from the set
+                    if "chat not found" in str(e).lower() or "bot was blocked" in str(e).lower() or "deactivated" in str(e).lower():
+                        _riya_active_chats.discard(chat_id)
+                await asyncio.sleep(random.uniform(0.5, 1.5))  # Delay between chats
+
+        except asyncio.CancelledError:
+            logger.info("[RiyaReminder] Loop cancelled.")
+            break
+        except Exception as e:
+            logger.warning(f"[RiyaReminder] Error in reminder loop: {e}")
+            await asyncio.sleep(300)  # Wait 5 min on error, then retry
 
 
 async def _send_tts_or_text(update, context, reply_text: str):
@@ -9845,6 +9943,14 @@ def start_bot():
             logger.info("[PosterBot] Background worker task launched in _post_init ✅")
         except Exception as e:
             logger.error(f"[PosterBot] Failed to start worker loop: {e}")
+
+        # Launch Riya 24hr auto-reminder loop
+        try:
+            asyncio.create_task(riya_chat_reminder_loop(application))
+            logger.info("[RiyaReminder] Auto-reminder loop launched in _post_init ✅")
+        except Exception as e:
+            logger.error(f"[RiyaReminder] Failed to start reminder loop: {e}")
+
 
     app = Application.builder().token(BOT_TOKEN).post_init(_post_init).build()
 
