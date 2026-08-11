@@ -238,14 +238,16 @@ async def scan_channel(channel_id, bot=None, log_channel=None, progress_cb=None,
                                 await sent.delete()
                             except Exception:
                                 pass
+                            # Pacing delay to respect Telegram Bot API rate limits (~30 requests/min)
+                            await asyncio.sleep(0.6)
                         except Exception as e:
                             # Handle rate limit retry
-                            if "retry" in str(e).lower() or "too many requests" in str(e).lower():
+                            if "retry" in str(e).lower() or "too many requests" in str(e).lower() or "429" in str(e):
                                 import re
                                 seconds = 10
                                 match = re.search(r'retry after (\d+)', str(e).lower())
                                 if match:
-                                    seconds = int(match.group(1))
+                                    seconds = int(match.group(1)) + 1
                                 logger.warning(f"Rate limited during photo upload. Sleeping for {seconds}s...")
                                 await asyncio.sleep(seconds)
                                 # Retry once
@@ -259,6 +261,7 @@ async def scan_channel(channel_id, bot=None, log_channel=None, progress_cb=None,
                                         await sent.delete()
                                     except Exception:
                                         pass
+                                    await asyncio.sleep(0.6)
                                 except Exception as e2:
                                     logger.error(f"Retry photo upload failed: {e2}")
                             else:
