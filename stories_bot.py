@@ -6080,12 +6080,12 @@ def _cfg_main_panel(caller_id: int, lang: str = "en") -> tuple:
             InlineKeyboardButton("◎ AI & Voice",  callback_data=f"cfg|aiconfig||{caller_id}"),
         ],
         [
-            InlineKeyboardButton("✦ Premium",      callback_data=f"cfg|premium_account||{caller_id}"),
-            InlineKeyboardButton("📖 Tutorial",     callback_data=f"cfg|tutorial_guide||{caller_id}"),
+            InlineKeyboardButton("✦ Premium Acc",   callback_data=f"cfg|premium_account||{caller_id}"),
+            InlineKeyboardButton("✨ Premium Emojis", callback_data=f"cfg|prem_emojis||{caller_id}"),
         ],
         [
+            InlineKeyboardButton("📖 Tutorial",     callback_data=f"cfg|tutorial_guide||{caller_id}"),
             InlineKeyboardButton("📊 Poll Settings", callback_data=f"cfg|poll_settings||{caller_id}"),
-            InlineKeyboardButton("▤ Saved Posts",   callback_data=f"cfg|savedposts||{caller_id}"),
         ],
         [
             InlineKeyboardButton("↺ Refresh",       callback_data=f"cfg|main||{caller_id}"),

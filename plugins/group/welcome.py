@@ -150,7 +150,21 @@ async def _send_welcome_msg(context, chat_id, msg_data, member=None, reply_to=No
         elif file_type == "sticker":
             await context.bot.send_sticker(sticker=file_id, **{"chat_id": chat_id, "reply_to_message_id": reply_to} if reply_to else {"chat_id": chat_id})
     except Exception as e:
-        logger.error(f"[GCP-Welcome] Failed to send: {e}")
+        logger.warning(f"[GCP-Welcome] Send with reply_to failed: {e}, retrying without reply_to...")
+        kwargs.pop("reply_to_message_id", None)
+        try:
+            if file_type == "text" or not file_id:
+                await context.bot.send_message(text=content, **kwargs)
+            elif file_type == "photo":
+                await context.bot.send_photo(photo=file_id, caption=content, **kwargs)
+            elif file_type == "video":
+                await context.bot.send_video(video=file_id, caption=content, **kwargs)
+            elif file_type == "animation":
+                await context.bot.send_animation(animation=file_id, caption=content, **kwargs)
+            elif file_type == "document":
+                await context.bot.send_document(document=file_id, caption=content, **kwargs)
+        except Exception as e2:
+            logger.error(f"[GCP-Welcome] Failed to send: {e2}")
 
 
 async def new_member_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
