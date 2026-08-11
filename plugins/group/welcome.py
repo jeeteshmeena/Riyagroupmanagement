@@ -8,7 +8,8 @@ import logging
 import random
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
-from .utils import get_welcome, save_welcome, is_enabled
+from .utils import get_welcome, save_welcome, is_enabled, is_welcome_enabled, set_welcome_enabled
+
 
 logger = logging.getLogger(__name__)
 _DIV = "━━━━━━━━━━━━━━━━━━"
@@ -17,18 +18,25 @@ _DIV = "━━━━━━━━━━━━━━━━━━"
 def welcome_panel(chat_id: int) -> tuple:
     """Build the welcome sub-panel text + markup."""
     w = get_welcome(chat_id)
-    count = len(w.get("messages", []))
-    rand = w.get("random", False)
+    count   = len(w.get("messages", []))
+    rand    = w.get("random", False)
+    enabled = w.get("welcome_enabled", False)
     text = (
         f"<b>👋 Welcome System</b>\n{_DIV}\n\n"
+        f"Status:          <b>{'✅ Enabled' if enabled else '❌ Disabled'}</b>\n"
         f"Messages set: <b>{count}/5</b>\n"
         f"Random mode:  <b>{'🟢 ON' if rand else '🔴 OFF'}</b>\n\n"
         "<i>Commands:\n"
         "/setwelcome &lt;text&gt; — add a welcome message (use {name} for user)\n"
         "/clearwelcome — remove all messages\n"
-        "/previewwelcome — preview current message</i>"
+        "/previewwelcome — preview current message</i>\n\n"
+        "<i>⚠️ Welcome only sends in groups where it is Enabled.</i>"
     )
     markup = InlineKeyboardMarkup([
+        [InlineKeyboardButton(
+            f"{'🔴 Disable Welcome' if enabled else '🟢 Enable Welcome'}",
+            callback_data="grp_welcome_enable"
+        )],
         [InlineKeyboardButton(
             f"{'🟢' if rand else '🔴'} Toggle Random",
             callback_data="grp_welcome_toggle_random"
@@ -151,7 +159,9 @@ async def new_member_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if not update.effective_chat or update.effective_chat.type not in ("group", "supergroup"):
             return
         chat_id = update.effective_chat.id
-        if not is_enabled(chat_id):
+
+        # Welcome only fires when EXPLICITLY enabled for this group
+        if not is_welcome_enabled(chat_id):
             return
 
         new_members = (update.message.new_chat_members or []) if update.message else []
@@ -272,14 +282,15 @@ async def setwelcome_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         msgs.append({"type": file_type, "file_id": file_id, "content": text})
         w["messages"] = msgs
+        w["welcome_enabled"] = True
         save_welcome(chat_id, w)
-        await update.message.reply_text(f"✅ Welcome message added! ({len(msgs)}/5)")
+        await update.message.reply_text(f"✅ Welcome message added & enabled! ({len(msgs)}/5)")
     except Exception as e:
         logger.error(f"[GCP-Welcome] setwelcome_cmd: {e}")
 
 
 async def clearwelcome_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/clearwelcome — remove all welcome messages"""
+    """/clearwelcome — remove all welcome messages & disable welcome"""
     try:
         if not update.effective_chat or update.effective_chat.type not in ("group", "supergroup"):
             return
@@ -287,8 +298,8 @@ async def clearwelcome_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         if m.status not in ("administrator", "creator"):
             await update.message.reply_text("⛔ Admin only.")
             return
-        save_welcome(update.effective_chat.id, {"messages": [], "random": False})
-        await update.message.reply_text("✅ All welcome messages cleared.")
+        save_welcome(update.effective_chat.id, {"messages": [], "random": False, "welcome_enabled": False})
+        await update.message.reply_text("✅ All welcome messages cleared and welcome disabled.")
     except Exception as e:
         logger.error(f"[GCP-Welcome] clearwelcome_cmd: {e}")
 

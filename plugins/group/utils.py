@@ -96,13 +96,25 @@ def is_enabled(chat_id: int) -> bool:
 # ── Welcome Messages ──────────────────────────────────────────────────────────
 def get_welcome(chat_id: int) -> dict:
     db = _load_json(GRP_WELCOME_FILE)
-    return db.get(str(chat_id), {"messages": [], "random": False})
+    return db.get(str(chat_id), {"messages": [], "random": False, "welcome_enabled": False})
 
 
 def save_welcome(chat_id: int, data: dict) -> None:
     db = _load_json(GRP_WELCOME_FILE)
     db[str(chat_id)] = data
     _save_json(GRP_WELCOME_FILE, db)
+
+
+def is_welcome_enabled(chat_id: int) -> bool:
+    """Returns True ONLY if welcome was explicitly enabled for this group."""
+    return get_welcome(chat_id).get("welcome_enabled", False)
+
+
+def set_welcome_enabled(chat_id: int, value: bool) -> None:
+    """Explicitly enable/disable welcome for this group."""
+    w = get_welcome(chat_id)
+    w["welcome_enabled"] = value
+    save_welcome(chat_id, w)
 
 
 # ── Warnings ──────────────────────────────────────────────────────────────────

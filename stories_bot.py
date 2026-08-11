@@ -3623,11 +3623,12 @@ async def poll_timeout_manager(context: ContextTypes.DEFAULT_TYPE):
 async def ai_security_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     AI-powered group content moderation.
-    Checks every group message for: scam, phishing, porn, spam, abuse.
+    Checks ALL message types: text, photos, videos, documents, stickers, animations.
+    Extracts: message text/caption, entity URLs (hidden links), forwarded-from info.
     Uses fast regex first, then Cerebras/Together/OpenRouter AI if needed.
     Admins are never moderated (whitelist_admins=True by default).
     """
-    msg = update.effective_message
+    msg  = update.effective_message
     user = update.effective_user
     chat = update.effective_chat
 
@@ -3645,16 +3646,62 @@ async def ai_security_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     if sec_cfg.get("whitelist_admins", True) and is_admin(user.id):
         return
 
-    # Get message text (text or caption)
-    text = (msg.text or msg.caption or "").strip()
-    if not text:
+    # ── Collect ALL checkable content from the message ────────────────────────
+    check_parts = []
+
+    # 1. Message text or caption
+    text_content = (msg.text or msg.caption or "").strip()
+    if text_content:
+        check_parts.append(text_content)
+
+    # 2. Extract URLs from Telegram message entities (catches hidden/disguised links)
+    all_entities = list(msg.entities or []) + list(msg.caption_entities or [])
+    entity_text  = msg.text or msg.caption or ""
+    for ent in all_entities:
+        if ent.type in ("url", "text_link"):
+            # text_link has the actual URL in ent.url
+            url = getattr(ent, "url", None)
+            if url:
+                check_parts.append(url)
+            else:
+                # Plain URL entity — extract from text
+                url_raw = entity_text[ent.offset: ent.offset + ent.length]
+                if url_raw:
+                    check_parts.append(url_raw)
+
+    # 3. Forwarded-from info (channel/user name — spam bots often forward from bad sources)
+    fwd = msg.forward_origin or None
+    if fwd:
+        fwd_name = ""
+        if hasattr(fwd, "chat") and fwd.chat:
+            fwd_name = fwd.chat.title or fwd.chat.username or ""
+        elif hasattr(fwd, "sender_user") and fwd.sender_user:
+            fwd_name = fwd.sender_user.full_name or fwd.sender_user.username or ""
+        elif hasattr(fwd, "sender_user_name"):
+            fwd_name = fwd.sender_user_name or ""
+        if fwd_name:
+            check_parts.append(fwd_name)
+
+    # 4. Sender username / display name (catch known bad-name patterns fast)
+    sender_name = " ".join(filter(None, [
+        user.first_name or "",
+        user.last_name or "",
+        f"@{user.username}" if user.username else "",
+    ])).strip()
+    if sender_name:
+        check_parts.append(sender_name)
+
+    # If nothing to check (e.g., pure sticker with no text/caption/fwd), skip
+    if not check_parts:
         return
+
+    combined_check = " ".join(check_parts)
 
     # Run security check
     use_ai = sec_cfg.get("ai_moderation", True)
     try:
         is_violation, category, reason = await ai_security.check_message_security(
-            text, use_ai=use_ai
+            combined_check, use_ai=use_ai
         )
     except Exception as e:
         logger.warning(f"[Security] Check error: {e}")
@@ -3677,37 +3724,35 @@ async def ai_security_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         except Exception:
             pass
 
-    # 2. Mute or Ban
+    # 2. Mute or Ban (Block user from group)
     action_taken = "deleted"
-    if sec_cfg.get("auto_mute", True):
-        from datetime import datetime, timedelta
-        try:
-            if violation_count >= ban_threshold:
-                # Ban
-                await context.bot.ban_chat_member(chat_id=chat.id, user_id=user.id)
-                action_taken = "banned"
-                ai_security.reset_violations(user.id)
-            else:
-                # Mute (restrict)
-                from telegram import ChatPermissions
-                until = (
-                    datetime.utcnow() + timedelta(minutes=mute_duration)
-                    if mute_duration > 0 else None
-                )
-                await context.bot.restrict_chat_member(
-                    chat_id=chat.id,
-                    user_id=user.id,
-                    permissions=ChatPermissions(
-                        can_send_messages=False,
-                        can_send_other_messages=False,
-                        can_add_web_page_previews=False,
-                    ),
-                    until_date=until
-                )
-                action_taken = f"muted {mute_duration}min" if mute_duration > 0 else "muted permanently"
-        except Exception as e:
-            logger.warning(f"[Security] Could not mute/ban {user.id}: {e}")
-            action_taken = "deleted (mute failed)"
+    try:
+        # Severe violations (scam, phishing, porn) or reaching threshold -> BAN IMMEDIATELY (Block)
+        if category in ("scam", "phishing", "porn") or violation_count >= ban_threshold:
+            await context.bot.ban_chat_member(chat_id=chat.id, user_id=user.id)
+            action_taken = "banned & blocked"
+            ai_security.reset_violations(user.id)
+        elif sec_cfg.get("auto_mute", True):
+            # Moderate violations -> Mute (restrict)
+            from datetime import datetime, timedelta
+            until = (
+                datetime.utcnow() + timedelta(minutes=mute_duration)
+                if mute_duration > 0 else None
+            )
+            await context.bot.restrict_chat_member(
+                chat_id=chat.id,
+                user_id=user.id,
+                permissions=ChatPermissions(
+                    can_send_messages=False,
+                    can_send_other_messages=False,
+                    can_add_web_page_previews=False,
+                ),
+                until_date=until
+            )
+            action_taken = f"muted {mute_duration}min" if mute_duration > 0 else "muted permanently"
+    except Exception as e:
+        logger.warning(f"[Security] Could not ban/mute {user.id}: {e}")
+        action_taken = "deleted (ban/mute failed)"
 
     # 3. Notify admin in LOG_CHANNEL
     user_link = f"<a href='tg://user?id={user.id}'>{html.escape(user.full_name or str(user.id))}</a>"
@@ -3721,7 +3766,7 @@ async def ai_security_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         f"<b>Action:</b> <code>{action_taken}</code>\n"
         f"<b>Violations:</b> <code>{violation_count}/{ban_threshold}</code>\n"
         f"<code>──────────────────</code>\n"
-        f"<b>Message (truncated):</b>\n<blockquote>{html.escape(text[:300])}</blockquote>"
+        f"<b>Checked Content (truncated):</b>\n<blockquote>{html.escape(combined_check[:300])}</blockquote>"
     )
     if LOG_CHANNEL:
         try:
@@ -10348,10 +10393,18 @@ def start_bot():
         MessageHandler(filters.VOICE | filters.AUDIO, voice_message_handler)
     )
 
-    # ── AI Security: auto-moderate group messages (high priority) ─────────────
+    # ── AI Security: auto-moderate ALL group messages (high priority) ────────────
     app.add_handler(
         MessageHandler(
-            (filters.TEXT | filters.CAPTION) & filters.ChatType.GROUPS,
+            filters.ChatType.GROUPS & (
+                filters.TEXT
+                | filters.PHOTO
+                | filters.VIDEO
+                | filters.Document.ALL
+                | filters.ANIMATION
+                | filters.Sticker.ALL
+                | filters.CAPTION
+            ),
             ai_security_handler
         ),
         group=1,   # HIGH priority — runs before text_handler

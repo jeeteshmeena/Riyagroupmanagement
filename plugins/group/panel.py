@@ -164,6 +164,16 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await query.edit_message_text(text, parse_mode="HTML", reply_markup=markup)
             return
 
+        if action == "grp_welcome_enable":
+            from .utils import is_welcome_enabled, set_welcome_enabled
+            current = is_welcome_enabled(chat_id)
+            set_welcome_enabled(chat_id, not current)
+            status = "✅ Enabled" if not current else "❌ Disabled"
+            await query.answer(f"Welcome {status}", show_alert=True)
+            text, markup = welcome_panel(chat_id)
+            await query.edit_message_text(text, parse_mode="HTML", reply_markup=markup)
+            return
+
         # ── NSFW sub-panel ─────────────────────────────────────────────────────
         if action == "grp_nsfw":
             nsfw_on = s.get("nsfw", True)
