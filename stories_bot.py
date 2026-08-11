@@ -8843,21 +8843,43 @@ def get_all_mapped_emojis() -> dict:
     return all_mapped
 
 def inject_premium_emojis(text: str) -> str:
-    """Convert standard emojis in HTML text to Telegram <tg-emoji> animated custom emoji tags."""
+    """
+    Convert standard emojis in HTML text to Telegram <tg-emoji> animated custom emoji tags.
+    Uses stateful single-pass regex replacement to ensure zero HTML tag nesting or corruption.
+    """
     if not text:
         return text
     all_mapped = get_all_mapped_emojis()
-    # Sort keys by length descending so multi-char emojis (e.g. 🏴‍☠️, 1️⃣) are replaced before single chars
-    sorted_chars = sorted(all_mapped.keys(), key=lambda x: len(x), reverse=True)
+    if not all_mapped:
+        return text
 
-    for char in sorted_chars:
-        if char in text:
-            emoji_id = all_mapped[char]
-            text = text.replace(
-                char,
-                f'<tg-emoji emoji-id="{emoji_id}">{char}</tg-emoji>'
-            )
-    return text
+    sorted_chars = sorted(all_mapped.keys(), key=lambda x: len(x), reverse=True)
+    pattern = re.compile("|".join(re.escape(k) for k in sorted_chars))
+
+    def _replace_match(match):
+        emoji_char = match.group(0)
+        emoji_id = all_mapped.get(emoji_char)
+        if emoji_id:
+            return f'<tg-emoji emoji-id="{emoji_id}">{emoji_char}</tg-emoji>'
+        return emoji_char
+
+    # Split by existing HTML tags to avoid modifying inside <a href="..."> or existing <tg-emoji>
+    parts = re.split(r'(<[^>]+>)', text)
+    in_tg_emoji = False
+    for i in range(len(parts)):
+        part = parts[i]
+        if part.startswith('<'):
+            tag_lower = part.lower()
+            if '<tg-emoji' in tag_lower:
+                in_tg_emoji = True
+            elif '</tg-emoji>' in tag_lower:
+                in_tg_emoji = False
+        else:
+            if not in_tg_emoji:
+                parts[i] = pattern.sub(_replace_match, part)
+
+    return "".join(parts)
+
 
 async def addemojis_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """

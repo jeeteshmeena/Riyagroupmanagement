@@ -124,6 +124,12 @@ async def _send_welcome_msg(context, chat_id, msg_data, member=None, reply_to=No
     content = content.replace("[Group Name]", gname)
     content = content.replace("{group_name}", gname)
 
+    try:
+        from stories_bot import inject_premium_emojis
+        content = inject_premium_emojis(content)
+    except Exception:
+        pass
+
     file_type = msg_data.get("type", "text") if msg_data else "text"
     file_id = msg_data.get("file_id") if msg_data else None
 
