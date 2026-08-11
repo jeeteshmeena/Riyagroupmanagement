@@ -231,6 +231,7 @@ import gemini_chat
 from scanner_client import scan_channel
 from search_engine import search_story_exact_or_alias, get_suggestions
 from filters_text import is_valid_query
+import ai_security
 
 from link_checker import start_link_checker
 from database import (
@@ -3616,7 +3617,297 @@ async def poll_timeout_manager(context: ContextTypes.DEFAULT_TYPE):
 
 
 
+
+# ── AI Security Handler ────────────────────────────────────────────────────────
+
+async def ai_security_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    AI-powered group content moderation.
+    Checks every group message for: scam, phishing, porn, spam, abuse.
+    Uses fast regex first, then Cerebras/Together/OpenRouter AI if needed.
+    Admins are never moderated (whitelist_admins=True by default).
+    """
+    msg = update.effective_message
+    user = update.effective_user
+    chat = update.effective_chat
+
+    if not msg or not user or not chat:
+        return
+    if chat.type not in ("group", "supergroup"):
+        return
+
+    # Load config
+    sec_cfg = ai_security.get_security_config()
+    if not sec_cfg.get("enabled", True):
+        return
+
+    # Whitelist admins
+    if sec_cfg.get("whitelist_admins", True) and is_admin(user.id):
+        return
+
+    # Get message text (text or caption)
+    text = (msg.text or msg.caption or "").strip()
+    if not text:
+        return
+
+    # Run security check
+    use_ai = sec_cfg.get("ai_moderation", True)
+    try:
+        is_violation, category, reason = await ai_security.check_message_security(
+            text, use_ai=use_ai
+        )
+    except Exception as e:
+        logger.warning(f"[Security] Check error: {e}")
+        return
+
+    if not is_violation:
+        return
+
+    # ── Violation detected ─────────────────────────────────────────────────────
+    violation_count = ai_security.record_violation(user.id)
+    ban_threshold   = int(sec_cfg.get("auto_ban_threshold", 3))
+    mute_duration   = int(sec_cfg.get("mute_duration_mins", 60))
+    cat_label       = ai_security.CATEGORY_LABELS.get(category, category)
+    cat_label_hi    = ai_security.CATEGORY_LABELS_HI.get(category, category)
+
+    # 1. Delete message
+    if sec_cfg.get("auto_delete", True):
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+
+    # 2. Mute or Ban
+    action_taken = "deleted"
+    if sec_cfg.get("auto_mute", True):
+        from datetime import datetime, timedelta
+        try:
+            if violation_count >= ban_threshold:
+                # Ban
+                await context.bot.ban_chat_member(chat_id=chat.id, user_id=user.id)
+                action_taken = "banned"
+                ai_security.reset_violations(user.id)
+            else:
+                # Mute (restrict)
+                from telegram import ChatPermissions
+                until = (
+                    datetime.utcnow() + timedelta(minutes=mute_duration)
+                    if mute_duration > 0 else None
+                )
+                await context.bot.restrict_chat_member(
+                    chat_id=chat.id,
+                    user_id=user.id,
+                    permissions=ChatPermissions(
+                        can_send_messages=False,
+                        can_send_other_messages=False,
+                        can_add_web_page_previews=False,
+                    ),
+                    until_date=until
+                )
+                action_taken = f"muted {mute_duration}min" if mute_duration > 0 else "muted permanently"
+        except Exception as e:
+            logger.warning(f"[Security] Could not mute/ban {user.id}: {e}")
+            action_taken = "deleted (mute failed)"
+
+    # 3. Notify admin in LOG_CHANNEL
+    user_link = f"<a href='tg://user?id={user.id}'>{html.escape(user.full_name or str(user.id))}</a>"
+    admin_note = (
+        f"🛡️ <b>AI Security Alert</b>\n"
+        f"<code>──────────────────</code>\n"
+        f"<b>Chat:</b> {html.escape(chat.title or str(chat.id))}\n"
+        f"<b>User:</b> {user_link} (<code>{user.id}</code>)\n"
+        f"<b>Violation:</b> {cat_label}\n"
+        f"<b>Reason:</b> <i>{html.escape(reason)}</i>\n"
+        f"<b>Action:</b> <code>{action_taken}</code>\n"
+        f"<b>Violations:</b> <code>{violation_count}/{ban_threshold}</code>\n"
+        f"<code>──────────────────</code>\n"
+        f"<b>Message (truncated):</b>\n<blockquote>{html.escape(text[:300])}</blockquote>"
+    )
+    if LOG_CHANNEL:
+        try:
+            await context.bot.send_message(
+                chat_id=LOG_CHANNEL,
+                text=admin_note,
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
+    # 4. Warn user via DM
+    try:
+        warn_text = (
+            f"⚠️ <b>Security Warning</b>\n\n"
+            f"Your message in <b>{html.escape(chat.title or 'the group')}</b> was removed.\n"
+            f"<b>Reason:</b> {cat_label}\n\n"
+            f"{cat_label_hi} के कारण आपका संदेश हटाया गया।\n"
+            f"<i>Violations: {violation_count}/{ban_threshold} — "
+            f"reaching the limit will result in a ban.</i>"
+        )
+        await context.bot.send_message(
+            chat_id=user.id,
+            text=warn_text,
+            parse_mode="HTML"
+        )
+    except Exception:
+        pass  # User may have blocked the bot
+
+
+async def security_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /security — Admin panel for AI security settings.
+    Toggle on/off, set thresholds, view stats.
+    """
+    user = update.effective_user
+    if not is_admin(user.id):
+        await update.message.reply_text("⛔ Admin only.")
+        return
+
+    sec_cfg = ai_security.get_security_config()
+    enabled     = sec_cfg.get("enabled", True)
+    auto_delete = sec_cfg.get("auto_delete", True)
+    auto_mute   = sec_cfg.get("auto_mute", True)
+    ban_thresh  = sec_cfg.get("auto_ban_threshold", 3)
+    mute_dur    = sec_cfg.get("mute_duration_mins", 60)
+    ai_mod      = sec_cfg.get("ai_moderation", True)
+
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    text = (
+        f"🛡️ <b>AI Security Settings</b>\n"
+        f"<code>──────────────────────</code>\n"
+        f"<b>Status:</b> {'✅ Enabled' if enabled else '❌ Disabled'}\n"
+        f"<b>Auto Delete:</b> {'✅' if auto_delete else '❌'}\n"
+        f"<b>Auto Mute:</b> {'✅' if auto_mute else '❌'}\n"
+        f"<b>Mute Duration:</b> {mute_dur} min\n"
+        f"<b>Ban After:</b> {ban_thresh} violations\n"
+        f"<b>AI Moderation:</b> {'✅ (Cerebras/Together/OpenRouter)' if ai_mod else '❌ Regex only'}\n\n"
+        f"<i>Checks: Scam • Phishing • Porn • Spam • Abuse</i>"
+    )
+    kb = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                f"{'🔴 Disable' if enabled else '🟢 Enable'} Security",
+                callback_data=f"sec|toggle|{user.id}"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                f"{'✅' if auto_delete else '❌'} Auto Delete",
+                callback_data=f"sec|del|{user.id}"
+            ),
+            InlineKeyboardButton(
+                f"{'✅' if auto_mute else '❌'} Auto Mute",
+                callback_data=f"sec|mute|{user.id}"
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                f"{'✅' if ai_mod else '❌'} AI Check",
+                callback_data=f"sec|ai|{user.id}"
+            ),
+            InlineKeyboardButton(
+                f"⏱ Mute: {mute_dur}min",
+                callback_data=f"sec|mute_dur|{user.id}"
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                f"🔨 Ban after: {ban_thresh} strikes",
+                callback_data=f"sec|ban_thresh|{user.id}"
+            )
+        ],
+    ])
+    await update.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
+
+
+async def security_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /security panel button callbacks."""
+    query = update.callback_query
+    user  = query.from_user
+    if not is_admin(user.id):
+        await query.answer("⛔ Admin only.", show_alert=True)
+        return
+
+    parts = query.data.split("|")
+    if len(parts) < 2 or parts[0] != "sec":
+        return
+
+    action = parts[1]
+    sec_cfg = ai_security.get_security_config()
+
+    if action == "toggle":
+        sec_cfg["enabled"] = not sec_cfg.get("enabled", True)
+        msg = f"Security {'enabled ✅' if sec_cfg['enabled'] else 'disabled ❌'}"
+    elif action == "del":
+        sec_cfg["auto_delete"] = not sec_cfg.get("auto_delete", True)
+        msg = f"Auto-delete {'on ✅' if sec_cfg['auto_delete'] else 'off ❌'}"
+    elif action == "mute":
+        sec_cfg["auto_mute"] = not sec_cfg.get("auto_mute", True)
+        msg = f"Auto-mute {'on ✅' if sec_cfg['auto_mute'] else 'off ❌'}"
+    elif action == "ai":
+        sec_cfg["ai_moderation"] = not sec_cfg.get("ai_moderation", True)
+        msg = f"AI moderation {'on ✅' if sec_cfg['ai_moderation'] else 'off ❌'}"
+    elif action == "mute_dur":
+        # Cycle: 30 → 60 → 120 → 1440 → 0 (permanent) → 30
+        cycle = [30, 60, 120, 1440, 0]
+        cur   = sec_cfg.get("mute_duration_mins", 60)
+        idx   = cycle.index(cur) if cur in cycle else 0
+        sec_cfg["mute_duration_mins"] = cycle[(idx + 1) % len(cycle)]
+        dur = sec_cfg["mute_duration_mins"]
+        msg = f"Mute duration: {'Permanent' if dur == 0 else f'{dur} min'}"
+    elif action == "ban_thresh":
+        # Cycle: 2 → 3 → 5 → 10 → 2
+        cycle = [2, 3, 5, 10]
+        cur   = sec_cfg.get("auto_ban_threshold", 3)
+        idx   = cycle.index(cur) if cur in cycle else 1
+        sec_cfg["auto_ban_threshold"] = cycle[(idx + 1) % len(cycle)]
+        msg = f"Ban threshold: {sec_cfg['auto_ban_threshold']} violations"
+    else:
+        await query.answer()
+        return
+
+    ai_security.save_security_config(sec_cfg)
+    await query.answer(msg, show_alert=True)
+
+    # Refresh panel
+    enabled     = sec_cfg.get("enabled", True)
+    auto_delete = sec_cfg.get("auto_delete", True)
+    auto_mute   = sec_cfg.get("auto_mute", True)
+    ban_thresh  = sec_cfg.get("auto_ban_threshold", 3)
+    mute_dur    = sec_cfg.get("mute_duration_mins", 60)
+    ai_mod      = sec_cfg.get("ai_moderation", True)
+
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    text = (
+        f"🛡️ <b>AI Security Settings</b>\n"
+        f"<code>──────────────────────</code>\n"
+        f"<b>Status:</b> {'✅ Enabled' if enabled else '❌ Disabled'}\n"
+        f"<b>Auto Delete:</b> {'✅' if auto_delete else '❌'}\n"
+        f"<b>Auto Mute:</b> {'✅' if auto_mute else '❌'}\n"
+        f"<b>Mute Duration:</b> {mute_dur} min\n"
+        f"<b>Ban After:</b> {ban_thresh} violations\n"
+        f"<b>AI Moderation:</b> {'✅ (Cerebras/Together/OpenRouter)' if ai_mod else '❌ Regex only'}\n\n"
+        f"<i>Checks: Scam • Phishing • Porn • Spam • Abuse</i>"
+    )
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton(f"{'🔴 Disable' if enabled else '🟢 Enable'} Security", callback_data=f"sec|toggle|{user.id}")],
+        [
+            InlineKeyboardButton(f"{'✅' if auto_delete else '❌'} Auto Delete", callback_data=f"sec|del|{user.id}"),
+            InlineKeyboardButton(f"{'✅' if auto_mute else '❌'} Auto Mute",   callback_data=f"sec|mute|{user.id}"),
+        ],
+        [
+            InlineKeyboardButton(f"{'✅' if ai_mod else '❌'} AI Check",  callback_data=f"sec|ai|{user.id}"),
+            InlineKeyboardButton(f"⏱ Mute: {'Perm' if mute_dur == 0 else f'{mute_dur}m'}", callback_data=f"sec|mute_dur|{user.id}"),
+        ],
+        [InlineKeyboardButton(f"🔨 Ban after: {ban_thresh} strikes", callback_data=f"sec|ban_thresh|{user.id}")],
+    ])
+    try:
+        await query.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
+    except Exception:
+        pass
+
+
 async def group_cleanup_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     """
     In group chats: silently delete any message that is either:
       • A bot command (starts with /)
@@ -10057,6 +10348,15 @@ def start_bot():
         MessageHandler(filters.VOICE | filters.AUDIO, voice_message_handler)
     )
 
+    # ── AI Security: auto-moderate group messages (high priority) ─────────────
+    app.add_handler(
+        MessageHandler(
+            (filters.TEXT | filters.CAPTION) & filters.ChatType.GROUPS,
+            ai_security_handler
+        ),
+        group=1,   # HIGH priority — runs before text_handler
+    )
+
     # ── Group Cleanup: auto-delete commands & @botusername messages ──────────
     # Commands in groups (any /command sent in the group chat)
     app.add_handler(
@@ -10076,6 +10376,14 @@ def start_bot():
     )
 
     app.add_handler(CallbackQueryHandler(buttons))
+
+    # AI Security callbacks (sec|...)
+    app.add_handler(CallbackQueryHandler(security_callback, pattern=r"^sec\|"))
+
+    # /security admin command
+    app.add_handler(CommandHandler("security", security_cmd))
+
+
 
     logger.info("Riya Bot running")
 
