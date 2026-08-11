@@ -3142,7 +3142,7 @@ request_form_handler = ConversationHandler(
     },
     fallbacks=[
         CommandHandler("cancel", cancel_req_form),
-        MessageHandler(filters.Regex(r"^(?i)(cancel|ᴄᴀɴᴄᴇʟ)$"), cancel_req_form),
+        MessageHandler(filters.Regex(r"(?i)^(cancel|ᴄᴀɴᴄᴇʟ)$"), cancel_req_form),
         CommandHandler("request", request_story),
     ],
     per_message=False,
@@ -4380,6 +4380,8 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"<i>❁ Name:-</i> <b>{html.escape(str(story_name))}</b>{story_type_line}\n\n"
             f"<tg-spoiler>◒ This reply will be deleted automatically in 24 hours.</tg-spoiler>"
         )
+
+    caption = inject_premium_emojis(caption)
 
     import os as _os
     _reply_markup = InlineKeyboardMarkup(keyboard)
@@ -7381,6 +7383,7 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
         )
         markup = InlineKeyboardMarkup([
             [InlineKeyboardButton("📱 Phone Login Wizard (Auto Session)", callback_data=f"cfg|prem_login_phone||{caller_id}")],
+            [InlineKeyboardButton("✨ Premium Emojis Manager",           callback_data=f"cfg|prem_emojis||{caller_id}")],
             [
                 InlineKeyboardButton("Set API ID",    callback_data=f"cfg|prem_apiid||{caller_id}"),
                 InlineKeyboardButton("Set API Hash",  callback_data=f"cfg|prem_apihash||{caller_id}"),
@@ -7392,6 +7395,85 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
         ])
         await _edit_cfg(query, text, markup)
         await query.answer()
+        return
+
+    # ── Premium Emojis Manager Config ──────────────────────────────────────────
+    if section == "prem_emojis":
+        custom_map = load_custom_premium_emojis()
+        count = len(custom_map)
+        text = (
+            "<b>✨ Custom Premium Emojis Manager</b>\n"
+            f"{_CFG_DIV}\n\n"
+            f"▪ <b>Active Custom Mapped Emojis:</b> <code>{count}</code>\n\n"
+            "You can add/update custom premium emoji IDs in bulk by pasting list in any format:\n"
+            "<code>101)👎 [5348132683304156113]</code>\n"
+            "<code>🔥: 5350279866304445948</code>\n\n"
+            "<i>These custom animated emojis will be used across AI Chat, search results, and reactions!</i>"
+        )
+        markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton("➕ Add / Update Bulk Emojis", callback_data=f"cfg|prem_add_emojis||{caller_id}")],
+            [
+                InlineKeyboardButton("📋 View Mapped List", callback_data=f"cfg|prem_view_emojis||{caller_id}"),
+                InlineKeyboardButton("↺ Reset to Defaults",  callback_data=f"cfg|prem_reset_emojis||{caller_id}"),
+            ],
+            _cfg_nav(caller_id, back="premium_account")
+        ])
+        await _edit_cfg(query, text, markup)
+        await query.answer()
+        return
+
+    if section == "prem_add_emojis":
+        context.chat_data["config_state"] = "waiting_prem_emojis"
+        await query.answer()
+        await query.message.reply_text(
+            "<b>✨ Add / Update Bulk Premium Emojis</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
+            "Send or paste your Emoji IDs text below.\n"
+            "Formats supported:\n"
+            "• <code>101)👎 [5348132683304156113]</code>\n"
+            "• <code>🔥 [5350279866304445948]</code>\n"
+            "• <code>❤️: 5350831267090809192</code>\n\n"
+            "<i>Send any message containing single or multiple emoji IDs! Or send /cancel to abort.</i>",
+            parse_mode="HTML"
+        )
+        return
+
+    if section == "prem_view_emojis":
+        custom_map = load_custom_premium_emojis()
+        if not custom_map:
+            await query.answer("No custom emojis configured.", show_alert=True)
+            return
+        lines = [f"{i+1}. {em} ➔ <code>{eid}</code>" for i, (em, eid) in enumerate(list(custom_map.items())[:60])]
+        preview = "\n".join(lines)
+        if len(custom_map) > 60:
+            preview += f"\n\n<i>...and {len(custom_map)-60} more. Total: {len(custom_map)}</i>"
+        
+        await _edit_cfg(query,
+            f"<b>📋 Mapped Custom Emojis ({len(custom_map)})</b>\n\n{preview}",
+            InlineKeyboardMarkup([_cfg_nav(caller_id, back="prem_emojis")])
+        )
+        await query.answer()
+        return
+
+    if section == "prem_reset_emojis":
+        save_custom_premium_emojis(DEFAULT_CUSTOM_EMOJIS.copy())
+        await query.answer("↺ Reset to default 88 premium emojis!", show_alert=True)
+        custom_map = DEFAULT_CUSTOM_EMOJIS.copy()
+        text = (
+            "<b>✨ Custom Premium Emojis Manager</b>\n"
+            f"{_CFG_DIV}\n\n"
+            f"▪ <b>Active Custom Mapped Emojis:</b> <code>{len(custom_map)}</code>\n\n"
+            "Reset to default 88 custom emojis completed."
+        )
+        markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton("➕ Add / Update Bulk Emojis", callback_data=f"cfg|prem_add_emojis||{caller_id}")],
+            [
+                InlineKeyboardButton("📋 View Mapped List", callback_data=f"cfg|prem_view_emojis||{caller_id}"),
+                InlineKeyboardButton("↺ Reset to Defaults",  callback_data=f"cfg|prem_reset_emojis||{caller_id}"),
+            ],
+            _cfg_nav(caller_id, back="premium_account")
+        ])
+        await _edit_cfg(query, text, markup)
         return
 
     if section == "prem_login_phone":
@@ -8032,6 +8114,48 @@ async def handle_config_input(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return
 
+    if state == "waiting_prem_emojis":
+        val = text.strip()
+        is_clear = val.lower() == "clear"
+        context.chat_data.pop("config_state", None)
+
+        if is_clear:
+            save_custom_premium_emojis(DEFAULT_CUSTOM_EMOJIS.copy())
+            await update.message.reply_text(
+                "<b>✨ Premium Emojis Reset</b>\nCustom emoji mappings cleared and reset to default 88 emojis.",
+                parse_mode="HTML"
+            )
+            return
+
+        parsed = parse_emoji_ids(val)
+        if not parsed:
+            await update.message.reply_text(
+                "⚠️ Could not find any valid emoji + ID pairs in your message.\n"
+                "Please make sure your input contains lines like:\n"
+                "<code>101)👎 [5348132683304156113]</code> or <code>🔥 [5350279866304445948]</code>",
+                parse_mode="HTML"
+            )
+            return
+
+        custom_map = load_custom_premium_emojis()
+        custom_map.update(parsed)
+        save_custom_premium_emojis(custom_map)
+
+        preview_items = [f"{em} ➔ <code>{eid}</code>" for em, eid in list(parsed.items())[:10]]
+        preview_text = "\n".join(preview_items)
+        if len(parsed) > 10:
+            preview_text += f"\n<i>...and {len(parsed)-10} more.</i>"
+
+        await update.message.reply_text(
+            f"🎉 <b>Successfully Added/Updated {len(parsed)} Premium Emojis!</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"<b>Sample Mapped:</b>\n{preview_text}\n\n"
+            f"▪ <b>Total Active Custom Emojis:</b> <code>{len(custom_map)}</code>\n\n"
+            f"<i>Riya Bot will now use these custom premium emojis in AI chat, search results, and reactions! ⭐</i>",
+            parse_mode="HTML"
+        )
+        return
+
     # ── Phone Login Wizard Step Handlers ──────────────────────────────────────
     if state == "waiting_prem_phone":
         phone_number = text.replace(" ", "").strip()
@@ -8570,7 +8694,8 @@ async def _try_react(bot, chat_id: int, message_id: int, emoji: str, big: bool =
     try:
         import premium_userbot
         if premium_userbot.is_connected():
-            custom_id = premium_userbot.CUSTOM_EMOJI_MAP.get(emoji)
+            all_mapped = get_all_mapped_emojis()
+            custom_id = all_mapped.get(emoji) or premium_userbot.CUSTOM_EMOJI_MAP.get(emoji)
             if custom_id:
                 try:
                     from telegram import ReactionTypeCustomEmoji
@@ -8658,40 +8783,140 @@ async def _handle_no_or_thanks(update: Update, context: ContextTypes.DEFAULT_TYP
     return True
 
 
-# Expanded Premium Emoji Mapping — Maps standard emoji char to (mood, custom_emoji_id)
-_EMOJI_TO_PREMIUM = {
-    "🌸": ("sparkle", "5471952986970267163"),
-    "♡": ("heart",   "5368324170671202286"),
-    "❤️": ("heart",   "5368324170671202286"),
-    "💕": ("heart",   "5368324170671202286"),
-    "😊": ("smile",   "5368324170671202286"),
-    "🙂": ("smile",   "5368324170671202286"),
-    "📖": ("book",    "5471699564427268111"),
-    "📚": ("book",    "5471699564427268111"),
-    "⭐": ("star",    "5440539497383087970"),
-    "✨": ("sparkle", "5471952986970267163"),
-    "🔥": ("fire",    "5373141891321699086"),
-    "🎧": ("music",   "5471952291543580065"),
-    "🎵": ("music",   "5471952291543580065"),
-    "😂": ("laugh",   "5452023368596077203"),
-    "😔": ("sad",     "5471912804219283477"),
-    "🥰": ("heart",   "5368324170671202286"),
-    "🎉": ("crown",   "5430665757416087548"),
-    "👑": ("crown",   "5430665757416087548"),
-    "👍": ("ok",      "5471741978792603722"),
-}
+# Default 88 Pre-populated Premium Custom Emojis
+DEFAULT_CUSTOM_EMOJIS = {'👎': '5348132683304156113', '🔥': '5348429250795945732', '⭐': '5348254248058503242', '💬': '5348471079482441278', '💜': '5348359010900789108', '⚪': '5348451945403137943', '⚡': '5348085958354943913', '⛔': '5348221988559143096', '🕊': '5348378913779236881', '💤': '5348110903525000368', '🔇': '5350490916702404671', '🎮': '5348214678524805365', '❓': '5348551425435646741', '📶': '5348062301675078252', '👤': '5350763436672305153', '🎸': '5350659343844916913', '♥️': '5348232622898167572', '🥸': '5348322993305044654', '📍': '5350606545811949976', '💪': '5350542134187409556', '🆓': '5348440533675031854', '🫡': '5350294155660639210', '🚨': '5348507062718445792', '✨': '5350475991691052862', '⏫': '5350305520144106741', '⏬': '5350700390847365132', '🫀': '5348455299772596273', '🌙': '5348164354392997702', '🛸': '5350837773966261947', '🔘': '5348084369217052513', '🧠': '5350445475948414299', '❤️': '5350831267090809192', '😐': '5348073936741481983', '🏴\u200d☠️': '5350448718648721280', '🐍': '5348505039788852018', '🐐': '5348308179962840272', '🎥': '5350779710303387563', '🐈': '5350734411283317897', '💦': '5348272840971928574', '💉': '5350724330995074640', '👁': '5350569213956210746', '💣': '5350608263798865348', '☢️': '5348195299632364355', '⏹': '5350830335082905598', '👣': '5350480278068412818', '💱': '5350729313157135529', '🫱': '5348083845231033279', '🪱': '5350409471237570490', '🌿': '5350464257840399147', '🫗': '5348148673467398930', '🧪': '5350559275401887719', '🖕': '5348538274245788866', '🕷': '5350463832638643765', '🪐': '5348487726775678967', '0️⃣': '5348407054404958928', '🌱': '5348168224158530153', '☀️': '5348403541121713090', '❄️': '5348336655596016298', '🥃': '5348586287685189943', '🕺': '5348103735224581633', '🦎': '5348377994656234507', '🎵': '5350518915594209897', '🩵': '5348142170886914854', '🥺': '5348459641984530528', '☹️': '5350350527106399998', '🎼': '5348390454356359473', '🌈': '5348037786001750791', '🫶': '5350659885010797372', '👾': '5348455218168218503', '🖱️': '5350814400754236833', '👋': '5350596259365273418', '👻': '5348523151665937930', '🌴': '5348204950423880839', '🦶': '5348106952155087364', '🍴': '5350821873997332409', '🚁': '5350832400962176205', '💙': '5348466097320378895', '🤟': '5350768792496521441', '📞': '5348125437694327548', '1️⃣': '5348324054161967894', '2️⃣': '5350559846632537457', '3️⃣': '5350719542106540014', '4️⃣': '5350505304842846481', '5️⃣': '5348566874433011485', '6️⃣': '5348527025726439836', '7️⃣': '5348233322977838019', '8️⃣': '5348198830095483738', '9️⃣': '5350836180533393550'}
+
+def load_custom_premium_emojis() -> dict:
+    """Load custom emoji ID map from config_db. Initializes defaults if missing."""
+    try:
+        from database import load_config
+        cfg = load_config()
+        stored = cfg.get("custom_premium_emojis")
+        if stored is None:
+            cfg["custom_premium_emojis"] = DEFAULT_CUSTOM_EMOJIS.copy()
+            from database import save_config
+            save_config(cfg)
+            return DEFAULT_CUSTOM_EMOJIS.copy()
+        return stored
+    except Exception:
+        return DEFAULT_CUSTOM_EMOJIS.copy()
+
+def save_custom_premium_emojis(emoji_map: dict):
+    """Save custom emoji ID map to config_db."""
+    try:
+        from database import load_config, save_config
+        cfg = load_config()
+        cfg["custom_premium_emojis"] = emoji_map
+        save_config(cfg)
+    except Exception as e:
+        logger.error(f"[Emoji] Failed to save custom emojis: {e}")
+
+def parse_emoji_ids(text: str) -> dict:
+    """
+    Parse bulk text in any format containing emoji and custom document ID pairs.
+    Handles single line, multiline, numbered list formats like:
+      101)👎 [5348132683304156113]
+      🔥: 5350279866304445948
+    """
+    results = {}
+    if not text:
+        return results
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        m = re.search(r'(\d{15,20})', line)
+        if not m:
+            continue
+        emoji_id = m.group(1)
+        cleaned = re.sub(r'^\s*\d+[\)\.\:]\s*', '', line)
+        cleaned = re.sub(r'[\:\[\(=\-\s]*' + emoji_id + r'[\]\)]*', '', cleaned).strip()
+        if cleaned:
+            results[cleaned] = emoji_id
+    return results
+
+def get_all_mapped_emojis() -> dict:
+    """Get merged dictionary of all built-in + custom premium emojis."""
+    custom_map = load_custom_premium_emojis()
+    all_mapped = DEFAULT_CUSTOM_EMOJIS.copy()
+    all_mapped.update(custom_map)
+    return all_mapped
 
 def inject_premium_emojis(text: str) -> str:
     """Convert standard emojis in HTML text to Telegram <tg-emoji> animated custom emoji tags."""
     if not text:
         return text
-    for char, (_, emoji_id) in _EMOJI_TO_PREMIUM.items():
+    all_mapped = get_all_mapped_emojis()
+    # Sort keys by length descending so multi-char emojis (e.g. 🏴‍☠️, 1️⃣) are replaced before single chars
+    sorted_chars = sorted(all_mapped.keys(), key=lambda x: len(x), reverse=True)
+
+    for char in sorted_chars:
         if char in text:
+            emoji_id = all_mapped[char]
             text = text.replace(
                 char,
                 f'<tg-emoji emoji-id="{emoji_id}">{char}</tg-emoji>'
             )
     return text
+
+async def addemojis_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /addemojis — Bulk add or update custom premium emoji IDs for Riya Bot.
+    Usage: /addemojis <paste bulk text> OR reply to a message containing emoji IDs with /addemojis
+    """
+    user = update.effective_user
+    if not is_admin(user.id):
+        await update.message.reply_text("⛔ Admin only.")
+        return
+
+    text = ""
+    if context.args:
+        text = " ".join(context.args)
+    elif update.message.reply_to_message:
+        rep = update.message.reply_to_message
+        text = rep.text or rep.caption or ""
+
+    if not text.strip():
+        await update.message.reply_text(
+            "<b>✨ Bulk Premium Emojis Manager</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
+            "<b>Usage:</b>\n"
+            "• <code>/addemojis</code> <i>(reply to a message containing emoji IDs)</i>\n"
+            "• <code>/addemojis 👎 [5348132683304156113] 🔥 [5350279866304445948] ...</code>\n\n"
+            "<i>Or open <b>/config → Premium Account → ✨ Premium Emojis Manager</b> to manage emojis interactively!</i>",
+            parse_mode="HTML"
+        )
+        return
+
+    parsed = parse_emoji_ids(text)
+    if not parsed:
+        await update.message.reply_text(
+            "⚠️ Could not parse any valid emoji + ID pairs from the message.\n"
+            "Format example:\n"
+            "<code>101)👎 [5348132683304156113]</code>\n"
+            "<code>102)🔥 [5350279866304445948]</code>",
+            parse_mode="HTML"
+        )
+        return
+
+    custom_map = load_custom_premium_emojis()
+    custom_map.update(parsed)
+    save_custom_premium_emojis(custom_map)
+
+    preview_items = [f"{em} ➔ <code>{eid}</code>" for em, eid in list(parsed.items())[:15]]
+    preview_text = "\n".join(preview_items)
+    if len(parsed) > 15:
+        preview_text += f"\n<i>...and {len(parsed)-15} more.</i>"
+
+    await update.message.reply_text(
+        f"🎉 <b>Successfully Added/Updated {len(parsed)} Premium Emojis!</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"<b>Sample Mapped:</b>\n{preview_text}\n\n"
+        f"▪ <b>Total Active Custom Emojis:</b> <code>{len(custom_map)}</code>\n\n"
+        f"<i>Riya Bot will now use these custom premium emojis in AI chat, search results, and reactions! ⭐</i>",
+        parse_mode="HTML"
+    )
+
 
 
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -10435,6 +10660,10 @@ def start_bot():
 
     # /security admin command
     app.add_handler(CommandHandler("security", security_cmd))
+
+    # /addemojis & /setemojis admin commands
+    app.add_handler(CommandHandler("addemojis", addemojis_cmd))
+    app.add_handler(CommandHandler("setemojis", addemojis_cmd))
 
 
 
