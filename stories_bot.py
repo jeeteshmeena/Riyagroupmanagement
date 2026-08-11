@@ -4092,7 +4092,8 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     raw_text = (msg.text or "").strip()
 
-    if not raw_text or len(raw_text) < 2:
+    # Do NOT trigger story searches if message length is less than 2 or greater than 70 characters
+    if not raw_text or len(raw_text) < 2 or len(raw_text) > 70:
         return
 
     # Ignore URLs / Telegram links from triggering story searches
@@ -4355,13 +4356,8 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     photo = result.get("photo") or result.get("image")
     story_type_line = f"\n<b>✽ Story Type:-</b> <i>{html.escape(str(story_type))}</i>" if story_type != "Not specified" else ""
 
-    # Truncate story title to max 70 characters for normal search results display
-    story_name_display = story_name[:67] + "..." if len(story_name) > 70 else story_name
-
     if result.get("format") in ("LIGHT", "LIGHT_PRO"):
         light_name     = result.get("text", story_name)
-        if len(light_name) > 70:
-            light_name = light_name[:67] + "..."
         light_status   = result.get("status", "Unknown")
         light_platform = result.get("platform", "Unknown")
         light_genre    = result.get("genre", "Unknown")
@@ -4382,7 +4378,7 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         caption = (
             f"Hey {mention} 👋\n"
             f"<b>✫ I found this story</b> ➴\n\n"
-            f"<i>❁ Name:-</i> <b>{html.escape(str(story_name_display))}</b>{story_type_line}\n\n"
+            f"<i>❁ Name:-</i> <b>{html.escape(str(story_name))}</b>{story_type_line}\n\n"
             f"<tg-spoiler>◒ This reply will be deleted automatically in 24 hours.</tg-spoiler>"
         )
 
@@ -5067,15 +5063,12 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user       = query.from_user
         mention    = user.mention_html()
         story_name = clean_story(result.get("text", result.get("name", "")))
-        story_name_display = story_name[:67] + "..." if len(story_name) > 70 else story_name
         story_key  = result.get("name") or story_name.lower()
         story_type = result.get("story_type") or extract_story_type(result.get("caption", "")) or "Not specified"
 
         # Light Pro / Light format caption
         if result.get("format") in ("LIGHT", "LIGHT_PRO"):
             light_name     = result.get("text", story_name)
-            if len(light_name) > 70:
-                light_name = light_name[:67] + "..."
             light_status   = result.get("status", "Unknown")
             light_platform = result.get("platform", "Unknown")
             light_genre    = result.get("genre", "Unknown")
@@ -5099,7 +5092,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             caption = (
                 f"Hey {mention} \U0001f44b\n"
                 f"<b>\u272b I found this story</b> \u27b4\n\n"
-                f"<i>\u2741 Name:-</i> <b>{html.escape(str(story_name_display))}</b>{story_type_line}\n\n"
+                f"<i>\u2741 Name:-</i> <b>{html.escape(str(story_name))}</b>{story_type_line}\n\n"
             )
 
         caption += "\n<tg-spoiler>\u25d2 This reply will be deleted automatically in 24 hours.</tg-spoiler>"

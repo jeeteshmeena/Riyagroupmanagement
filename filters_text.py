@@ -1,5 +1,5 @@
 def is_valid_query(text):
-    if not text or len(text.strip()) < 3:
+    if not text or len(text.strip()) < 3 or len(text.strip()) > 70:
         return False
     lower_t = text.lower().strip()
     if lower_t.isdigit():
