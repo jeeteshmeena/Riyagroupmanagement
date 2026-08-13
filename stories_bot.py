@@ -4343,13 +4343,18 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_paid = result.get("is_paid", False)
     tut_url = "https://t.me/StoriesLinkopningguide/19" if is_paid else "https://t.me/StoriesLinkopningguide/5"
     
-    action_row = [
-        InlineKeyboardButton("Add2💗", callback_data=fav_data),
-        InlineKeyboardButton("Link Broken?", callback_data=lnw_data)
-    ]
+    if is_paid:
+        action_row = [
+            InlineKeyboardButton("Add2💗", callback_data=fav_data)
+        ]
+    else:
+        action_row = [
+            InlineKeyboardButton("Add2💗", callback_data=fav_data),
+            InlineKeyboardButton("Link Broken?", callback_data=lnw_data)
+        ]
     keyboard.append(action_row)
     keyboard.append([
-        InlineKeyboardButton("🗑️ Delete", callback_data="delete"),
+        InlineKeyboardButton("🗑️", callback_data="delete"),
         InlineKeyboardButton("Tutorial", url=tut_url)
     ])
 
@@ -4553,7 +4558,7 @@ async def render_genre_dashboard(chat_id, user_mention, genre_name: str, page: i
 
     keyboard.append([
         InlineKeyboardButton("「All Genres」", callback_data="gnr_l|1"),
-        InlineKeyboardButton("🗑️ Delete", callback_data="delete")
+        InlineKeyboardButton("🗑️", callback_data="delete")
     ])
 
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -4643,7 +4648,7 @@ async def render_genre_list(chat_id, user_mention, page: int = 1, context=None, 
 
         keyboard.append(pag_row)
 
-    keyboard.append([InlineKeyboardButton("🗑️ Delete", callback_data="delete")])
+    keyboard.append([InlineKeyboardButton("🗑️", callback_data="delete")])
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     if target_msg:
@@ -5107,16 +5112,21 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         is_paid = result.get("is_paid", False)
         tut_url = "https://t.me/StoriesLinkopningguide/19" if is_paid else "https://t.me/StoriesLinkopningguide/5"
 
-        action_row = [
-            InlineKeyboardButton("Add2💗", callback_data=fav_data),
-            InlineKeyboardButton("Link Broken?", callback_data=lnw_data)
-        ]
+        if is_paid:
+            action_row = [
+                InlineKeyboardButton("Add2💗", callback_data=fav_data)
+            ]
+        else:
+            action_row = [
+                InlineKeyboardButton("Add2💗", callback_data=fav_data),
+                InlineKeyboardButton("Link Broken?", callback_data=lnw_data)
+            ]
 
         keyboard = [
             [InlineKeyboardButton(open_btn_text, url=result["link"])],
             action_row,
             [
-                InlineKeyboardButton("🗑️ Delete", callback_data="delete"),
+                InlineKeyboardButton("🗑️", callback_data="delete"),
                 InlineKeyboardButton("Tutorial", url=tut_url)
             ]
         ]
