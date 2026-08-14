@@ -13,7 +13,7 @@ import json
 import logging
 import os
 import time
-from typing import Tuple, Dict, Any, Optional
+from typing import Tuple, Dict, Any, Optional, List
 
 try:
     import pymongo
@@ -133,6 +133,57 @@ async def get_next_story_from_mongo(settings: Dict[str, Any]) -> Tuple[Optional[
 
     story, total = await asyncio.to_thread(_fetch_mongo_story_sync, mongo_uri, db_name, col_name, rot_idx)
     return story, total
+
+
+def _fetch_story_by_id_sync(mongo_uri: str, db_name: str, col_name: str, story_id: str) -> Optional[Dict[str, Any]]:
+    """Synchronously fetch a single story by ID from MongoDB in READ-ONLY mode."""
+    if pymongo is None or not mongo_uri or not story_id:
+        return None
+    try:
+        from bson import ObjectId
+        client = pymongo.MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
+        db = client[db_name]
+        col = db[col_name]
+        doc = None
+        try:
+            doc = col.find_one({"_id": ObjectId(story_id)})
+        except Exception:
+            pass
+        if not doc:
+            doc = col.find_one({"_id": story_id})
+        if not doc:
+            doc = col.find_one({"story_id": story_id})
+        client.close()
+        return doc
+    except Exception as e:
+        logger.error(f"[PosterBot] Failed to fetch story by ID '{story_id}': {e}")
+        return None
+
+
+async def get_story_by_id_from_mongo(story_id: str) -> Optional[Dict[str, Any]]:
+    """Asynchronously fetch a single story by ID from MongoDB in READ-ONLY mode."""
+    settings = load_poster_settings()
+    mongo_uri = settings.get("mongo_uri") or os.getenv("MONGO_URI", "")
+    db_name = settings.get("database_name") or os.getenv("DATABASE_NAME", "arya_premium")
+    col_name = settings.get("collection_name", "premium_stories")
+    return await asyncio.to_thread(_fetch_story_by_id_sync, mongo_uri, db_name, col_name, story_id)
+
+
+def _fetch_latest_mongo_stories_sync(mongo_uri: str, db_name: str, col_name: str, limit: int = 10) -> List[Dict[str, Any]]:
+    """Fetch latest story documents from MongoDB in READ-ONLY mode."""
+    if pymongo is None or not mongo_uri:
+        return []
+    try:
+        client = pymongo.MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
+        db = client[db_name]
+        col = db[col_name]
+        cursor = col.find().sort("_id", -1).limit(limit)
+        docs = list(cursor)
+        client.close()
+        return docs
+    except Exception as e:
+        logger.error(f"[PosterBot] Failed to fetch latest stories: {e}")
+        return []
 
 
 # ------------------------------------------------------------------------------
@@ -571,6 +622,192 @@ async def process_pending_deletions(app, settings: Dict[str, Any]) -> None:
         save_poster_settings(settings)
 
 
+async def publish_story_doc(app, story: Dict[str, Any], target_channel: str) -> Tuple[bool, str]:
+    """Publish a specific MongoDB story document to the target channel with watermark & buy button."""
+    settings = load_poster_settings()
+    
+    # 1. Story Name
+    story_name = (
+        story.get("story_name_en") or
+        story.get("story_name_hi") or
+        story.get("story_name") or
+        story.get("title") or
+        extract_smart_field(story, "name", default="Story")
+    )
+
+    # 2. Image URL
+    img_url = ""
+    for field in ["image", "poster_url", "banner_url", "cover_url", "photo_url", "cover", "poster", "banner"]:
+        val = str(story.get(field) or "").strip()
+        if val.startswith("http://") or val.startswith("https://"):
+            img_url = val
+            break
+
+    caption = build_post_caption(story)
+    story_id = str(story.get("_id", ""))
+    buy_url = f"https://t.me/UseAryaBot/apminibyarya?startapp=story_{story_id}"
+    tutorial_url = "https://t.me/StoriesFinderBot?start=guide"
+
+    markup = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("Buy Now", url=buy_url),
+            InlineKeyboardButton("Tutorial", url=tutorial_url)
+        ]
+    ])
+
+    wm_settings = settings.get("watermark", {})
+    wm_enabled = wm_settings.get("enabled", True)
+    wm_path = wm_settings.get("path", "watermark.png")
+    wm_pos = wm_settings.get("position", "bottom_right")
+    wm_opacity = float(wm_settings.get("opacity", 0.8))
+
+    photo_bytes = None
+    if img_url:
+        try:
+            if wm_enabled:
+                photo_bytes = await asyncio.to_thread(apply_watermark_to_image, img_url, wm_path, wm_pos, wm_opacity)
+            else:
+                resp = await asyncio.to_thread(requests.get, img_url, timeout=12)
+                if resp.status_code == 200:
+                    photo_bytes = io.BytesIO(resp.content)
+        except Exception as e:
+            logger.warning(f"[PosterBot] Failed to process image URL '{img_url}': {e}")
+
+    if not photo_bytes:
+        default_cover = "default_cover.png"
+        if not os.path.exists(default_cover):
+            default_cover = os.path.join(DATA_DIR, "default_cover.png")
+        if not os.path.exists(default_cover):
+            default_cover = "default_cover.jpg"
+        if os.path.exists(default_cover):
+            with open(default_cover, "rb") as f:
+                photo_bytes = io.BytesIO(f.read())
+
+    target_chat = int(target_channel) if (target_channel.startswith("-") or target_channel.isdigit()) else target_channel
+    try:
+        if photo_bytes:
+            sent_msg = await app.bot.send_photo(
+                chat_id=target_chat,
+                photo=photo_bytes,
+                caption=caption,
+                parse_mode="HTML",
+                reply_markup=markup
+            )
+        else:
+            sent_msg = await app.bot.send_message(
+                chat_id=target_chat,
+                text=caption,
+                parse_mode="HTML",
+                reply_markup=markup
+            )
+
+        delete_delay_hours = float(settings.get("delete_delay_hours", 0))
+        if delete_delay_hours > 0:
+            delete_at = time.time() + (delete_delay_hours * 3600)
+            pending = settings.get("pending_deletions", [])
+            pending.append({
+                "chat_id": sent_msg.chat_id,
+                "message_id": sent_msg.message_id,
+                "delete_at": delete_at
+            })
+            settings["pending_deletions"] = pending
+            save_poster_settings(settings)
+
+        return True, f"Story '{story_name}' posted to {target_channel}!"
+    except Exception as e:
+        logger.error(f"[PosterBot] Failed to post message to {target_channel}: {e}")
+        return False, f"Telegram API error: {e}"
+
+
+async def check_and_notify_new_mongo_stories(app) -> None:
+    """Check MongoDB for newly added stories and prompt admin / auto-post."""
+    settings = load_poster_settings()
+    mongo_uri = settings.get("mongo_uri") or os.getenv("MONGO_URI", "")
+    if not mongo_uri:
+        return
+
+    db_name = settings.get("database_name") or os.getenv("DATABASE_NAME", "arya_premium")
+    col_name = settings.get("collection_name", "premium_stories")
+    
+    docs = await asyncio.to_thread(_fetch_latest_mongo_stories_sync, mongo_uri, db_name, col_name, 10)
+    if not docs:
+        return
+
+    seen_ids = set(settings.get("seen_story_ids", []))
+    # If first run, initialize seen_ids with existing docs so we don't spam old history
+    if "seen_story_ids" not in settings:
+        settings["seen_story_ids"] = [str(d.get("_id", "")) for d in docs if d.get("_id")]
+        save_poster_settings(settings)
+        return
+
+    from config import ADMIN_ID, OWNER_ID
+    admin_id = OWNER_ID or ADMIN_ID
+    target_channel = settings.get("target_channel")
+    
+    new_found = []
+    for d in docs:
+        sid = str(d.get("_id", ""))
+        if sid and sid not in seen_ids:
+            new_found.append(d)
+            seen_ids.add(sid)
+
+    if not new_found:
+        return
+
+    settings["seen_story_ids"] = list(seen_ids)[-200:]
+    save_poster_settings(settings)
+
+    for story in new_found:
+        story_id = str(story.get("_id", ""))
+        story_name = (
+            story.get("story_name_en") or story.get("story_name_hi") or
+            story.get("story_name") or story.get("title") or "Story"
+        )
+        status = story.get("status") or "Ongoing"
+        platform = story.get("platform") or "Pocket FM"
+        genre = story.get("genre") or "Romance"
+        episodes = str(story.get("episodes") or story.get("total_episodes") or "1")
+
+        # Auto-post to channel if enabled
+        if settings.get("active", False) and target_channel:
+            try:
+                await publish_story_doc(app, story, target_channel)
+                logger.info(f"[PosterBot] Automatically posted new MongoDB story: {story_name}")
+            except Exception as pe:
+                logger.warning(f"[PosterBot] Failed to auto-post new story: {pe}")
+
+        # Notify Admin with prefilled action buttons
+        if admin_id:
+            try:
+                caption = (
+                    "✨ <b>New Paid Story Added to MongoDB!</b>\n\n"
+                    f"♨️<b>Story</b> : <b>{html.escape(story_name)}</b>\n"
+                    f"🔰<b>Status</b> : <b>{html.escape(status)}</b>\n"
+                    f"🖥<b>Platform</b> : <b>{html.escape(platform)}</b>\n"
+                    f"🧩<b>Genre</b> : <b>{html.escape(genre)}</b>\n"
+                    f"🎬<b>Episodes</b> : <b>{html.escape(episodes)}</b>\n\n"
+                    "█▓▒▒░░░<b>Paid Story</b>  → All details auto-filled.░░░▒▒▓█\n\n"
+                    "<i>Channel me post karne ke liye niche button dabayein:</i>"
+                )
+                kb = [
+                    [
+                        InlineKeyboardButton("🚀 Post to Channel", callback_data=f"cfg|poster|send_story|{story_id}|{admin_id}"),
+                        InlineKeyboardButton("📝 Open in Create Post", callback_data=f"pb_mongo_prefill|{story_id}"),
+                    ],
+                    [
+                        InlineKeyboardButton("🗑️ Dismiss", callback_data="delete"),
+                    ]
+                ]
+                await app.bot.send_message(
+                    chat_id=admin_id,
+                    text=caption,
+                    parse_mode="HTML",
+                    reply_markup=InlineKeyboardMarkup(kb)
+                )
+            except Exception as ne:
+                logger.debug(f"[PosterBot] Could not send admin notification: {ne}")
+
+
 async def poster_bot_worker_loop(app):
     """24/7 Async task loop for Poster Bot background posting and auto-deletion."""
     logger.info("[PosterBot] Worker loop started.")
@@ -580,7 +817,10 @@ async def poster_bot_worker_loop(app):
             # 1. Auto-deletion processing
             await process_pending_deletions(app, settings)
 
-            # 2. Auto-posting processing
+            # 2. Check for new MongoDB stories to auto-post or notify admin
+            await check_and_notify_new_mongo_stories(app)
+
+            # 3. Interval auto-posting processing
             if settings.get("active", False) and settings.get("target_channel"):
                 interval_min = float(settings.get("interval_minutes", 30))
                 interval_sec = interval_min * 60
@@ -750,6 +990,30 @@ async def handle_poster_callbacks(query, context: ContextTypes.DEFAULT_TYPE, par
             await query.answer(f"❌ Post failed: {msg}", show_alert=True)
         text, markup = build_poster_panel_markup(settings, caller_id)
         await _safe_edit_message_text(query, text=text, parse_mode="HTML", reply_markup=markup)
+        return
+
+    # 3b. Send specific MongoDB story to channel
+    if action == "send_story":
+        story_id = sub_action
+        story = await get_story_by_id_from_mongo(story_id)
+        target_channel = settings.get("target_channel")
+        if not target_channel:
+            await query.answer("❌ Target channel is not set in Poster Bot settings!", show_alert=True)
+            return
+        if not story:
+            await query.answer("❌ Story document not found in MongoDB!", show_alert=True)
+            return
+        await query.answer("⏳ Publishing story to channel...")
+        ok, msg = await publish_story_doc(context.application, story, target_channel)
+        if ok:
+            await query.edit_message_text(
+                f"✅ <b>Story Published to Channel!</b>\n\n"
+                f"<i>Story ID: <code>{story_id}</code></i>\n"
+                f"<i>Destination: <code>{target_channel}</code></i>",
+                parse_mode="HTML"
+            )
+        else:
+            await query.answer(f"❌ Failed: {msg}", show_alert=True)
         return
 
     # 4. Target Channel Prompt

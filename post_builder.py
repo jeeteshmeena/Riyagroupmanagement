@@ -543,6 +543,57 @@ async def start_builder(update: Update, context: ContextTypes.DEFAULT_TYPE):
             kb = _kb([["Format 1", "Format 2"], ["Post", "Intro"], ["/cancel"]])
             await update.callback_query.message.reply_text("¤ Select format:", reply_markup=kb)
             return STATE_FORMAT
+        elif cb.startswith("pb_mongo_prefill|"):
+            story_id = cb.split("|")[1]
+            try:
+                from plugins.poster_bot import get_story_by_id_from_mongo, load_poster_settings
+                settings = load_poster_settings()
+                story = await get_story_by_id_from_mongo(story_id)
+                if not story:
+                    await update.callback_query.message.reply_text("❌ Could not fetch story from MongoDB.")
+                    return ConversationHandler.END
+
+                story_name = (
+                    story.get("story_name_en") or story.get("story_name_hi") or
+                    story.get("story_name") or story.get("title") or "Story"
+                )
+                story_desc = story.get("story_description") or story.get("description") or ""
+                platform = story.get("platform") or "Pocket FM"
+                genre = story.get("genre") or "Drama"
+                status = story.get("status") or "Ongoing"
+                episodes = str(story.get("episodes") or story.get("total_episodes") or "1")
+                buy_url = f"https://t.me/UseAryaBot/apminibyarya?startapp=story_{story_id}"
+
+                img_url = ""
+                for field in ["image", "poster_url", "banner_url", "cover_url", "photo_url", "cover", "poster", "banner"]:
+                    val = str(story.get(field) or "").strip()
+                    if val.startswith("http://") or val.startswith("https://"):
+                        img_url = val
+                        break
+
+                target_channel = settings.get("target_channel") or ""
+
+                context.user_data["pb_data"] = {
+                    "post_mode": "new",
+                    "format": "light_pro",
+                    "is_paid": True,
+                    "name": story_name,
+                    "desc": story_desc,
+                    "platform": platform,
+                    "genre": genre,
+                    "status": status,
+                    "episodes": episodes,
+                    "link": buy_url,
+                    "destination": target_channel,
+                    "destinations": [{"chat": target_channel, "thread": None}] if target_channel else [],
+                    "photo_ids": [{"type": "photo", "id": img_url}] if img_url else [],
+                }
+
+                return await _show_preview(update.callback_query.message, context)
+            except Exception as pe:
+                _log.error(f"[POST_BUILDER] Error pre-filling MongoDB story: {pe}")
+                await update.callback_query.message.reply_text(f"❌ Error loading MongoDB story: {pe}")
+                return ConversationHandler.END
 
     kb = _kb([["[ New ]", "[ Edit ]"], ["/cancel"]])
     await (update.effective_message).reply_text("★ <b>Post Builder</b>\n\nSelect mode:", reply_markup=kb, parse_mode="HTML")
@@ -1087,8 +1138,13 @@ async def _apply_watermark_if_needed(data, context, chat_id):
         return
     try:
         item = photo_ids[0]
-        tg_file = await context.bot.get_file(item["id"])
-        raw = await tg_file.download_as_bytearray()
+        if str(item.get("id", "")).startswith("http://") or str(item.get("id", "")).startswith("https://"):
+            import requests
+            resp = await asyncio.to_thread(requests.get, item["id"], timeout=12)
+            raw = resp.content
+        else:
+            tg_file = await context.bot.get_file(item["id"])
+            raw = await tg_file.download_as_bytearray()
         watermarked = apply_watermark(bytes(raw))
         sent = await context.bot.send_photo(
             chat_id=chat_id,
@@ -1352,6 +1408,7 @@ post_builder_handler = ConversationHandler(
         CallbackQueryHandler(start_builder, pattern=r"^menu\|createpost"),
         CallbackQueryHandler(start_builder, pattern=r"^pb_success_"),
         CallbackQueryHandler(start_builder, pattern=r"^pb_retry_failed"),
+        CallbackQueryHandler(start_builder, pattern=r"^pb_mongo_prefill\|"),
     ],
     states={
         STATE_MODE:        [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_mode)],

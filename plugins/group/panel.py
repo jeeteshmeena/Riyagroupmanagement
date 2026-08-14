@@ -31,7 +31,17 @@ def is_bot_admin(user_id: int) -> bool:
 
 
 async def _is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    return is_bot_admin(update.effective_user.id)
+    user_id = update.effective_user.id if update.effective_user else 0
+    if is_bot_admin(user_id):
+        return True
+    if update.effective_chat and update.effective_chat.type in ("group", "supergroup"):
+        try:
+            member = await context.bot.get_chat_member(update.effective_chat.id, user_id)
+            if member.status in ("administrator", "creator"):
+                return True
+        except Exception:
+            pass
+    return False
 
 
 def _in_group(update: Update) -> bool:
@@ -78,6 +88,12 @@ async def panel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Open the Group Control Panel (admin only)."""
     try:
         if not _in_group(update):
+            await update.message.reply_text(
+                "<b>👮 Group Control Panel (GCP)</b>\n\n"
+                "Is command ko apne <b>Telegram Group</b> me use karein jahan Riya Bot add aur admin ho.\n\n"
+                "<i>Command:</i> <code>/gcp</code>",
+                parse_mode="HTML"
+            )
             return
         if not await _is_admin(update, context):
             await update.message.reply_text("⛔ Admin only.")
@@ -121,7 +137,17 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return
 
         # Admin check
-        if not is_bot_admin(update.effective_user.id):
+        user_id = update.effective_user.id if update.effective_user else 0
+        is_allowed = is_bot_admin(user_id)
+        if not is_allowed and update.effective_chat and update.effective_chat.type in ("group", "supergroup"):
+            try:
+                member = await context.bot.get_chat_member(update.effective_chat.id, user_id)
+                if member.status in ("administrator", "creator"):
+                    is_allowed = True
+            except Exception:
+                pass
+
+        if not is_allowed:
             await query.answer("⛔ Admin only.", show_alert=True)
             return
 

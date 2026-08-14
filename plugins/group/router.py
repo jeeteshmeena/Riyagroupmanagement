@@ -44,7 +44,7 @@ def register_group_handlers(app: Application) -> None:
         from .logs        import setlogchannel_cmd
         from .utils_cmds  import id_cmd, userinfo_cmd
 
-        _g = 20   # Base handler group (above existing bot handlers)
+        _g = 0   # Primary handler group so commands execute directly
 
         # ── Panel & toggle ─────────────────────────────────────────────────────
         app.add_handler(CommandHandler("gcp",   panel_cmd),         group=_g)
