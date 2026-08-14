@@ -4382,13 +4382,14 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if result.get("format") == "LIGHT_PRO" and result.get("episodes"):
             caption += f"🎬<b>Episodes</b> : <b>{html.escape(str(result['episodes']))}</b>\n"
         if result.get("is_paid"):
-            caption += "\n🛍 <b>Paid Story</b>  → Purchase required for access.\n"
+            caption += "\n█▓▒▒░░░<b>Paid Story</b>  → Purchase required for access.░░░▒▒▓█\n"
         caption += f"\n<tg-spoiler>◒ This reply will be deleted automatically in 24 hours.</tg-spoiler>"
     else:
+        paid_line = "\n█▓▒▒░░░<b>Paid Story</b>  → Purchase required for access.░░░▒▒▓█\n" if result.get("is_paid") else ""
         caption = (
             f"Hey {mention} 👋\n"
             f"<b>✫ I found this story</b> ➴\n\n"
-            f"<i>❁ Name:-</i> <b>{html.escape(str(story_name))}</b>{story_type_line}\n\n"
+            f"<i>❁ Name:-</i> <b>{html.escape(str(story_name))}</b>{story_type_line}{paid_line}\n\n"
             f"<tg-spoiler>◒ This reply will be deleted automatically in 24 hours.</tg-spoiler>"
         )
 
@@ -5093,16 +5094,17 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if result.get("format") == "LIGHT_PRO" and result.get("episodes"):
                 caption += f"\U0001f3ac<b>Episodes</b> : <b>{html.escape(str(result['episodes']))}</b>\n"
             if result.get("is_paid"):
-                caption += "\n🛍 <b>Paid Story</b>  → Purchase required for access.\n"
+                caption += "\n█▓▒▒░░░<b>Paid Story</b>  → Purchase required for access.░░░▒▒▓█\n"
         else:
             story_type_line = (
                 f"\n<b>\u273d Story Type:-</b> <i>{html.escape(str(story_type))}</i>"
                 if story_type != "Not specified" else ""
             )
+            paid_line = "\n█▓▒▒░░░<b>Paid Story</b>  → Purchase required for access.░░░▒▒▓█\n" if result.get("is_paid") else ""
             caption = (
                 f"Hey {mention} \U0001f44b\n"
                 f"<b>\u272b I found this story</b> \u27b4\n\n"
-                f"<i>\u2741 Name:-</i> <b>{html.escape(str(story_name))}</b>{story_type_line}\n\n"
+                f"<i>\u2741 Name:-</i> <b>{html.escape(str(story_name))}</b>{story_type_line}{paid_line}\n\n"
             )
 
         caption += "\n<tg-spoiler>\u25d2 This reply will be deleted automatically in 24 hours.</tg-spoiler>"
