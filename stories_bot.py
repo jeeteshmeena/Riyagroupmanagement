@@ -6032,14 +6032,14 @@ async def copyright_mute_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
 #  callback_data format: cfg|<section>|<action>|<caller_id>
 # ─────────────────────────────────────────────────────────────────────────────
 
-_CFG_DIV = "━━━━━━━━━━━━━━━━"
+_CFG_DIV = ""
 
 
 def _cfg_nav(caller_id: int, back: str = "main") -> list:
-    """Standard config nav row: [➦ Back][✖ Close]"""
+    """Standard config nav row: [Back][Close]"""
     return [
-        InlineKeyboardButton("➦ Back",    callback_data=f"cfg|{back}||{caller_id}"),
-        InlineKeyboardButton("✖ Close",  callback_data=f"cfg|close||{caller_id}"),
+        InlineKeyboardButton("Back",   callback_data=f"cfg|{back}||{caller_id}"),
+        InlineKeyboardButton("Close",  callback_data=f"cfg|close||{caller_id}"),
     ]
 
 
@@ -6057,64 +6057,51 @@ def _cfg_main_panel(caller_id: int, lang: str = "en") -> tuple:
     else:
         fmt_count = 0
 
-    cur_lang = "हिन्दी" if lang == "hi" else "English"
-
     if lang == "hi":
         header = (
-            "<b>✺ Configuration Panel</b>\n"
-            "<i>▪ Bot settings aur system options manage karein.</i>\n"
-            f"{_CFG_DIV}\n\n"
-            f"▸ Sources: <b>{len(sources)}</b>  "
-            f"▸ Formats: <b>{fmt_count}</b>  "
-            f"▸ Timers: <b>{len(timers)}</b>  "
-            f"▸ Language: <b>{cur_lang}</b>"
+            "<b>Configuration Panel</b>\n"
+            "Bot settings aur system options manage karein.\n\n"
+            f"Sources: <b>{len(sources)}</b>  "
+            f"Formats: <b>{fmt_count}</b>  "
+            f"Timers: <b>{len(timers)}</b>"
         )
     else:
         header = (
-            "<b>✺ Configuration Panel</b>\n"
-            "<i>▪ Manage bot settings and system options.</i>\n"
-            f"{_CFG_DIV}\n\n"
-            f"▸ Sources: <b>{len(sources)}</b>  "
-            f"▸ Formats: <b>{fmt_count}</b>  "
-            f"▸ Timers: <b>{len(timers)}</b>  "
-            f"▸ Language: <b>{cur_lang}</b>"
+            "<b>Configuration Panel</b>\n"
+            "Manage bot settings and system options.\n\n"
+            f"Sources: <b>{len(sources)}</b>  "
+            f"Formats: <b>{fmt_count}</b>  "
+            f"Timers: <b>{len(timers)}</b>"
         )
 
     markup = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("◈ Language",    callback_data=f"cfg|lang||{caller_id}"),
-            InlineKeyboardButton("📢 Broadcast",  callback_data=f"cfg|broadcast||{caller_id}"),
+            InlineKeyboardButton("Broadcast",     callback_data=f"cfg|broadcast||{caller_id}"),
+            InlineKeyboardButton("Timers",        callback_data=f"cfg|timers||{caller_id}"),
         ],
         [
-            InlineKeyboardButton("⌛ Timers",      callback_data=f"cfg|timers||{caller_id}"),
-            InlineKeyboardButton("⊞ Channels",    callback_data=f"cfg|sources||{caller_id}"),
+            InlineKeyboardButton("Channels",      callback_data=f"cfg|sources||{caller_id}"),
+            InlineKeyboardButton("Formats",       callback_data=f"cfg|formats||{caller_id}"),
         ],
         [
-            InlineKeyboardButton("◫ Formats",     callback_data=f"cfg|formats||{caller_id}"),
-            InlineKeyboardButton("◉ System Info", callback_data=f"cfg|sysinfo||{caller_id}"),
+            InlineKeyboardButton("System Info",   callback_data=f"cfg|sysinfo||{caller_id}"),
+            InlineKeyboardButton("Maintenance",   callback_data=f"cfg|maintenance||{caller_id}"),
         ],
         [
-            InlineKeyboardButton("⚙ Maintenance", callback_data=f"cfg|maintenance||{caller_id}"),
-            InlineKeyboardButton("▷ Scheduler",   callback_data=f"cfg|scheduler||{caller_id}"),
+            InlineKeyboardButton("Scheduler",     callback_data=f"cfg|scheduler||{caller_id}"),
+            InlineKeyboardButton("Global Ban",    callback_data=f"cfg|gban||{caller_id}"),
         ],
         [
-            InlineKeyboardButton("⊘ Global Ban",  callback_data=f"cfg|gban||{caller_id}"),
-            InlineKeyboardButton("◎ AI & Voice",  callback_data=f"cfg|aiconfig||{caller_id}"),
+            InlineKeyboardButton("AI & Voice",    callback_data=f"cfg|aiconfig||{caller_id}"),
+            InlineKeyboardButton("Poster Bot",    callback_data=f"cfg|poster|main||{caller_id}"),
         ],
         [
-            InlineKeyboardButton("✦ Premium Acc",   callback_data=f"cfg|premium_account||{caller_id}"),
-            InlineKeyboardButton("✨ Premium Emojis", callback_data=f"cfg|prem_emojis||{caller_id}"),
+            InlineKeyboardButton("Tutorial",       callback_data=f"cfg|tutorial_guide||{caller_id}"),
+            InlineKeyboardButton("Poll Settings",  callback_data=f"cfg|poll_settings||{caller_id}"),
         ],
         [
-            InlineKeyboardButton("📖 Tutorial",     callback_data=f"cfg|tutorial_guide||{caller_id}"),
-            InlineKeyboardButton("📊 Poll Settings", callback_data=f"cfg|poll_settings||{caller_id}"),
-        ],
-        [
-            InlineKeyboardButton("↺ Refresh",       callback_data=f"cfg|main||{caller_id}"),
-            InlineKeyboardButton("🚀 Poster Bot",   callback_data=f"cfg|poster|main||{caller_id}"),
-        ],
-        [
-            InlineKeyboardButton("✖ Close",       callback_data=f"cfg|close||{caller_id}"),
+            InlineKeyboardButton("Refresh",       callback_data=f"cfg|main||{caller_id}"),
+            InlineKeyboardButton("Close",         callback_data=f"cfg|close||{caller_id}"),
         ],
     ])
     return header, markup
