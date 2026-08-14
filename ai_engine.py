@@ -97,22 +97,6 @@ PROVIDERS = {
         "env_key": "MISTRAL_API_KEY",
         "free": False,
     },
-    "agentrouter": {
-        "name": "AgentRouter",
-        "model": "claude-opus-5",
-        "type": "openai_compat",
-        "base_url": "https://agentrouter.org/v1",
-        "env_key": "AGENTROUTER_API_KEY",
-        "free": True,
-    },
-    "groq": {
-        "name": "Groq",
-        "model": "llama-3.3-70b-versatile",
-        "type": "openai_compat",
-        "base_url": "https://api.groq.com/openai/v1",
-        "env_key": "GROQ_API_KEY",
-        "free": True,
-    },
 }
 
 # ── Runtime State ─────────────────────────────────────────────────────────────
@@ -172,18 +156,7 @@ def _default_ai_config() -> dict:
 def _init_openai_compat(api_key: str, base_url: str, name: str):
     try:
         from openai import AsyncOpenAI
-        default_headers = {}
-        if "agentrouter" in str(base_url).lower():
-            default_headers = {
-                "Originator": "codex_cli_rs",
-                "User-Agent": "codex_cli_rs/0.1.0 (Linux; x86_64)",
-                "Version": "0.1.0"
-            }
-        client = AsyncOpenAI(
-            api_key=api_key,
-            base_url=base_url,
-            default_headers=default_headers if default_headers else None
-        )
+        client = AsyncOpenAI(api_key=api_key, base_url=base_url)
         logger.info(f"✅ {name} ready")
         return client
     except Exception as e:
@@ -219,13 +192,12 @@ def init_all():
     _clients.clear()
     for pid, info in PROVIDERS.items():
         pcfg = _ai_config.get("providers", {}).get(pid, {})
-        env_key = os.getenv(info["env_key"], "").strip()
-        key = pcfg.get("api_key", "").strip() or env_key
+        if not pcfg.get("enabled"):
+            continue
+        key = pcfg.get("api_key", "").strip()
         if not key:
             continue
-        # Provider is enabled if explicitly enabled or if key exists in env/config
-        if not pcfg.get("enabled", True) and not env_key:
-            continue
+        model = pcfg.get("model", info["model"])
         c = _init_openai_compat(key, info["base_url"], info["name"])
         if c:
             _clients[pid] = c
@@ -245,16 +217,6 @@ def init_all():
         _save_ai_config(_ai_config)
         logger.info(f"[AI] Auto-set primary to '{new_primary}'")
 
-    # Auto-repair: if backup is None or invalid, pick another available client as backup
-    primary = _ai_config.get("primary")
-    backup = _ai_config.get("backup")
-    if not backup or backup not in _clients or backup == primary:
-        other_clients = [p for p in _clients if p != primary]
-        if other_clients:
-            _ai_config["backup"] = other_clients[0]
-            _save_ai_config(_ai_config)
-            logger.info(f"[AI] Auto-set backup to '{other_clients[0]}'")
-
     logger.info(f"[AI] Clients ready: {list(_clients.keys())} | Primary: {_ai_config.get('primary')} | Backup: {_ai_config.get('backup')}")
 
 # ── API Calls ─────────────────────────────────────────────────────────────────
@@ -265,35 +227,36 @@ async def _call_openai_compat(client, user_id: int, payload: str, model: str) ->
     messages.append({"role": "user", "content": payload})
 
     candidates = [model]
+    try:
+        models_res = await client.models.list()
+        if hasattr(models_res, 'data') and models_res.data:
+            fetched_models = [m.id for m in models_res.data if getattr(m, 'id', None)]
+            if fetched_models:
+                candidates = fetched_models + candidates
+    except Exception as _me:
+        logger.debug(f"[AI] Failed to fetch models.list: {_me}")
+
     if "cerebras" in str(client.base_url).lower():
-        candidates.extend(["llama-3.3-70b", "llama3.3-70b", "llama-3.1-8b", "llama3.1-8b"])
-    elif "agentrouter" in str(client.base_url).lower():
-        candidates.extend(["claude-opus-5", "claude-opus-4-8", "gpt-5.6-sol", "gpt-4o"])
+        candidates.extend(["llama-3.3-70b", "llama3.3-70b", "llama-3.1-8b", "llama3.1-8b", "llama3.1-70b", "llama-3.1-70b"])
 
     seen = set()
-    unique_candidates = [m for m in candidates if not (m in seen or seen.add(m))][:3]
+    unique_candidates = [m for m in candidates if not (m in seen or seen.add(m))]
 
     last_err = None
     for target_model in unique_candidates:
         try:
-            resp = await asyncio.wait_for(
-                client.chat.completions.create(
-                    model=target_model,
-                    messages=messages,
-                    temperature=0.78,
-                    max_tokens=700,
-                ),
-                timeout=12.0
+            resp = await client.chat.completions.create(
+                model=target_model,
+                messages=messages,
+                temperature=0.78,
+                max_tokens=700,
             )
             return resp.choices[0].message.content.strip()
         except Exception as e:
             last_err = e
-            err_msg = str(e)
-            if "Budget pool quota has been exhausted" in err_msg or "402" in err_msg:
-                logger.warning(f"[AI] Account budget pool exhausted on {client.base_url}: {e}")
-                raise e
-            logger.warning(f"[AI] Model '{target_model}' failed ({e}), trying next candidate model...")
-            continue
+            if "404" in str(e) or "model_not_found" in str(e):
+                continue
+            raise e
     if last_err:
         raise last_err
     return ""
