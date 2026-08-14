@@ -4331,8 +4331,10 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not story_link.startswith(("http://", "https://", "tg://")):
             story_link = "https://" + story_link.lstrip("/")
         
-        btn_text = "🛍 Buy Now" if result.get("is_paid") else "Open Story"
-        keyboard.append([InlineKeyboardButton(btn_text, url=story_link)])
+        if result.get("is_paid"):
+            keyboard.append([InlineKeyboardButton("Buy Now", url=story_link, api_kwargs={"icon_custom_emoji_id": "5456343263340405032"})])
+        else:
+            keyboard.append([InlineKeyboardButton("Open Story", url=story_link)])
 
     # safeguard for long lengths
     fav_data = f"fav|{story_key}"
@@ -5109,13 +5111,17 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lnw_data = f"lnw|{story_key}"
         if len(lnw_data) > 64: lnw_data = "lnw|toolong"
 
-        open_btn_text = "🛍 Buy Now" if result.get("is_paid") else "Open Story"
         is_paid = result.get("is_paid", False)
         tut_url = "https://t.me/StoriesLinkopningguide/19" if is_paid else "https://t.me/StoriesLinkopningguide/5"
 
-        keyboard = [
-            [InlineKeyboardButton(open_btn_text, url=result["link"])]
-        ]
+        if is_paid:
+            keyboard = [
+                [InlineKeyboardButton("Buy Now", url=result["link"], api_kwargs={"icon_custom_emoji_id": "5456343263340405032"})]
+            ]
+        else:
+            keyboard = [
+                [InlineKeyboardButton("Open Story", url=result["link"])]
+            ]
         if is_paid:
             keyboard.append([
                 InlineKeyboardButton("Add2💗", callback_data=fav_data),
