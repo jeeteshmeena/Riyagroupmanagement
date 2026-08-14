@@ -211,12 +211,13 @@ def init_all():
     _clients.clear()
     for pid, info in PROVIDERS.items():
         pcfg = _ai_config.get("providers", {}).get(pid, {})
-        if not pcfg.get("enabled"):
-            continue
-        key = pcfg.get("api_key", "").strip()
+        env_key = os.getenv(info["env_key"], "").strip()
+        key = pcfg.get("api_key", "").strip() or env_key
         if not key:
             continue
-        model = pcfg.get("model", info["model"])
+        # Provider is enabled if explicitly enabled or if key exists in env/config
+        if not pcfg.get("enabled", True) and not env_key:
+            continue
         c = _init_openai_compat(key, info["base_url"], info["name"])
         if c:
             _clients[pid] = c
