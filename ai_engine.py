@@ -105,6 +105,14 @@ PROVIDERS = {
         "env_key": "AGENTROUTER_API_KEY",
         "free": True,
     },
+    "groq": {
+        "name": "Groq",
+        "model": "llama-3.3-70b-versatile",
+        "type": "openai_compat",
+        "base_url": "https://api.groq.com/openai/v1",
+        "env_key": "GROQ_API_KEY",
+        "free": True,
+    },
 }
 
 # ── Runtime State ─────────────────────────────────────────────────────────────
