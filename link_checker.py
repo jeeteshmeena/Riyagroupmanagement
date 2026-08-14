@@ -42,19 +42,20 @@ class BackgroundLinkChecker:
             retry_delay=5
         )
         
-        await self.client.connect()
-        if not await self.client.is_user_authorized():
-            raise ValueError(
-                "SESSION_STRING is invalid or has expired. "
-                "Please generate a new session string using generate_session.py and update it in your .env file on the VPS."
-            )
-        
-        # Populate entity cache for StringSession
         try:
-            await self.client.get_dialogs()
-            logger.info("Link checker: entity cache populated via get_dialogs()")
+            await self.client.connect()
+            if not await self.client.is_user_authorized():
+                logger.warning("[LinkChecker] SESSION_STRING is unauthorized or expired.")
+                return
+            # Populate entity cache for StringSession
+            try:
+                await self.client.get_dialogs()
+                logger.info("Link checker: entity cache populated via get_dialogs()")
+            except Exception as e:
+                logger.warning(f"Link checker: get_dialogs() failed: {e}")
         except Exception as e:
-            logger.warning(f"Link checker: get_dialogs() failed: {e}")
+            logger.warning(f"[LinkChecker] Connection failed: {e}")
+            return
         
         # Run the checker loop
         asyncio.create_task(self._checker_loop())

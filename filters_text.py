@@ -1,9 +1,12 @@
 def is_valid_query(text):
-    if not text or len(text.strip()) < 3 or len(text.strip()) > 70:
+    if not text:
         return False
-    lower_t = text.lower().strip()
-    if lower_t.isdigit():
+    t = text.strip()
+    if t.isdigit():
         return True
+    if len(t) < 2 or len(t) > 70:
+        return False
+    lower_t = t.lower()
     # Ignore request form button texts from triggering searches
     if "start request form" in lower_t or "sᴛᴀʀᴛ ʀᴇqᴜᴇsᴛ ꜰᴏʀᴍ" in lower_t:
         return False

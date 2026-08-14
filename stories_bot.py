@@ -4090,10 +4090,10 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user:
         return  # e.g. channel_post without forward info
 
-    raw_text = (msg.text or "").strip()
-
-    # Do NOT trigger story searches if message length is less than 2 or greater than 70 characters
-    if not raw_text or len(raw_text) < 2 or len(raw_text) > 70:
+    # Do NOT trigger story searches if query is empty or longer than 70 chars, or 1 non-digit char
+    if not raw_text or len(raw_text) > 70:
+        return
+    if len(raw_text) < 2 and not raw_text.isdigit():
         return
 
     # Ignore URLs / Telegram links from triggering story searches
