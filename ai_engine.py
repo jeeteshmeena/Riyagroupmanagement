@@ -99,7 +99,7 @@ PROVIDERS = {
     },
     "agentrouter": {
         "name": "AgentRouter",
-        "model": "gpt-5.6-sol",
+        "model": "claude-opus-5",
         "type": "openai_compat",
         "base_url": "https://agentrouter.org/v1",
         "env_key": "AGENTROUTER_API_KEY",
