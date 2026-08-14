@@ -256,38 +256,33 @@ async def _call_openai_compat(client, user_id: int, payload: str, model: str) ->
     messages.append({"role": "user", "content": payload})
 
     candidates = [model]
-    try:
-        models_res = await client.models.list()
-        if hasattr(models_res, 'data') and models_res.data:
-            fetched_models = [m.id for m in models_res.data if getattr(m, 'id', None)]
-            if fetched_models:
-                candidates = fetched_models + candidates
-    except Exception as _me:
-        logger.debug(f"[AI] Failed to fetch models.list: {_me}")
-
     if "cerebras" in str(client.base_url).lower():
-        candidates.extend(["llama-3.3-70b", "llama3.3-70b", "llama-3.1-8b", "llama3.1-8b", "llama3.1-70b", "llama-3.1-70b"])
+        candidates.extend(["llama-3.3-70b", "llama3.3-70b", "llama-3.1-8b", "llama3.1-8b"])
     elif "agentrouter" in str(client.base_url).lower():
-        candidates.extend([
-            "claude-opus-5", "claude-opus-4-8", "gpt-5.6-sol", "claude-3-5-sonnet",
-            "gpt-4o", "gpt-4o-mini", "claude-3-7-sonnet", "deepseek-chat", "gemini-2.0-flash"
-        ])
+        candidates.extend(["claude-opus-5", "claude-opus-4-8", "gpt-5.6-sol", "gpt-4o"])
 
     seen = set()
-    unique_candidates = [m for m in candidates if not (m in seen or seen.add(m))]
+    unique_candidates = [m for m in candidates if not (m in seen or seen.add(m))][:3]
 
     last_err = None
     for target_model in unique_candidates:
         try:
-            resp = await client.chat.completions.create(
-                model=target_model,
-                messages=messages,
-                temperature=0.78,
-                max_tokens=700,
+            resp = await asyncio.wait_for(
+                client.chat.completions.create(
+                    model=target_model,
+                    messages=messages,
+                    temperature=0.78,
+                    max_tokens=700,
+                ),
+                timeout=12.0
             )
             return resp.choices[0].message.content.strip()
         except Exception as e:
             last_err = e
+            err_msg = str(e)
+            if "Budget pool quota has been exhausted" in err_msg or "402" in err_msg:
+                logger.warning(f"[AI] Account budget pool exhausted on {client.base_url}: {e}")
+                raise e
             logger.warning(f"[AI] Model '{target_model}' failed ({e}), trying next candidate model...")
             continue
     if last_err:
