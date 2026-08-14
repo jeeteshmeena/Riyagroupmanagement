@@ -6554,6 +6554,24 @@ def _cfg_ai_provider_panel(caller_id: int, pid: str) -> tuple:
             InlineKeyboardButton("⭐ Set as Primary", callback_data=f"cfg|ai_setprimary|{pid}|{caller_id}"),
             InlineKeyboardButton("💾 Set as Backup",  callback_data=f"cfg|ai_setbackup|{pid}|{caller_id}"),
         ],
+    ]
+
+    # Model selector buttons for AgentRouter
+    if pid == "agentrouter":
+        models_list = ["gpt-5.6-sol", "claude-opus-5", "claude-opus-4-8", "gpt-4o", "claude-3-5-sonnet"]
+        row1 = []
+        row2 = []
+        for m in models_list[:3]:
+            mark = "✅ " if m == model else ""
+            row1.append(InlineKeyboardButton(f"{mark}{m}", callback_data=f"cfg|ai_pickmodel|{pid}:{m}|{caller_id}"))
+        for m in models_list[3:]:
+            mark = "✅ " if m == model else ""
+            row2.append(InlineKeyboardButton(f"{mark}{m}", callback_data=f"cfg|ai_pickmodel|{pid}:{m}|{caller_id}"))
+        buttons.append(row1)
+        if row2:
+            buttons.append(row2)
+
+    buttons += [
         [InlineKeyboardButton("➦ Back", callback_data=f"cfg|aiconfig||{caller_id}"),
          InlineKeyboardButton("✖ Close", callback_data=f"cfg|close||{caller_id}")],
     ]
@@ -7370,6 +7388,26 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
         set_backup(pid)
         name = PROVIDERS.get(pid, {}).get("name", pid)
         await query.answer(f"💾 {name} set as Backup")
+        text, markup = _cfg_ai_provider_panel(caller_id, pid)
+        await _edit_cfg(query, text, markup)
+        return
+
+    # ── AI: Pick Model ────────────────────────────────────────────────────────
+    if section == "ai_pickmodel":
+        from ai_engine import get_ai_config, _save_ai_config, init_all
+        raw_val = parts[2]
+        if ":" in raw_val:
+            pid, chosen_model = raw_val.split(":", 1)
+        else:
+            pid, chosen_model = "agentrouter", raw_val
+        eng = get_ai_config()
+        if "providers" in eng and pid in eng["providers"]:
+            eng["providers"][pid]["model"] = chosen_model
+            _save_ai_config(eng)
+            init_all()
+            await query.answer(f"✅ Model set to {chosen_model}!")
+        else:
+            await query.answer(f"Model selected: {chosen_model}")
         text, markup = _cfg_ai_provider_panel(caller_id, pid)
         await _edit_cfg(query, text, markup)
         return

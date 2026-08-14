@@ -164,7 +164,18 @@ def _default_ai_config() -> dict:
 def _init_openai_compat(api_key: str, base_url: str, name: str):
     try:
         from openai import AsyncOpenAI
-        client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        default_headers = {}
+        if "agentrouter" in str(base_url).lower():
+            default_headers = {
+                "Originator": "codex_cli_rs",
+                "User-Agent": "codex_cli_rs/0.1.0 (Linux; x86_64)",
+                "Version": "0.1.0"
+            }
+        client = AsyncOpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            default_headers=default_headers if default_headers else None
+        )
         logger.info(f"✅ {name} ready")
         return client
     except Exception as e:
