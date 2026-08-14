@@ -4090,6 +4090,8 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user:
         return  # e.g. channel_post without forward info
 
+    raw_text = (msg.text or "").strip()
+
     # Do NOT trigger story searches if query is empty or longer than 70 chars, or 1 non-digit char
     if not raw_text or len(raw_text) > 70:
         return
