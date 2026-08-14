@@ -236,6 +236,16 @@ def init_all():
         _save_ai_config(_ai_config)
         logger.info(f"[AI] Auto-set primary to '{new_primary}'")
 
+    # Auto-repair: if backup is None or invalid, pick another available client as backup
+    primary = _ai_config.get("primary")
+    backup = _ai_config.get("backup")
+    if not backup or backup not in _clients or backup == primary:
+        other_clients = [p for p in _clients if p != primary]
+        if other_clients:
+            _ai_config["backup"] = other_clients[0]
+            _save_ai_config(_ai_config)
+            logger.info(f"[AI] Auto-set backup to '{other_clients[0]}'")
+
     logger.info(f"[AI] Clients ready: {list(_clients.keys())} | Primary: {_ai_config.get('primary')} | Backup: {_ai_config.get('backup')}")
 
 # ── API Calls ─────────────────────────────────────────────────────────────────
@@ -258,7 +268,10 @@ async def _call_openai_compat(client, user_id: int, payload: str, model: str) ->
     if "cerebras" in str(client.base_url).lower():
         candidates.extend(["llama-3.3-70b", "llama3.3-70b", "llama-3.1-8b", "llama3.1-8b", "llama3.1-70b", "llama-3.1-70b"])
     elif "agentrouter" in str(client.base_url).lower():
-        candidates.extend(["gpt-5.6-sol", "claude-opus-5", "claude-opus-4-8", "gpt-4o", "claude-3-5-sonnet"])
+        candidates.extend([
+            "claude-opus-5", "claude-opus-4-8", "gpt-5.6-sol", "claude-3-5-sonnet",
+            "gpt-4o", "gpt-4o-mini", "claude-3-7-sonnet", "deepseek-chat", "gemini-2.0-flash"
+        ])
 
     seen = set()
     unique_candidates = [m for m in candidates if not (m in seen or seen.add(m))]
@@ -275,9 +288,8 @@ async def _call_openai_compat(client, user_id: int, payload: str, model: str) ->
             return resp.choices[0].message.content.strip()
         except Exception as e:
             last_err = e
-            if "404" in str(e) or "model_not_found" in str(e):
-                continue
-            raise e
+            logger.warning(f"[AI] Model '{target_model}' failed ({e}), trying next candidate model...")
+            continue
     if last_err:
         raise last_err
     return ""
