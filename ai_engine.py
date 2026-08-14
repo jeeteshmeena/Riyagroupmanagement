@@ -97,6 +97,14 @@ PROVIDERS = {
         "env_key": "MISTRAL_API_KEY",
         "free": False,
     },
+    "agentrouter": {
+        "name": "AgentRouter",
+        "model": "gpt-5.6-sol",
+        "type": "openai_compat",
+        "base_url": "https://agentrouter.org/v1",
+        "env_key": "AGENTROUTER_API_KEY",
+        "free": True,
+    },
 }
 
 # ── Runtime State ─────────────────────────────────────────────────────────────
@@ -238,6 +246,8 @@ async def _call_openai_compat(client, user_id: int, payload: str, model: str) ->
 
     if "cerebras" in str(client.base_url).lower():
         candidates.extend(["llama-3.3-70b", "llama3.3-70b", "llama-3.1-8b", "llama3.1-8b", "llama3.1-70b", "llama-3.1-70b"])
+    elif "agentrouter" in str(client.base_url).lower():
+        candidates.extend(["gpt-5.6-sol", "claude-opus-5", "claude-opus-4-8", "gpt-4o", "claude-3-5-sonnet"])
 
     seen = set()
     unique_candidates = [m for m in candidates if not (m in seen or seen.add(m))]

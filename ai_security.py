@@ -65,6 +65,7 @@ async def _call_ai_moderation(text: str) -> Tuple[bool, str, str]:
     category: 'scam' | 'phishing' | 'porn' | 'spam' | 'abuse' | 'safe'
     """
     PROVIDERS_ORDER = [
+        ("agentrouter", "https://agentrouter.org/v1",       os.getenv("AGENTROUTER_API_KEY", ""), "gpt-5.6-sol"),
         ("cerebras",   "https://api.cerebras.ai/v1",        os.getenv("CEREBRAS_API_KEY", ""),  "llama-3.3-70b"),
         ("together",   "https://api.together.xyz/v1",        os.getenv("TOGETHER_API_KEY", ""),  "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free"),
         ("openrouter", "https://openrouter.ai/api/v1",       os.getenv("OPENROUTER_API_KEY", ""), "meta-llama/llama-3.1-8b-instruct:free"),
