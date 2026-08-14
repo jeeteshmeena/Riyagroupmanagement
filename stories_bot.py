@@ -9361,22 +9361,21 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         f"{urllib.parse.quote(quality_prompt)}"
                         f"?model=flux&width=1080&height=1080&nologo=true&seed={hash(img_prompt) % 99999}"
                     )
-                    # Download image bytes and send — avoids Telegram URL timeout issues
-                    import aiohttp
-                    async with aiohttp.ClientSession() as session:
-                        async with session.get(flux_url, timeout=30) as _img_resp:
-                            if _img_resp.status == 200:
-                                img_bytes = await _img_resp.read()
-                                if img_bytes:
-                                    import io as _io_img
-                                    await update.message.reply_photo(
-                                        photo=_io_img.BytesIO(img_bytes),
-                                        caption=reply_text if reply_text else None,
-                                        parse_mode="HTML"
-                                    )
-                                    reply_text = ""  # Caption sent with photo — no duplicate text
-                            else:
-                                logger.error(f"[IMAGE] Pollinations HTTP {_img_resp.status}")
+                    import httpx
+                    async with httpx.AsyncClient(timeout=30.0) as client:
+                        _img_resp = await client.get(flux_url)
+                        if _img_resp.status_code == 200:
+                            img_bytes = _img_resp.content
+                            if img_bytes:
+                                import io as _io_img
+                                await update.message.reply_photo(
+                                    photo=_io_img.BytesIO(img_bytes),
+                                    caption=reply_text if reply_text else None,
+                                    parse_mode="HTML"
+                                )
+                                reply_text = ""  # Caption sent with photo — no duplicate text
+                        else:
+                            logger.error(f"[IMAGE] Pollinations HTTP {_img_resp.status_code}")
                 except Exception as e:
                     logger.error(f"[IMAGE] Failed: {e}")
 
