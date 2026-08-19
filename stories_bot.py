@@ -4074,6 +4074,186 @@ async def _check_force_sub(user_id, context):
     return True
 
 # -----------------------
+# Story Result Card Renderer
+# -----------------------
+
+async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_TYPE, result: dict, user=None, target_mention=None, user_query_msg=None):
+    """Sends the full rich story card (poster, buy/open button, Add2Fav, Tutorial, format metadata)"""
+    if not user:
+        user = update.effective_user
+    chat_id = update.effective_chat.id
+    if not target_mention:
+        target_mention = user.mention_html() if user else "User"
+
+    story_name = clean_story(result.get("text", result.get("name", "Unknown")))
+    story_key = result.get("name") or clean_story(result.get("text", "Unknown")).lower()
+
+    # Prefer pre‑computed story_type from the scanner, fallback to regex
+    story_type = result.get("story_type")
+    if not story_type:
+        caption_text = result.get("caption", "")
+        story_type = extract_story_type(caption_text)
+    if not story_type:
+        story_type = "Not specified"
+
+    # Check broken-link flag using in-memory dict
+    is_broken = link_flags.get(story_key, {}).get("broken", False)
+    if is_broken:
+        lang = get_chat_lang(chat_id)
+        if lang == "hi":
+            broken_msg = f"<b>☆ लिंक अस्थायी रूप से अनुपलब्ध है</b>\n\n<i>{html.escape(story_name)}</i>\n\nइस स्टोरी के लिंक में वर्तमान में कोई समस्या है (जैसे कॉपीराइट या डिलीट होना) और एडमिन्स को सूचित कर दिया गया है। कृपया समस्या के ठीक होने तक प्रतीक्षा करें।"
+        else:
+            broken_msg = f"<b>☆ Link Temporarily Unavailable</b>\n\n<i>{html.escape(story_name)}</i>\n\nThere is currently an issue with this story's link (like copyright or deletion) and admins have been notified. Please wait until it is fixed."
+        sent = await context.bot.send_message(chat_id=chat_id, text=broken_msg, parse_mode="HTML")
+        async def _del_broken():
+            await asyncio.sleep(86400)
+            try: await sent.delete()
+            except: pass
+        asyncio.create_task(_del_broken())
+        return sent
+
+    keyboard = []
+    story_link = result.get("link", "").strip()
+    if story_link:
+        if not story_link.startswith(("http://", "https://", "tg://")):
+            story_link = "https://" + story_link.lstrip("/")
+        
+        if result.get("is_paid"):
+            keyboard.append([InlineKeyboardButton("🛍 Buy Now", url=story_link, api_kwargs={"icon_custom_emoji_id": "5456343263340405032"})])
+        else:
+            keyboard.append([InlineKeyboardButton("Open Story", url=story_link)])
+
+    # safeguard for long lengths
+    fav_data = f"fav|{story_key}"
+    if len(fav_data) > 64: fav_data = "fav|toolong"
+    lnw_data = f"lnw|{story_key}"
+    if len(lnw_data) > 64: lnw_data = "lnw|toolong"
+    
+    is_paid = result.get("is_paid", False)
+    tut_url = "https://t.me/StoriesLinkopningguide/19" if is_paid else "https://t.me/StoriesLinkopningguide/5"
+    
+    if is_paid:
+        keyboard.append([
+            InlineKeyboardButton("Add2💗", callback_data=fav_data),
+            InlineKeyboardButton("🗑️", callback_data="delete"),
+            InlineKeyboardButton("Tutorial", url=tut_url)
+        ])
+    else:
+        keyboard.append([
+            InlineKeyboardButton("Add2💗", callback_data=fav_data),
+            InlineKeyboardButton("Link Broken?", callback_data=lnw_data)
+        ])
+        keyboard.append([
+            InlineKeyboardButton("🗑️", callback_data="delete"),
+            InlineKeyboardButton("Tutorial", url=tut_url)
+        ])
+
+    photo = result.get("photo") or result.get("image")
+    story_type_line = f"\n<b>✽ Story Type:-</b> <i>{html.escape(str(story_type))}</i>" if story_type != "Not specified" else ""
+
+    if result.get("format") in ("LIGHT", "LIGHT_PRO"):
+        light_name     = result.get("text", story_name)
+        light_status   = result.get("status", "Unknown")
+        light_platform = result.get("platform", "Unknown")
+        light_genre    = result.get("genre", "Unknown")
+        caption = (
+            f"Hey {target_mention} 👋\n"
+            f"<b>✫ I found this story</b> ➴\n\n"
+            f"♨️<b>Story</b> : <b>{html.escape(str(light_name))}</b>\n"
+            f"🔰<b>Status</b> : <b>{html.escape(str(light_status))}</b>\n"
+            f"🖥<b>Platform</b> : <b>{html.escape(str(light_platform))}</b>\n"
+            f"🧩<b>Genre</b> : <b>{html.escape(str(light_genre))}</b>\n"
+        )
+        if result.get("format") == "LIGHT_PRO" and result.get("episodes"):
+            caption += f"🎬<b>Episodes</b> : <b>{html.escape(str(result['episodes']))}</b>\n"
+        if result.get("is_paid"):
+            caption += "\n█▓▒▒░░░<b>Paid Story</b>  → Purchase required for access.░░░▒▒▓█\n"
+        caption += f"\n<tg-spoiler>◒ This reply will be deleted automatically in 24 hours.</tg-spoiler>"
+    else:
+        paid_line = "\n█▓▒▒░░░<b>Paid Story</b>  → Purchase required for access.░░░▒▒▓█\n" if result.get("is_paid") else ""
+        caption = (
+            f"Hey {target_mention} 👋\n"
+            f"<b>✫ I found this story</b> ➴\n\n"
+            f"<i>❁ Name:-</i> <b>{html.escape(str(story_name))}</b>{story_type_line}{paid_line}\n\n"
+            f"<tg-spoiler>◒ This reply will be deleted automatically in 24 hours.</tg-spoiler>"
+        )
+
+    caption = inject_premium_emojis(caption)
+
+    import os as _os
+    _reply_markup = InlineKeyboardMarkup(keyboard)
+    sent_msg = None
+
+    # Tier 1: stored Telegram photo (channel file_id) + HTML caption
+    if photo and not sent_msg:
+        try:
+            sent_msg = await context.bot.send_photo(
+                chat_id=chat_id, photo=photo, caption=caption,
+                parse_mode="HTML", reply_markup=_reply_markup)
+        except Exception as _e1:
+            logger.warning(f"[SEARCH T1 failed] {_e1}")
+
+    # Tier 2: local default_cover.png opened as raw bytes + HTML caption
+    if not sent_msg:
+        _cp = _os.path.join(_os.path.dirname(__file__), "default_cover.png")
+        if _os.path.exists(_cp):
+            try:
+                with open(_cp, "rb") as _cf:
+                    sent_msg = await context.bot.send_photo(
+                        chat_id=chat_id, photo=_cf, caption=caption,
+                        parse_mode="HTML", reply_markup=_reply_markup)
+            except Exception as _e2:
+                logger.warning(f"[SEARCH T2 failed] {_e2}")
+
+    # Tier 3: text message + HTML caption (no image at all)
+    if not sent_msg:
+        try:
+            sent_msg = await context.bot.send_message(
+                chat_id=chat_id, text=caption, parse_mode="HTML",
+                reply_markup=_reply_markup, disable_web_page_preview=True)
+        except Exception as _e3:
+            logger.warning(f"[SEARCH T3 failed] {_e3}")
+
+    # Tier 4: plain text, no HTML, no keyboard — always works
+    if not sent_msg:
+        try:
+            _plain = (f"\u2764 Story found: {story_name}"
+                      + (f"\nType: {story_type}" if story_type != "Not specified" else "")
+                      + "\n\n(This reply auto-deletes in 24 hours.)")
+            sent_msg = await context.bot.send_message(
+                chat_id=chat_id, text=_plain, disable_web_page_preview=True)
+        except Exception as _e4:
+            logger.error(f"[SEARCH ALL TIERS FAILED] {_e4}")
+            return None
+
+    if user:
+        message_owner[sent_msg.message_id] = user.id
+
+    # Track this bot message so a subsequent "No" reply OR context-aware "No" is handled correctly
+    _bot_search_replies[(chat_id, sent_msg.message_id)] = True
+    if len(_bot_search_replies) > 1000:
+        _bot_search_replies.pop(next(iter(_bot_search_replies)))
+    if user:
+        _record_user_search(chat_id, user.id)
+
+    # delete the reply and user query message after 24 hours
+    async def _delete_later():
+        await asyncio.sleep(86400)
+        try:
+            await sent_msg.delete()
+        except:
+            pass
+        if user_query_msg:
+            try:
+                await user_query_msg.delete()
+            except:
+                pass
+
+    asyncio.create_task(_delete_later())
+    return sent_msg
+
+
+# -----------------------
 # search
 # -----------------------
 
@@ -4183,6 +4363,15 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Try exact match or alias match from Search Engine
     result = search_story_exact_or_alias(query_text)
 
+    # If no story found directly, try AI story name resolver (e.g. typos, Hinglish phonetics)
+    if not result:
+        try:
+            ai_resolved = await gemini_chat.ai_resolve_story_name(query_text)
+            if ai_resolved:
+                result = search_story_exact_or_alias(ai_resolved)
+        except Exception as _ai_err:
+            logger.debug(f"[Search AI Resolve] {_ai_err}")
+
     # If no story found, check if it's a genre search or show suggestions
     if not result:
         # Check if query_text matches an existing genre name directly
@@ -4252,6 +4441,7 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
             no_msg = await msg.reply_text(
                 not_found_text, parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("📬 Request Story", switch_inline_query_current_chat=f"/request {query_text}")],
                     [get_tutorial_inline_button()]
                 ])
             )
@@ -4288,186 +4478,11 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # plain @username mention — keep as string mention
         target_mention = _tagged_user_mention
 
-    mention = target_mention
-
-    story_name = clean_story(result.get("text", result.get("name", "Unknown")))
-    story_key = result.get("name") or clean_story(result.get("text", "Unknown")).lower()
-
-    
-
-    # Prefer pre‑computed story_type from the scanner, fallback to regex
-    story_type = result.get("story_type")
-
-    if not story_type:
-        caption_text = result.get("caption", "")
-        story_type = extract_story_type(caption_text)
-
-    if not story_type:
-        story_type = "Not specified"
-
-    # Check broken-link flag using in-memory dict (already synced by scan/cleardata)
-    # Do NOT re-read from file here — link_flags is the authoritative in-memory source
-    is_broken = link_flags.get(story_key, {}).get("broken", False)
-
-    if is_broken:
-        lang = get_chat_lang(update.effective_chat.id)
-        if lang == "hi":
-            broken_msg = f"<b>☆ लिंक अस्थायी रूप से अनुपलब्ध है</b>\n\n<i>{html.escape(story_name)}</i>\n\nइस स्टोरी के लिंक में वर्तमान में कोई समस्या है (जैसे कॉपीराइट या डिलीट होना) और एडमिन्स को सूचित कर दिया गया है। कृपया समस्या के ठीक होने तक प्रतीक्षा करें।"
-        else:
-            broken_msg = f"<b>☆ Link Temporarily Unavailable</b>\n\n<i>{html.escape(story_name)}</i>\n\nThere is currently an issue with this story's link (like copyright or deletion) and admins have been notified. Please wait until it is fixed."
-        
-        await _del_searching()
-        sent = await msg.reply_text(broken_msg, parse_mode="HTML")
-        async def _del_broken():
-            await asyncio.sleep(86400)
-            try: await sent.delete()
-            except: pass
-        asyncio.create_task(_del_broken())
-        return
-
-    chat_id = update.effective_chat.id
-
-    keyboard = []
-    story_link = result.get("link", "").strip()
-    if story_link:
-        if not story_link.startswith(("http://", "https://", "tg://")):
-            story_link = "https://" + story_link.lstrip("/")
-        
-        if result.get("is_paid"):
-            keyboard.append([InlineKeyboardButton("🛍 Buy Now", url=story_link, api_kwargs={"icon_custom_emoji_id": "5456343263340405032"})])
-        else:
-            keyboard.append([InlineKeyboardButton("Open Story", url=story_link)])
-
-    # safeguard for long lengths
-    fav_data = f"fav|{story_key}"
-    if len(fav_data) > 64: fav_data = "fav|toolong"
-    lnw_data = f"lnw|{story_key}"
-    if len(lnw_data) > 64: lnw_data = "lnw|toolong"
-    
-    is_paid = result.get("is_paid", False)
-    tut_url = "https://t.me/StoriesLinkopningguide/19" if is_paid else "https://t.me/StoriesLinkopningguide/5"
-    
-    if is_paid:
-        keyboard.append([
-            InlineKeyboardButton("Add2💗", callback_data=fav_data),
-            InlineKeyboardButton("🗑️", callback_data="delete"),
-            InlineKeyboardButton("Tutorial", url=tut_url)
-        ])
-    else:
-        keyboard.append([
-            InlineKeyboardButton("Add2💗", callback_data=fav_data),
-            InlineKeyboardButton("Link Broken?", callback_data=lnw_data)
-        ])
-        keyboard.append([
-            InlineKeyboardButton("🗑️", callback_data="delete"),
-            InlineKeyboardButton("Tutorial", url=tut_url)
-        ])
-
-    photo = result.get("photo") or result.get("image")
-    story_type_line = f"\n<b>✽ Story Type:-</b> <i>{html.escape(str(story_type))}</i>" if story_type != "Not specified" else ""
-
-    if result.get("format") in ("LIGHT", "LIGHT_PRO"):
-        light_name     = result.get("text", story_name)
-        light_status   = result.get("status", "Unknown")
-        light_platform = result.get("platform", "Unknown")
-        light_genre    = result.get("genre", "Unknown")
-        caption = (
-            f"Hey {mention} 👋\n"
-            f"<b>✫ I found this story</b> ➴\n\n"
-            f"♨️<b>Story</b> : <b>{html.escape(str(light_name))}</b>\n"
-            f"🔰<b>Status</b> : <b>{html.escape(str(light_status))}</b>\n"
-            f"🖥<b>Platform</b> : <b>{html.escape(str(light_platform))}</b>\n"
-            f"🧩<b>Genre</b> : <b>{html.escape(str(light_genre))}</b>\n"
-        )
-        if result.get("format") == "LIGHT_PRO" and result.get("episodes"):
-            caption += f"🎬<b>Episodes</b> : <b>{html.escape(str(result['episodes']))}</b>\n"
-        if result.get("is_paid"):
-            caption += "\n█▓▒▒░░░<b>Paid Story</b>  → Purchase required for access.░░░▒▒▓█\n"
-        caption += f"\n<tg-spoiler>◒ This reply will be deleted automatically in 24 hours.</tg-spoiler>"
-    else:
-        paid_line = "\n█▓▒▒░░░<b>Paid Story</b>  → Purchase required for access.░░░▒▒▓█\n" if result.get("is_paid") else ""
-        caption = (
-            f"Hey {mention} 👋\n"
-            f"<b>✫ I found this story</b> ➴\n\n"
-            f"<i>❁ Name:-</i> <b>{html.escape(str(story_name))}</b>{story_type_line}{paid_line}\n\n"
-            f"<tg-spoiler>◒ This reply will be deleted automatically in 24 hours.</tg-spoiler>"
-        )
-
-    caption = inject_premium_emojis(caption)
-
-    import os as _os
-    _reply_markup = InlineKeyboardMarkup(keyboard)
-    msg = None
-
     await _del_searching()
 
-    # Tier 1: stored Telegram photo (channel file_id) + HTML caption
-    if photo and not msg:
-        try:
-            msg = await context.bot.send_photo(
-                chat_id=chat_id, photo=photo, caption=caption,
-                parse_mode="HTML", reply_markup=_reply_markup)
-        except Exception as _e1:
-            logger.warning(f"[SEARCH T1 failed] {_e1}")
-
-    # Tier 2: local default_cover.png opened as raw bytes + HTML caption
-    if not msg:
-        _cp = _os.path.join(_os.path.dirname(__file__), "default_cover.png")
-        if _os.path.exists(_cp):
-            try:
-                with open(_cp, "rb") as _cf:
-                    msg = await context.bot.send_photo(
-                        chat_id=chat_id, photo=_cf, caption=caption,
-                        parse_mode="HTML", reply_markup=_reply_markup)
-            except Exception as _e2:
-                logger.warning(f"[SEARCH T2 failed] {_e2}")
-
-    # Tier 3: text message + HTML caption (no image at all)
-    if not msg:
-        try:
-            msg = await context.bot.send_message(
-                chat_id=chat_id, text=caption, parse_mode="HTML",
-                reply_markup=_reply_markup, disable_web_page_preview=True)
-        except Exception as _e3:
-            logger.warning(f"[SEARCH T3 failed] {_e3}")
-
-    # Tier 4: plain text, no HTML, no keyboard — always works
-    if not msg:
-        try:
-            _plain = (f"\u2764 Story found: {story_name}"
-                      + (f"\nType: {story_type}" if story_type != "Not specified" else "")
-                      + "\n\n(This reply auto-deletes in 24 hours.)")
-            msg = await context.bot.send_message(
-                chat_id=chat_id, text=_plain, disable_web_page_preview=True)
-        except Exception as _e4:
-            logger.error(f"[SEARCH ALL TIERS FAILED] {_e4}")
-            return
-
-
-    message_owner[msg.message_id] = user.id
-
-    # Track this bot message so a subsequent "No" reply OR context-aware "No" is handled correctly
-    _bot_search_replies[(chat_id, msg.message_id)] = True
-    if len(_bot_search_replies) > 1000:
-        _bot_search_replies.pop(next(iter(_bot_search_replies)))
-    _record_user_search(chat_id, user.id)
-
-    # delete the reply and user query message after 24 hours
-    async def _delete_later():
-
-        await asyncio.sleep(86400)
-
-        try:
-            await msg.delete()
-        except:
-            pass
-
-        try:
-            await user_query_msg.delete()
-        except:
-            pass
-
-    asyncio.create_task(_delete_later())
+    return await send_story_result_card(
+        update, context, result, user=user, target_mention=target_mention, user_query_msg=user_query_msg
+    )
 
     await log(
         context,
@@ -9075,293 +9090,234 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
        (context.user_data and context.user_data.get("bc_add_waiting")):
         return await handle_config_input(update, context)
 
-    # ── Riya AI Conversation Hook ─────────────────────────────────────────────
-    if update.message and update.message.text:
-        text_content = update.message.text
-        user_id      = update.effective_user.id
+    if not update.message or not update.message.text:
+        return
 
-        # Voice request via text: "voice mein bolo", "awaaz mein reply do" etc.
-        _voice_txt_kw = ["voice mein", "voice me ", "voice reply", "awaaz mein",
-                         "awaaz me ", "voice note bhejo", "voice note do",
-                         "speech mein", "audio mein bolo"]
-        wants_voice_text = any(kw in text_content.lower() for kw in _voice_txt_kw)
+    text_content = update.message.text.strip()
+    user = update.effective_user
+    user_id = user.id if user else 0
+    chat_type = update.effective_chat.type if update.effective_chat else "private"
+    is_private = (chat_type == "private")
 
-        is_riya_mentioned = "riya" in text_content.lower()
+    # ── Voice request via text: "voice mein bolo", "awaaz mein reply do" etc.
+    _voice_txt_kw = [
+        "voice mein", "voice me ", "voice reply", "awaaz mein",
+        "awaaz me ", "voice note bhejo", "voice note do",
+        "speech mein", "audio mein bolo"
+    ]
+    wants_voice_text = any(kw in text_content.lower() for kw in _voice_txt_kw)
+    is_riya_mentioned = "riya" in text_content.lower()
 
-        # Context awareness for replied messages (like "Tell Aman something")
-        replied_ctx = ""
-        replied_msg = update.message.reply_to_message
-        if replied_msg and replied_msg.from_user:
-            rem_user = replied_msg.from_user.first_name or "User"
-            rtext = replied_msg.text or replied_msg.caption or ""
-            if rtext and len(rtext) < 500:
-                replied_ctx = f"[Reply Context - {rem_user} said: '{rtext}'] \n"
-        
-        # Add context if present
-        actual_input = replied_ctx + text_content
+    # Context awareness for replied messages
+    replied_to_bot = False
+    replied_ctx = ""
+    replied_msg = update.message.reply_to_message
+    if replied_msg and replied_msg.from_user:
+        rem_user = replied_msg.from_user.first_name or "User"
+        rtext = replied_msg.text or replied_msg.caption or ""
+        if context.bot and replied_msg.from_user.id == context.bot.id:
+            replied_to_bot = True
+        if rtext and len(rtext) < 500:
+            replied_ctx = f"[Reply Context - {rem_user} said: '{rtext}'] \n"
 
-        if is_riya_mentioned or gemini_chat.is_gemini_active(user_id):
-            await context.bot.send_chat_action(
-                chat_id=update.effective_chat.id, action="typing"
-            )
-            if is_riya_mentioned:
-                gemini_chat.activate_gemini(user_id)
+    actual_input = replied_ctx + text_content
 
-            # Track this chat for the 24hr reminder loop
-            _riya_active_chats.add(update.effective_chat.id)
-
-            user_name = update.effective_user.first_name or "User"
-            reply_text, search_query, wants_voice, wants_stop, img_prompt = \
-                await gemini_chat.process_gemini_message(user_id, user_name, actual_input)
-
-            # ── Human-like typing simulation ──────────────────────────────────
-            # Calculate realistic delay based on reply length (like a human typing)
-            if reply_text and not search_query:
-                _chars = len(reply_text)
-                # ~40 chars/sec typing speed, capped between 1.5s and 4.5s
-                _typing_delay = max(1.5, min(4.5, _chars / 40))
-                # Keep showing typing... action during the delay
-                async def _keep_typing(chat_id, delay):
-                    elapsed = 0.0
-                    while elapsed < delay:
-                        try:
-                            await context.bot.send_chat_action(chat_id=chat_id, action="typing")
-                        except Exception:
-                            break
-                        await asyncio.sleep(min(4.0, delay - elapsed))
-                        elapsed += 4.0
-                await asyncio.gather(
-                    _keep_typing(update.effective_chat.id, _typing_delay),
-                    asyncio.sleep(_typing_delay)
-                )
-
-            # ── Story & Genre search ──────────────────────────────────────────────────
-            if search_query:
-                # Detect language (English vs Hinglish/Hindi)
-                lower_in = actual_input.lower()
-                is_english = "english" in lower_in or not any(w in lower_in for w in ["hai", "karo", "do", "bhejo", "chahiye", "main", "ko", "par", "se", "naam", "btao", "dhoondh", "list"])
-
-                if is_english:
-                    init_text = f"Searching for <b>{html.escape(search_query)}</b> right now... Give me a second! 🌸"
-                else:
-                    init_text = f"Aapki story/genre <b>{html.escape(search_query)}</b> main dhoondh rahi hoon... 1 sec! 🌸"
-
-                # Send initial human typing chat message
-                sent_msg = await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=inject_premium_emojis(init_text),
-                    parse_mode="HTML"
-                )
-
-                # Realistic human typing feel
-                await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-                await asyncio.sleep(1.8)
-
-                # 1. Check if user is asking for a Genre (recommendation or list)
-                genre_map = load_genre_index()
-                if not genre_map:
-                    genre_map = build_genre_index()
-
-                matched_genre = None
-                clean_q = _re.sub(r"^[\s\-_.,:+|/]+|[\s\-_.,:+|/]+$", "", search_query).strip().lower()
-                for phrase in ["genre ki story do", "genre ki list do", "genre list", "genre ki story", "genre me se", "genre", "suggest", "stories"]:
-                    clean_q = clean_q.replace(phrase, "").strip()
-
-                if not clean_q:
-                    clean_q = search_query.strip().lower()
-
-                for g_name in genre_map.keys():
-                    clean_g = _re.sub(r"^[\s\-_.,:+|/]+|[\s\-_.,:+|/]+$", "", g_name).strip().lower()
-                    if clean_g and (clean_g == clean_q or clean_g in clean_q or clean_q in clean_g):
-                        matched_genre = g_name
-                        break
-
-                if matched_genre:
-                    g_stories = genre_map.get(matched_genre, [])
-                    is_list_request = any(w in lower_in for w in ["list", "sabhi", "saari", "all", "sare", "sab"])
-
-                    if is_list_request and g_stories:
-                        lines = []
-                        for idx, st_name in enumerate(g_stories[:10]):
-                            sres = search_story_exact_or_alias(st_name)
-                            slink = sres.get("link", "") if sres else ""
-                            if slink:
-                                lines.append(f"{idx+1}. <a href='{slink}'><b>{html.escape(st_name)}</b></a>")
-                            else:
-                                lines.append(f"{idx+1}. <b>{html.escape(st_name)}</b>")
-                        
-                        story_list_str = "\n".join(lines)
-                        if is_english:
-                            final_text = (
-                                f"Here are top stories in <b>{html.escape(matched_genre)}</b> genre! ♡\n\n"
-                                f"{story_list_str}\n\n"
-                                f"Click on any story title above to open & listen! 🎧"
-                            )
-                        else:
-                            final_text = (
-                                f"<b>{html.escape(matched_genre)}</b> genre ki stories yeh rahi! ♡\n\n"
-                                f"{story_list_str}\n\n"
-                                f"Aap kisi bhi story title par click karke direct sun sakte ho! 🎧"
-                            )
-                    elif g_stories:
-                        import random as _rnd
-                        picked_story = _rnd.choice(g_stories)
-                        sres = search_story_exact_or_alias(picked_story)
-                        link = sres.get("link", "") if sres else ""
-
-                        if is_english:
-                            final_text = (
-                                f"From <b>{html.escape(matched_genre)}</b> genre, I highly recommend <b>{html.escape(picked_story)}</b>! ♡\n\n"
-                                f"Link: <a href='{link}'>Click Here to Listen/Read 🎧</a>\n\n"
-                                f"Enjoy listening! Let me know if you want another recommendation 😊"
-                            )
-                        else:
-                            final_text = (
-                                f"<b>{html.escape(matched_genre)}</b> genre mein se <b>{html.escape(picked_story)}</b> bohot zabardast story hai! ♡\n\n"
-                                f"Link: <a href='{link}'>Click Here to Listen/Read 🎧</a>\n\n"
-                                f"Suno aur batao kaisa laga! Agar koi aur genre ya story chahiye ho toh mujhe batana 😊"
-                            )
-                    else:
-                        if is_english:
-                            final_text = f"No stories found in <b>{html.escape(matched_genre)}</b> genre yet! You can request one with <code>/request</code>."
-                        else:
-                            final_text = f"<b>{html.escape(matched_genre)}</b> genre mein abhi koi story nahi mili! Aap <code>/request</code> se request submit kar do."
-
-                else:
-                    story_result = search_story_exact_or_alias(search_query)
-                    if story_result:
-                        link = story_result.get("link", "")
-                        name = story_result.get("text") or story_result.get("name") or search_query
-                        if is_english:
-                            final_text = (
-                                f"Found it! Here is <b>{html.escape(name)}</b> ♡\n\n"
-                                f"Link: <a href='{link}'>Click Here to Listen/Read 🎧</a>\n\n"
-                                f"Enjoy listening! Let me know if you want another story 😊"
-                            )
-                        else:
-                            final_text = (
-                                f"Yeh lo! <b>{html.escape(name)}</b> dhoondh li hai maine ♡\n\n"
-                                f"Link: <a href='{link}'>Click Here to Listen/Read 🎧</a>\n\n"
-                                f"Enjoy karo! Agar koi aur story chahiye ho toh batana 😊"
-                            )
-                    else:
-                        suggestions = get_suggestions(search_query, limit=1)
-                        if suggestions:
-                            sname = suggestions[0]
-                            sres  = search_story_exact_or_alias(sname)
-                            if sres:
-                                link = sres.get("link", "")
-                                if is_english:
-                                    final_text = (
-                                        f"I couldn't find exact match for <b>{html.escape(search_query)}</b>, but did you mean <b>{html.escape(sname)}</b>? ♡\n\n"
-                                        f"Link: <a href='{link}'>Click Here to Listen/Read 🎧</a>"
-                                    )
-                                else:
-                                    final_text = (
-                                        f"Exact <b>{html.escape(search_query)}</b> toh nahi mili, par kya aap <b>{html.escape(sname)}</b> ki baat kar rahe the? ♡\n\n"
-                                        f"Link: <a href='{link}'>Click Here to Listen/Read 🎧</a>\n\n"
-                                        f"Ek baar check kar lo!"
-                                    )
-                            else:
-                                if is_english:
-                                    final_text = f"Aww, <b>{html.escape(search_query)}</b> is not available in our database yet 🙁\n\nYou can submit a request using <code>/request {html.escape(search_query)}</code>!"
-                                else:
-                                    final_text = f"Aww, <b>{html.escape(search_query)}</b> abhi mere database mein nahi mili 🙁\n\nAap <code>/request {html.escape(search_query)}</code> karke request submit kar do, main try karungi jald add karne ki!"
-                        else:
-                            if is_english:
-                                final_text = f"Aww, <b>{html.escape(search_query)}</b> is not available in our database yet 🙁\n\nYou can submit a request using <code>/request {html.escape(search_query)}</code>!"
-                            else:
-                                final_text = f"Aww, <b>{html.escape(search_query)}</b> abhi mere database mein nahi mili 🙁\n\nAap <code>/request {html.escape(search_query)}</code> karke request submit kar do, main try karungi jald add karne ki!"
-
-                # Edit initial chat message with final natural reply
-                final_text = inject_premium_emojis(final_text)
-                try:
-                    await sent_msg.edit_text(final_text, parse_mode="HTML", disable_web_page_preview=True)
-                except Exception:
-                    await context.bot.send_message(chat_id=update.effective_chat.id, text=final_text, parse_mode="HTML", disable_web_page_preview=True)
-                return
-
-            # ── Session end ────────────────────────────────────────────────────
-            if wants_stop:
-                gemini_chat.deactivate_gemini(user_id)
-
-            # Safety guard: never show raw AI error / system strings to user
-            _ERR_MARKERS = ("◌ ek second", "glitch ho gaya", "dobara bhejo", "◌ AI abhi")
-            if reply_text and any(m in reply_text for m in _ERR_MARKERS):
-                reply_text = ""   # suppress silently
-
-            if not reply_text:
-                return  # nothing to send
-
-            # ── Premium Emoji & Reaction Injection ─────────────────────────────────────────────────────
-            reply_text = inject_premium_emojis(reply_text)
-            try:
-                import premium_userbot
-                detected_mood = "smile" if "😊" in reply_text or "🙂" in reply_text else ("heart" if "♡" in reply_text or "❤️" in reply_text else None)
-                if detected_mood:
-                    asyncio.create_task(_try_react(
-                        context.bot,
-                        update.effective_chat.id,
-                        update.message.message_id,
-                        "❤️" if detected_mood == "heart" else "😊"
-                    ))
-            except Exception as e:
-                logger.warning(f"[Premium] Emoji injection error: {e}")
-
-            # ── Real-Time Image Generation ──────────────────────────────────────────────
-            if img_prompt:
-                try:
-                    import urllib.parse, requests as _req_img
-                    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="upload_photo")
-                    # Build a high-quality prompt with style enhancers
-                    quality_prompt = (
-                        f"{img_prompt}, ultra realistic, highly detailed, cinematic lighting, "
-                        "8k resolution, professional photography, sharp focus"
-                    )
-                    flux_url = (
-                        f"https://image.pollinations.ai/prompt/"
-                        f"{urllib.parse.quote(quality_prompt)}"
-                        f"?model=flux&width=1080&height=1080&nologo=true&seed={hash(img_prompt) % 99999}"
-                    )
-                    import httpx
-                    async with httpx.AsyncClient(timeout=30.0) as client:
-                        _img_resp = await client.get(flux_url)
-                        if _img_resp.status_code == 200:
-                            img_bytes = _img_resp.content
-                            if img_bytes:
-                                import io as _io_img
-                                await update.message.reply_photo(
-                                    photo=_io_img.BytesIO(img_bytes),
-                                    caption=reply_text if reply_text else None,
-                                    parse_mode="HTML"
-                                )
-                                reply_text = ""  # Caption sent with photo — no duplicate text
-                        else:
-                            logger.error(f"[IMAGE] Pollinations HTTP {_img_resp.status_code}")
-                except Exception as e:
-                    logger.error(f"[IMAGE] Failed: {e}")
-
-            if not reply_text:
-                return
-
-            # ── Voice reply (text-triggered or AI-flagged) ───────────────────────────────────────────
-            if wants_voice or wants_voice_text:
-                await _send_tts_or_text(update, context, reply_text)
-                return
-
-            # Bot sends the reply — <tg-emoji> tags work via parse_mode=HTML
-            await update.message.reply_text(
-                reply_text, parse_mode="HTML",
-                disable_web_page_preview=True
-            )
-            return
-
-            return
-
-    # Handle No/Nahi + Thanks BEFORE is_valid_query filters them out
+    # Handle No/Nahi + Thanks BEFORE filters
     if await _handle_no_or_thanks(update, context):
         return
 
+    # ── 1. Check Digit Story Index (e.g. "12", "3") ───────────────────────────
+    if text_content.isdigit():
+        idx = int(text_content) - 1
+        if 0 <= idx < len(story_index):
+            digit_res = search_story_exact_or_alias(story_index[idx])
+            if digit_res:
+                return await send_story_result_card(update, context, digit_res, user=user)
+
+    # ── 2. Check Direct & High-Confidence Story Match ──────────────────────────
+    # Ignore purely conversational phrases or stopwords from direct matching
+    if is_valid_query(text_content):
+        direct_story = search_story_exact_or_alias(text_content)
+        if direct_story:
+            return await send_story_result_card(update, context, direct_story, user=user)
+
+    # ── 3. AI Smart Intent & Semantic Story Routing ────────────────────────────
+    # In private chats, or when Riya is mentioned / replied to in groups
+    should_process_ai = is_private or is_riya_mentioned or replied_to_bot or gemini_chat.is_gemini_active(user_id)
+
+    if should_process_ai:
+        await context.bot.send_chat_action(
+            chat_id=update.effective_chat.id, action="typing"
+        )
+        if is_riya_mentioned or is_private:
+            gemini_chat.activate_gemini(user_id)
+
+        # Track this chat for the 24hr reminder loop
+        _riya_active_chats.add(update.effective_chat.id)
+
+        user_name = user.first_name or "User" if user else "User"
+        reply_text, search_query, wants_voice, wants_stop, img_prompt = \
+            await gemini_chat.process_gemini_message(user_id, user_name, actual_input)
+
+        # ── A. AI Resolved / Requested a Story Search ──────────────────────────
+        if search_query:
+            # 1. Exact or alias match on the resolved query
+            st_res = search_story_exact_or_alias(search_query)
+            if not st_res:
+                # 2. Try AI name resolver for difficult typos / partial descriptions
+                try:
+                    resolved_name = await gemini_chat.ai_resolve_story_name(search_query)
+                    if resolved_name:
+                        st_res = search_story_exact_or_alias(resolved_name)
+                except Exception as _re_err:
+                    logger.debug(f"[AI Search] Resolver error: {_re_err}")
+
+            if st_res:
+                return await send_story_result_card(update, context, st_res, user=user)
+
+            # 3. Check if search_query is a Genre request
+            g_map = load_genre_index() or build_genre_index()
+            clean_q = _re.sub(r"^[\s\-_.,:+|/]+|[\s\-_.,:+|/]+$", "", search_query).strip().lower()
+            for phrase in ["genre ki story do", "genre ki list do", "genre list", "genre ki story", "genre me se", "genre", "suggest", "stories"]:
+                clean_q = clean_q.replace(phrase, "").strip()
+            if not clean_q:
+                clean_q = search_query.strip().lower()
+
+            matched_genre = None
+            for g_name in g_map.keys():
+                clean_g = _re.sub(r"^[\s\-_.,:+|/]+|[\s\-_.,:+|/]+$", "", g_name).strip().lower()
+                if clean_g and (clean_g == clean_q or clean_g in clean_q or clean_q in clean_g):
+                    matched_genre = g_name
+                    break
+
+            if matched_genre:
+                user_mention = user.mention_html() if user else "User"
+                await render_genre_dashboard(update.effective_chat.id, user_mention, matched_genre, page=1, context=context)
+                return
+
+            # 4. Check Suggestions
+            suggestions = get_suggestions(search_query, limit=5)
+            if suggestions:
+                keyboard = []
+                for s in suggestions:
+                    key = clean_story(s).lower()
+                    if len(f"srch|{key}") <= 64:
+                        keyboard.append([InlineKeyboardButton(s, callback_data=f"srch|{key}")])
+                keyboard.append([get_tutorial_inline_button()])
+                lang = get_chat_lang(update.effective_chat.id)
+                await update.message.reply_text(
+                    "✧ Did you mean one of these?" if lang != "hi" else "✧ क्या आप इनमें से कोई स्टोरी कहना चाहते थे?",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+                return
+
+            # 5. Not found in DB -> Clean polite message with Request button
+            lower_in = actual_input.lower()
+            is_english = "english" in lower_in or not any(w in lower_in for w in ["hai", "karo", "do", "bhejo", "chahiye", "main", "ko", "par", "se", "naam", "btao"])
+            if is_english:
+                not_found_msg = f"Aww, <b>{html.escape(search_query)}</b> is not available in our database yet 🙁\n\nYou can submit a request below:"
+            else:
+                not_found_msg = f"Aww, <b>{html.escape(search_query)}</b> abhi mere database mein nahi mili 🙁\n\nAap request submit kar sakte ho, main jald add karne ki koshish karungi!"
+
+            await update.message.reply_text(
+                inject_premium_emojis(not_found_msg),
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("📬 Request Story", switch_inline_query_current_chat=f"/request {search_query}")],
+                    [get_tutorial_inline_button()]
+                ])
+            )
+            return
+
+        # ── B. AI Conversational Reply ─────────────────────────────────────────
+        if wants_stop:
+            gemini_chat.deactivate_gemini(user_id)
+
+        # Safety guard: never show raw error markers
+        _ERR_MARKERS = ("◌ ek second", "glitch ho gaya", "dobara bhejo", "◌ AI abhi")
+        if reply_text and any(m in reply_text for m in _ERR_MARKERS):
+            reply_text = ""
+
+        if not reply_text:
+            return
+
+        # Human typing delay simulation
+        _chars = len(reply_text)
+        _typing_delay = max(1.2, min(4.0, _chars / 45))
+        async def _keep_typing(chat_id, delay):
+            elapsed = 0.0
+            while elapsed < delay:
+                try:
+                    await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+                except Exception:
+                    break
+                await asyncio.sleep(min(3.5, delay - elapsed))
+                elapsed += 3.5
+        await asyncio.gather(
+            _keep_typing(update.effective_chat.id, _typing_delay),
+            asyncio.sleep(_typing_delay)
+        )
+
+        reply_text = inject_premium_emojis(reply_text)
+
+        # Reactions
+        try:
+            detected_mood = "smile" if "😊" in reply_text or "🙂" in reply_text else ("heart" if "♡" in reply_text or "❤️" in reply_text else None)
+            if detected_mood:
+                asyncio.create_task(_try_react(
+                    context.bot,
+                    update.effective_chat.id,
+                    update.message.message_id,
+                    "❤️" if detected_mood == "heart" else "😊"
+                ))
+        except Exception:
+            pass
+
+        # Real-Time Image Generation
+        if img_prompt:
+            try:
+                import urllib.parse
+                await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="upload_photo")
+                quality_prompt = (
+                    f"{img_prompt}, ultra realistic, highly detailed, cinematic lighting, "
+                    "8k resolution, professional photography, sharp focus"
+                )
+                flux_url = (
+                    f"https://image.pollinations.ai/prompt/"
+                    f"{urllib.parse.quote(quality_prompt)}"
+                    f"?model=flux&width=1080&height=1080&nologo=true&seed={hash(img_prompt) % 99999}"
+                )
+                import httpx
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    _img_resp = await client.get(flux_url)
+                    if _img_resp.status_code == 200:
+                        img_bytes = _img_resp.content
+                        if img_bytes:
+                            import io as _io_img
+                            await update.message.reply_photo(
+                                photo=_io_img.BytesIO(img_bytes),
+                                caption=reply_text if reply_text else None,
+                                parse_mode="HTML"
+                            )
+                            reply_text = ""
+            except Exception as e:
+                logger.error(f"[IMAGE] Failed: {e}")
+
+        if not reply_text:
+            return
+
+        # Voice reply
+        if wants_voice or wants_voice_text:
+            await _send_tts_or_text(update, context, reply_text)
+            return
+
+        await update.message.reply_text(
+            reply_text, parse_mode="HTML",
+            disable_web_page_preview=True
+        )
+        return
+
+    # Fallback to search if valid query
     return await search(update, context)
 
 

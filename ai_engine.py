@@ -219,23 +219,55 @@ def init_all():
 
     logger.info(f"[AI] Clients ready: {list(_clients.keys())} | Primary: {_ai_config.get('primary')} | Backup: {_ai_config.get('backup')}")
 
+# ── Database Story Context ───────────────────────────────────────────────────
+def get_db_stories_info() -> tuple:
+    """Return (titles_list, genres_list) from database."""
+    try:
+        from database import load_db, load_genre_index
+        db = load_db()
+        titles = []
+        if db:
+            for k, v in db.items():
+                t = v.get("text") or v.get("name") or k
+                if t and t not in titles:
+                    titles.append(t)
+        
+        g_map = load_genre_index()
+        genres = list(g_map.keys()) if g_map else []
+        return titles, genres
+    except Exception as e:
+        logger.debug(f"[AI] Error loading db stories: {e}")
+        return [], []
+
 # ── API Calls ─────────────────────────────────────────────────────────────────
 async def _call_openai_compat(client, user_id: int, payload: str, model: str) -> str:
-    history = _get_history(user_id)
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    history = _get_history(user_id) if user_id else []
+
+    # Dynamic database context injection
+    titles, genres = get_db_stories_info()
+    story_context = ""
+    if titles:
+        sample_titles = ", ".join(f'"{t}"' for t in titles[:120])
+        sample_genres = ", ".join(genres[:25]) if genres else "Romance, Thriller, Action, Drama, Horror, Fantasy, Crime, Magic"
+        story_context = (
+            f"\n\nCURRENT AVAILABLE STORIES IN DATABASE ({len(titles)} total):\n[{sample_titles}]\n"
+            f"AVAILABLE GENRES:\n[{sample_genres}]\n\n"
+            "STORY MATCHING & CHAT INSTRUCTIONS:\n"
+            "1. When user asks for, searches for, or mentions any story (even with half-name, typo, character names, or conversational query):\n"
+            "   - Match it against the CURRENT AVAILABLE STORIES list above.\n"
+            "   - If matched, append: ##SEARCH: Exact_Matched_Story_Title## at the end of your reply!\n"
+            "   - If the user asks for a story that is NOT in our database list, DO NOT fake a link or make up author/story details. Inform them politely that this story is not in our database yet and they can request it using /request [story_name].\n"
+            "2. When user asks for genre recommendations (e.g., 'horror stories', 'romance story suggest karo', 'kaun si genre hai'):\n"
+            "   - Suggest real genres/stories from the database and mention they can use /genre to browse all!\n"
+            "3. When user is simply chatting (greetings, asking how you are, talking, flirting, joking, emojis, questions): reply naturally as Riya. DO NOT append ##SEARCH:## tag."
+        )
+
+    sys_content = SYSTEM_PROMPT + story_context
+    messages = [{"role": "system", "content": sys_content}]
     messages.extend(history)
     messages.append({"role": "user", "content": payload})
 
     candidates = [model]
-    try:
-        models_res = await client.models.list()
-        if hasattr(models_res, 'data') and models_res.data:
-            fetched_models = [m.id for m in models_res.data if getattr(m, 'id', None)]
-            if fetched_models:
-                candidates = fetched_models + candidates
-    except Exception as _me:
-        logger.debug(f"[AI] Failed to fetch models.list: {_me}")
-
     if "cerebras" in str(client.base_url).lower():
         candidates.extend(["llama-3.3-70b", "llama3.3-70b", "llama-3.1-8b", "llama3.1-8b", "llama3.1-70b", "llama-3.1-70b"])
 
@@ -573,10 +605,42 @@ async def process_gemini_message(user_id: int, user_name: str, message_text: str
     if is_voice:
         ai_voice = True
 
-    if not ai_text:
-        ai_text = "Samajh gayi 🙂 thoda aur clear batao kya chahiye?"
-
     return (ai_text, ai_search, ai_voice, ai_stop, img_prompt)
+
+async def ai_resolve_story_name(query: str) -> Optional[str]:
+    """
+    Direct lightweight AI call to resolve a tricky, misspelled, or conversational query
+    to an exact story title from the database.
+    """
+    titles, _ = get_db_stories_info()
+    if not titles or not query or len(query.strip()) < 2:
+        return None
+
+    from search_engine import search_story_exact_or_alias
+    direct = search_story_exact_or_alias(query)
+    if direct:
+        return direct.get("text") or direct.get("name") or query
+
+    prompt = (
+        f"You are a story database query resolver.\n"
+        f"User search query: \"{query}\"\n"
+        f"Available story titles in database:\n{titles[:100]}\n\n"
+        "Instructions:\n"
+        "- If the user query clearly refers to, partially matches, or misspells one of the available story titles, output ONLY that EXACT title name from the list.\n"
+        "- If the user query is NOT referring to any story in the list (or is just casual chat / greetings), output ONLY 'NONE'.\n"
+        "Output ONLY the title or 'NONE':"
+    )
+
+    try:
+        raw = await _get_ai_raw(0, prompt)
+        res = raw.strip().strip('"\'').strip()
+        if res and res.upper() != "NONE" and len(res) < 100:
+            match = search_story_exact_or_alias(res)
+            if match:
+                return match.get("text") or match.get("name") or res
+    except Exception as e:
+        logger.debug(f"[AI] ai_resolve_story_name error: {e}")
+    return None
 
 # ── Provider management API ───────────────────────────────────────────────────
 def get_active_provider() -> str:

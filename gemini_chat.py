@@ -11,5 +11,7 @@ from ai_engine import (
     active_sessions,
     get_active_provider,
     reinit_gemini,
+    ai_resolve_story_name,
+    get_db_stories_info,
     SYSTEM_PROMPT as _SYSTEM_PROMPT,
 )

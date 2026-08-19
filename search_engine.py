@@ -69,15 +69,31 @@ def _get_cache():
     return _exact_cache
 
 
+# Stopwords list: common words that should not trigger false story matches on their own
+SEARCH_STOP_WORDS = {
+    "hai", "hain", "kya", "kar", "karo", "raha", "rahi", "ho", "bhai", "yaar",
+    "suno", "bolo", "batao", "mujhe", "tum", "aap", "kaise", "kaisi", "the",
+    "tha", "thi", "aur", "and", "the", "for", "with", "this", "that", "how",
+    "what", "are", "you", "tell", "give", "send", "bhejo", "chahiye",
+    "dhoondho", "dhundho", "please", "plz", "link", "story", "audiobook",
+    "kahani", "sunna", "padhna", "naam", "koi", "wala", "wali", "wale",
+    "de", "do", "ki", "ka", "ke", "ko", "se", "me", "mein", "par", "ek",
+    "yeh", "woh", "wo", "hi", "hello", "hey", "ok", "acha", "achha", "main",
+    "sunao", "bataiye", "dijiye", "bhej do", "de do", "bhej", "dena", "sunni",
+    "padhni", "chahata", "chahati", "hoon", "hun"
+}
+
 def search_story_exact_or_alias(query):
     """
     1. Exact story title match
     2. Normalized story title match
     3. Alias match
-    4. Partial normalized string match (substring within title)
+    4. High-confidence token / whole-word fuzzy match (with stopword filtering)
     """
     _get_cache()  # ensure cache is warm
-    q = clean_story(query).lower()
+    if not query:
+        return None
+    q = clean_story(query).lower().strip()
     qn = normalize_text(query)
     if not q:
         return None
@@ -94,68 +110,75 @@ def search_story_exact_or_alias(query):
     if qn and qn in _alias_cache:
         return _alias_cache[qn]
 
-    # Substring search: check if clean query is fully contained in any title key
-    if len(q) >= 3:
-        for key, data in _exact_cache.items():
-            if q in key:
-                return data
-        # Also try normalized substring
-        if qn and len(qn) >= 3:
-            for key, data in _norm_cache.items():
-                if qn in key:
+    # Extract meaningful non-stopword words
+    q_words = [w for w in re.findall(r"\w+", q) if w not in SEARCH_STOP_WORDS and len(w) >= 2]
+
+    # Whole-word substring search and high-confidence fuzzy matching
+    if q_words and len(q) >= 3:
+        # Check boundary match: e.g. "secret fauji" in "secret fauji episode 1"
+        try:
+            pattern = re.compile(rf"\b{re.escape(q)}\b", re.IGNORECASE)
+            for key, data in _exact_cache.items():
+                if pattern.search(key):
                     return data
+        except Exception:
+            pass
+
+        # High-confidence token match across exact cache
+        best_match = None
+        best_score = 0
+        for key, data in _exact_cache.items():
+            # Calculate token set and sort ratios
+            ts_score = fuzz.token_set_ratio(q, key)
+            t_sort = fuzz.token_sort_ratio(q, key)
+            score = max(ts_score, t_sort)
+
+            # If all meaningful query words are in the title, boost score
+            if q_words and all(qw in key for qw in q_words):
+                score = max(score, 92)
+
+            if score > best_score and score >= 85:
+                best_score = score
+                best_match = data
+
+        if best_match:
+            return best_match
 
     return None
 
 def get_suggestions(query, limit=5):
     """
     Return similar titles from the database using fuzzy matching.
-    
-    Rules:
-      - Query must be at least 3 characters long.
-      - Match if any of:
-          a) Fuzzy similarity (WRatio) >= 62
-          b) The cleaned query is a substring of the title
-          c) Any word in the query is found in the title words
+    Filters out common conversational stopwords so random queries don't match.
     """
     _get_cache()
     if not query or len(query.strip()) < 3:
         return []
 
-    q = query.lower().strip()
-    qc = clean_story(q).lower()
+    q = clean_story(query).lower().strip()
     qn = normalize_text(query)
-    query_words = set(qc.split())
+    q_words = set(w for w in re.findall(r"\w+", q) if w not in SEARCH_STOP_WORDS and len(w) >= 3)
+    
+    # If query only contains stopwords or is too generic, do not suggest random stories
+    if not q_words and len(q) < 5:
+        return []
 
     results = []
     for title in _list_cache:
-        title_lower = title.lower()
         title_clean = clean_story(title).lower()
-        title_norm = normalize_text(title)
-        title_words = set(title_clean.split())
+        title_words = set(re.findall(r"\w+", title_clean))
 
-        # Substring check — query contained in title
-        if qc in title_clean or (qn and qn in title_norm):
-            results.append((title, 100))
+        # Check whole meaningful word overlap
+        meaningful_overlap = q_words & title_words
+        if q_words and len(meaningful_overlap) == len(q_words):
+            results.append((title, 95))
             continue
 
-        # Word-overlap check — any significant word from query matches title
-        common_words = query_words & title_words
-        # ignore very short words (prepositions etc.)
-        significant = [w for w in common_words if len(w) >= 3]
-        if significant:
-            # score by how many words overlap
-            overlap_score = int(60 + 40 * len(significant) / max(len(query_words), 1))
-            results.append((title, overlap_score))
-            continue
+        ratio = fuzz.token_sort_ratio(q, title_clean)
+        token_set = fuzz.token_set_ratio(q, title_clean)
+        best = max(ratio, token_set)
 
-        # Fuzzy similarity — lowered threshold for better recall
-        ratio = fuzz.ratio(qc, title_clean)
-        partial = fuzz.partial_ratio(qc, title_clean)
-        token_set = fuzz.token_set_ratio(qc, title_clean)
-        best = max(ratio, partial, token_set)
-
-        if best >= 62:
+        if best >= 75:
             results.append((title, best))
 
     # Sort by best score descending
