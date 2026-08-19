@@ -9126,31 +9126,16 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if await _handle_no_or_thanks(update, context):
         return
 
-    # ── 1. Check Digit Story Index (e.g. "12", "3") ───────────────────────────
-    if text_content.isdigit():
-        idx = int(text_content) - 1
-        if 0 <= idx < len(story_index):
-            digit_res = search_story_exact_or_alias(story_index[idx])
-            if digit_res:
-                return await send_story_result_card(update, context, digit_res, user=user)
+    # ── 1. Check AI Chat Intent: ONLY when explicitly calling Riya, asking for voice, or replying to Riya AI
+    # (Normal story searches in PM or Groups will NEVER trigger accidental chit-chat!)
+    is_reply_to_search = bool(replied_msg and _bot_search_replies.get((update.effective_chat.id, replied_msg.message_id)))
+    is_ai_chat_intent = is_riya_mentioned or wants_voice_text or (replied_to_bot and not is_reply_to_search)
 
-    # ── 2. Check Direct & High-Confidence Story Match ──────────────────────────
-    # Ignore purely conversational phrases or stopwords from direct matching
-    if is_valid_query(text_content):
-        direct_story = search_story_exact_or_alias(text_content)
-        if direct_story:
-            return await send_story_result_card(update, context, direct_story, user=user)
-
-    # ── 3. AI Smart Intent & Semantic Story Routing ────────────────────────────
-    # In private chats, or when Riya is mentioned / replied to in groups
-    should_process_ai = is_private or is_riya_mentioned or replied_to_bot or gemini_chat.is_gemini_active(user_id)
-
-    if should_process_ai:
+    if is_ai_chat_intent:
         await context.bot.send_chat_action(
             chat_id=update.effective_chat.id, action="typing"
         )
-        if is_riya_mentioned or is_private:
-            gemini_chat.activate_gemini(user_id)
+        gemini_chat.activate_gemini(user_id)
 
         # Track this chat for the 24hr reminder loop
         _riya_active_chats.add(update.effective_chat.id)
