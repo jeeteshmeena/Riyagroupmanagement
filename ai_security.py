@@ -66,6 +66,7 @@ async def _call_ai_moderation(text: str) -> Tuple[bool, str, str]:
     """
     PROVIDERS_ORDER = [
         ("cerebras",   "https://api.cerebras.ai/v1",        os.getenv("CEREBRAS_API_KEY", ""),  "llama-3.3-70b"),
+        ("groq",       "https://api.groq.com/openai/v1",    os.getenv("GROQ_API_KEY", ""),      "llama-3.3-70b-versatile"),
         ("together",   "https://api.together.xyz/v1",        os.getenv("TOGETHER_API_KEY", ""),  "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free"),
         ("openrouter", "https://openrouter.ai/api/v1",       os.getenv("OPENROUTER_API_KEY", ""), "meta-llama/llama-3.1-8b-instruct:free"),
     ]

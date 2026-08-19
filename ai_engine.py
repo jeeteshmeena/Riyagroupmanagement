@@ -67,10 +67,18 @@ DO NOT:
 PROVIDERS = {
     "cerebras": {
         "name": "Cerebras",
-        "model": "llama3.3-70b",
+        "model": "llama-3.3-70b",
         "type": "openai_compat",
         "base_url": "https://api.cerebras.ai/v1",
         "env_key": "CEREBRAS_API_KEY",
+        "free": True,
+    },
+    "groq": {
+        "name": "Groq",
+        "model": "llama-3.3-70b-versatile",
+        "type": "openai_compat",
+        "base_url": "https://api.groq.com/openai/v1",
+        "env_key": "GROQ_API_KEY",
         "free": True,
     },
     "together": {
@@ -102,6 +110,7 @@ PROVIDERS = {
 # ── Runtime State ─────────────────────────────────────────────────────────────
 _clients: dict = {}          # provider_id → client object
 _ai_config: dict = {}        # loaded from config_db
+_cached_models: dict = {}    # provider_id → list of valid models
 active_sessions: dict = {}   # user_id → list of {role, content}
 MAX_HISTORY = 20
 
@@ -197,7 +206,6 @@ def init_all():
         key = pcfg.get("api_key", "").strip()
         if not key:
             continue
-        model = pcfg.get("model", info["model"])
         c = _init_openai_compat(key, info["base_url"], info["name"])
         if c:
             _clients[pid] = c
@@ -218,6 +226,55 @@ def init_all():
         logger.info(f"[AI] Auto-set primary to '{new_primary}'")
 
     logger.info(f"[AI] Clients ready: {list(_clients.keys())} | Primary: {_ai_config.get('primary')} | Backup: {_ai_config.get('backup')}")
+
+# ── Dynamic Model Discovery ──────────────────────────────────────────────────
+async def _get_valid_models(client, pid: str, default_model: str) -> list:
+    global _cached_models
+    if pid in _cached_models and _cached_models[pid]:
+        return _cached_models[pid]
+
+    # Try live query from /models endpoint
+    try:
+        models_resp = await asyncio.wait_for(client.models.list(), timeout=4.0)
+        if models_resp and hasattr(models_resp, "data"):
+            discovered = [m.id for m in models_resp.data if getattr(m, "id", None)]
+            if discovered:
+                pref_order = [
+                    "llama-3.3-70b", "llama3.3-70b", "gpt-oss-120b", "gemma-4-31b",
+                    "llama-3.1-8b", "llama3.1-8b", "llama-3.1-70b",
+                    "llama-3.3-70b-versatile", "llama-3.1-8b-instant",
+                    "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
+                    "meta-llama/llama-3.1-8b-instruct:free",
+                    "mistral-small-latest"
+                ]
+                ordered = []
+                for p in pref_order:
+                    if p in discovered and p not in ordered:
+                        ordered.append(p)
+                for d in discovered:
+                    if d not in ordered:
+                        ordered.append(d)
+                _cached_models[pid] = ordered
+                return ordered
+    except Exception as e:
+        logger.debug(f"[AI] {pid} live model discovery skipped: {e}")
+
+    # Fallback model candidates if /models is not supported or timed out
+    if pid == "cerebras" or "cerebras" in str(getattr(client, "base_url", "")).lower():
+        candidates = [default_model, "llama-3.3-70b", "gpt-oss-120b", "gemma-4-31b", "llama3.3-70b", "llama-3.1-8b", "llama3.1-8b"]
+    elif pid == "groq" or "groq" in str(getattr(client, "base_url", "")).lower():
+        candidates = [default_model, "llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+    elif pid == "together":
+        candidates = [default_model, "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free", "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"]
+    elif pid == "openrouter":
+        candidates = [default_model, "meta-llama/llama-3.1-8b-instruct:free", "google/gemini-2.0-flash-exp:free", "meta-llama/llama-3.3-70b-instruct:free"]
+    else:
+        candidates = [default_model]
+
+    seen = set()
+    res = [c for c in candidates if c and not (c in seen or seen.add(c))]
+    _cached_models[pid] = res
+    return res
 
 # ── Database Story Context ───────────────────────────────────────────────────
 def get_db_stories_info() -> tuple:
@@ -240,7 +297,7 @@ def get_db_stories_info() -> tuple:
         return [], []
 
 # ── API Calls ─────────────────────────────────────────────────────────────────
-async def _call_openai_compat(client, user_id: int, payload: str, model: str) -> str:
+async def _call_openai_compat(client, user_id: int, payload: str, model: str, pid: str = "") -> str:
     history = _get_history(user_id) if user_id else []
 
     # Dynamic database context injection
@@ -267,15 +324,10 @@ async def _call_openai_compat(client, user_id: int, payload: str, model: str) ->
     messages.extend(history)
     messages.append({"role": "user", "content": payload})
 
-    candidates = [model]
-    if "cerebras" in str(client.base_url).lower():
-        candidates.extend(["llama-3.3-70b", "llama3.3-70b", "llama-3.1-8b", "llama3.1-8b", "llama3.1-70b", "llama-3.1-70b"])
-
-    seen = set()
-    unique_candidates = [m for m in candidates if not (m in seen or seen.add(m))]
+    candidates = await _get_valid_models(client, pid, model)
 
     last_err = None
-    for target_model in unique_candidates:
+    for target_model in candidates:
         try:
             resp = await client.chat.completions.create(
                 model=target_model,
@@ -286,7 +338,8 @@ async def _call_openai_compat(client, user_id: int, payload: str, model: str) ->
             return resp.choices[0].message.content.strip()
         except Exception as e:
             last_err = e
-            if "404" in str(e) or "model_not_found" in str(e):
+            err_str = str(e).lower()
+            if "404" in err_str or "model_not_found" in err_str or "does not exist" in err_str:
                 continue
             raise e
     if last_err:
@@ -300,9 +353,10 @@ async def _call_provider(pid: str, user_id: int, payload: str) -> Optional[str]:
     info = PROVIDERS.get(pid)
     if not info:
         return None
-    model = info["model"]
+    pcfg = _ai_config.get("providers", {}).get(pid, {})
+    model = pcfg.get("model") or info["model"]
     try:
-        return await _call_openai_compat(client, user_id, payload, model)
+        return await _call_openai_compat(client, user_id, payload, model, pid=pid)
     except Exception as e:
         logger.warning(f"[AI] {pid} call failed: {e}")
         return None
