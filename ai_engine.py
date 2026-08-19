@@ -507,6 +507,15 @@ _GREET_REPLIES_EN = [
 def _detect_intent(text: str):
     lower = text.lower().strip()
 
+    # ── Direct Story Entity in Text ────────────────────────────────────────────
+    try:
+        from search_engine import extract_story_from_text
+        extracted_story, extracted_name = extract_story_from_text(text)
+        if extracted_story and extracted_name:
+            return "story", extracted_name
+    except Exception:
+        pass
+
     # ── Voice exact: "voice mein yah bolo: [text]" ─────────────────────────────
     vm = _VOICE_EXACT_RE.search(lower)
     if vm:

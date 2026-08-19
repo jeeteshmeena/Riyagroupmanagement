@@ -4188,6 +4188,51 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
     return sent_msg
 
 
+async def send_story_suggestions_card(chat_id: int, query_word: str, matches: list, context: ContextTypes.DEFAULT_TYPE, user=None):
+    """
+    Renders multiple matched stories as inline buttons:
+    "Mujhe Ye Story Mili Hain related to '{word}'"
+    When tapped, user gets the full story card and this message is deleted.
+    """
+    user_mention = user.mention_html() if user else "User"
+    keyboard = []
+    
+    for item in matches[:10]:
+        title = clean_story(item.get("text", item.get("name", "")))
+        key = clean_story(item.get("name", title)).lower()
+        if len(f"srch|{key}") <= 64:
+            keyboard.append([InlineKeyboardButton(f"▶ {title}", callback_data=f"srch|{key}")])
+            
+    keyboard.append([get_tutorial_inline_button()])
+    
+    text = (
+        f"Hey {user_mention} 👋\n"
+        f"<b>✫ Mujhe Ye Stories Mili Hain related to \"{html.escape(query_word)}\" ➴</b>\n\n"
+        f"<i>Neeche diye gaye button par click karke apni story select karein:</i>\n\n"
+        f"<tg-spoiler>◒ This message will auto-delete upon selection or after 24 hours.</tg-spoiler>"
+    )
+    text = inject_premium_emojis(text)
+    
+    sent = await context.bot.send_message(
+        chat_id=chat_id,
+        text=text,
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        disable_web_page_preview=True
+    )
+    if user:
+        message_owner[sent.message_id] = user.id
+        
+    async def _del_later():
+        await asyncio.sleep(86400)
+        try:
+            await sent.delete()
+        except Exception:
+            pass
+    asyncio.create_task(_del_later())
+    return sent
+
+
 # -----------------------
 # search
 # -----------------------
@@ -4295,17 +4340,31 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 pass
 
-    # Try exact match or alias match from Search Engine
+    from search_engine import search_story_exact_or_alias, search_stories_by_keyword
+
+    # 1. Try exact match or alias match from Search Engine
     result = search_story_exact_or_alias(query_text)
 
-    # If no story found directly, try AI story name resolver (e.g. typos, Hinglish phonetics)
+    # 2. Check keyword search (1-word or partial word matches)
+    keyword_matches = []
     if not result:
+        keyword_matches = search_stories_by_keyword(query_text, limit=10)
+        if len(keyword_matches) == 1:
+            result = keyword_matches[0]
+
+    # 3. If no story found directly, try AI story name resolver (e.g. typos, Hinglish phonetics)
+    if not result and not keyword_matches:
         try:
             ai_resolved = await gemini_chat.ai_resolve_story_name(query_text)
             if ai_resolved:
                 result = search_story_exact_or_alias(ai_resolved)
         except Exception as _ai_err:
             logger.debug(f"[Search AI Resolve] {_ai_err}")
+
+    # If multiple stories matched the keyword (e.g. 2 or more):
+    if not result and len(keyword_matches) > 1:
+        await _del_searching()
+        return await send_story_suggestions_card(update.effective_chat.id, query_text, keyword_matches, context, user=user)
 
     # If no story found, check if it's a genre search or show suggestions
     if not result:
@@ -9196,14 +9255,28 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if digit_res:
                 return await send_story_result_card(update, context, digit_res, user=user)
 
-    # ── 2. Check Direct & High-Confidence Story Match ──────────────────────────
-    # If query is short (1-5 words) and matches an exact story title in DB -> send story card
-    if len(text_content.split()) <= 5:
+    from search_engine import extract_story_from_text, search_stories_by_keyword, search_story_exact_or_alias
+
+    # ── 2. Scan Conversational Sentence for known Story Titles ─────────────────
+    # E.g. "kisi ke pas mahabali mayank story h kya free bali" -> detects "Mahabali Mayank"
+    extracted_story, _ = extract_story_from_text(text_content)
+    if extracted_story:
+        return await send_story_result_card(update, context, extracted_story, user=user)
+
+    # ── 3. Check Direct & Keyword / 1-Word Story Match ─────────────────────────
+    # If query is short (1-4 words):
+    if len(text_content.split()) <= 4:
         direct_story = search_story_exact_or_alias(text_content)
         if direct_story:
             return await send_story_result_card(update, context, direct_story, user=user)
 
-    # ── 3. Routing: Private Chat (DM) vs Group Chat ───────────────────────────
+        kw_matches = search_stories_by_keyword(text_content, limit=10)
+        if len(kw_matches) == 1:
+            return await send_story_result_card(update, context, kw_matches[0], user=user)
+        elif len(kw_matches) > 1:
+            return await send_story_suggestions_card(update.effective_chat.id, text_content, kw_matches, context, user=user)
+
+    # ── 4. Routing: Private Chat (DM) vs Group Chat ───────────────────────────
     is_reply_to_search = bool(replied_msg and _bot_search_replies.get((update.effective_chat.id, replied_msg.message_id)))
 
     # In PRIVATE CHAT (DM): ALL messages are natural interactions with Riya AI!
@@ -9228,7 +9301,15 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # 1. Exact or alias match on the resolved query
             st_res = search_story_exact_or_alias(search_query)
             if not st_res:
-                # 2. Try AI name resolver for difficult typos / partial descriptions
+                # 2. Check keyword matches
+                kw_m = search_stories_by_keyword(search_query, limit=10)
+                if len(kw_m) == 1:
+                    st_res = kw_m[0]
+                elif len(kw_m) > 1:
+                    return await send_story_suggestions_card(update.effective_chat.id, search_query, kw_m, context, user=user)
+
+            if not st_res:
+                # 3. Try AI name resolver for difficult typos / partial descriptions
                 try:
                     resolved_name = await gemini_chat.ai_resolve_story_name(search_query)
                     if resolved_name:

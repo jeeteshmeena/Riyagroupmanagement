@@ -198,3 +198,91 @@ def get_suggestions(query, limit=5):
             final.append(r)
 
     return final[:limit]
+
+
+def search_stories_by_keyword(query: str, limit: int = 10) -> list:
+    """
+    Search stories by keyword (e.g. 1-word or partial word like "mahabali", "waris", "fauji", "vampire").
+    Returns a list of matching story data dicts (up to limit).
+    """
+    _get_cache()
+    if not query:
+        return []
+        
+    q = clean_story(query).lower().strip()
+    if not q or len(q) < 2:
+        return []
+
+    # If query is purely a stopword (e.g. "hai", "kya", "bhai", "story"), don't search
+    if q in SEARCH_STOP_WORDS and len(q) <= 4:
+        return []
+
+    matched = []
+    seen_keys = set()
+
+    # 1. Exact match / exact alias matches first
+    if q in _exact_cache:
+        matched.append(_exact_cache[q])
+        seen_keys.add(clean_story(_exact_cache[q].get("text", _exact_cache[q].get("name", ""))).lower())
+
+    # 2. Word boundary substring match: e.g. "mahabali" in "Mahabali Mayank", "Mahabali Veer"
+    try:
+        pattern = re.compile(rf"\b{re.escape(q)}", re.IGNORECASE)
+        for key, data in _exact_cache.items():
+            t_name = clean_story(data.get("text", data.get("name", key)))
+            t_key = t_name.lower()
+            if t_key not in seen_keys and pattern.search(key):
+                matched.append(data)
+                seen_keys.add(t_key)
+                if len(matched) >= limit:
+                    return matched
+    except Exception:
+        pass
+
+    # 3. Substring match if q is 3+ chars: e.g. "waris" in "asli waris"
+    if len(q) >= 3:
+        for key, data in _exact_cache.items():
+            t_name = clean_story(data.get("text", data.get("name", key)))
+            t_key = t_name.lower()
+            if t_key not in seen_keys and (q in key or any(q in clean_story(al).lower() for al in data.get("aliases", []))):
+                matched.append(data)
+                seen_keys.add(t_key)
+                if len(matched) >= limit:
+                    return matched
+
+    return matched
+
+
+def extract_story_from_text(text: str) -> tuple:
+    """
+    Scans a conversational sentence for any known story titles in the database.
+    E.g. In "kisi ke pas mahabali mayank story h kya free bali",
+    detects "mahabali mayank" and returns (story_data, matched_title).
+    Returns (None, None) if no story found.
+    """
+    _get_cache()
+    if not text or len(text.strip()) < 3:
+        return None, None
+        
+    t = clean_story(text).lower().strip()
+    
+    # Sort database titles by length descending so longer titles match first
+    # (e.g. "Mahabali Mayank" matches before "Mahabali")
+    sorted_titles = sorted(_exact_cache.items(), key=lambda x: len(x[0]), reverse=True)
+    
+    for key, data in sorted_titles:
+        if len(key) < 3 or key in SEARCH_STOP_WORDS:
+            continue
+        # Check whole word boundary match in sentence
+        pattern = rf"\b{re.escape(key)}\b"
+        if re.search(pattern, t, re.IGNORECASE):
+            return data, data.get("text", data.get("name", key))
+            
+        # Also check aliases
+        for al in data.get("aliases", []):
+            al_clean = clean_story(al).lower()
+            if len(al_clean) >= 3 and al_clean not in SEARCH_STOP_WORDS:
+                if re.search(rf"\b{re.escape(al_clean)}\b", t, re.IGNORECASE):
+                    return data, data.get("text", data.get("name", al))
+                    
+    return None, None
