@@ -116,8 +116,24 @@ def _is_admin(user_id):
 def _load_destinations():
     try:
         from database import load_config
+        import config
         cfg = load_config()
-        return cfg.get("post_channels", []), cfg.get("post_groups", [])
+        channels = [str(c) for c in cfg.get("post_channels", []) if c]
+        groups = list(cfg.get("post_groups", []))
+
+        # Default fallback channel
+        ch_id = getattr(config, "CHANNEL_ID", None)
+        if ch_id and str(ch_id) not in channels:
+            channels.insert(0, str(ch_id))
+
+        # Default fallback group
+        grp_id = getattr(config, "GROUP_ID", None)
+        if grp_id:
+            g_str = str(grp_id)
+            if not any(isinstance(g, dict) and g.get("id") == g_str for g in groups):
+                groups.insert(0, {"id": g_str, "topic_id": None, "name": "Main Group"})
+
+        return channels, groups
     except Exception:
         return [], []
 
@@ -126,11 +142,12 @@ def _save_channel(dest):
         from database import load_config, save_config
         cfg = load_config()
         channels = cfg.setdefault("post_channels", [])
-        if dest not in channels:
-            channels.append(dest)
+        dest_str = str(dest).strip()
+        if dest_str and dest_str not in channels:
+            channels.append(dest_str)
             save_config(cfg)
-    except Exception:
-        pass
+    except Exception as e:
+        _log.warning(f"[PB] _save_channel error: {e}")
 
 def _save_group(group_id, topic_id=None, name=None):
     try:
@@ -138,12 +155,12 @@ def _save_group(group_id, topic_id=None, name=None):
         cfg = load_config()
         groups = cfg.setdefault("post_groups", [])
         entry = {"id": str(group_id), "topic_id": topic_id, "name": name or str(group_id)}
-        existing = [g for g in groups if g["id"] == str(group_id)]
+        existing = [g for g in groups if isinstance(g, dict) and g.get("id") == str(group_id)]
         if not existing:
             groups.append(entry)
             save_config(cfg)
-    except Exception:
-        pass
+    except Exception as e:
+        _log.warning(f"[PB] _save_group error: {e}")
 
 # ── Format builders ────────────────────────────────────────────────────────────
 def build_format_1(data):

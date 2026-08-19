@@ -2291,6 +2291,138 @@ from telegram.ext import ConversationHandler
     REQ_STATUS
 ) = range(200, 206)
 
+
+async def _check_story_in_mongo(story_name: str) -> bool:
+    """
+    Check if a story exists in the Poster Bot's MongoDB (arya_premium.premium_stories).
+    Uses the same MONGO_URI env var as poster_bot.py.
+    Returns True if story is found, False otherwise (also False on any error).
+    """
+    try:
+        import asyncio
+        import os
+        try:
+            import pymongo
+        except ImportError:
+            return False
+        
+        mongo_uri = os.getenv("MONGO_URI", "")
+        if not mongo_uri:
+            return False
+        
+        db_name  = os.getenv("DATABASE_NAME", "arya_premium")
+        col_name = "premium_stories"
+        
+        def _sync_check():
+            client = pymongo.MongoClient(mongo_uri, serverSelectionTimeoutMS=4000)
+            try:
+                col = client[db_name][col_name]
+                q = story_name.strip()
+                import re
+                pattern = re.compile(re.escape(q), re.IGNORECASE)
+                found = col.find_one({
+                    "$or": [
+                        {"name":  pattern},
+                        {"title": pattern},
+                        {"story": pattern},
+                    ]
+                })
+                return found is not None
+            except Exception:
+                return False
+            finally:
+                client.close()
+        
+        return await asyncio.to_thread(_sync_check)
+    except Exception:
+        return False
+
+
+async def check_story_request_validity(story_name: str, user_id: int, chat_id: str = "") -> Tuple[bool, str, str]:
+    """
+    Strict validation for story requests:
+    1. Rejects if already available in DB (exact, alias, AI typo resolve, MongoDB).
+    2. Rejects duplicate spam (already requested by this user or in active queue/polls).
+    
+    Returns: (is_valid, error_code, user_facing_message)
+    """
+    story_clean = clean_story(story_name).strip()
+    if not story_clean or len(story_clean) < 2:
+        return False, "INVALID_NAME", "<b>✮ Please enter a valid story name.</b>"
+
+    # 1. Check exact or alias match in DB
+    existing = search_story_exact_or_alias(story_clean)
+    if not existing:
+        # 2. Check AI typo resolver
+        try:
+            resolved = await gemini_chat.ai_resolve_story_name(story_clean)
+            if resolved:
+                existing = search_story_exact_or_alias(resolved)
+        except Exception:
+            pass
+
+    if existing:
+        ex_link = existing.get("link", "")
+        ex_name = existing.get("text") or existing.get("name") or story_clean
+        link_str = f"\n\n<b>◈ Link:</b> <tg-spoiler>{ex_link}</tg-spoiler>" if ex_link else ""
+        msg = (
+            f"◎ <b>𝗔𝗟𝗥𝗘𝗔𝗗𝗬 𝗔𝗩𝗔𝗜𝗟𝗔𝗕𝗟𝗘</b>\n\n"
+            f"▣ <b>{html.escape(ex_name)}</b> is already available in our database!{link_str}\n\n"
+            "◑ Please do not request stories that are already available."
+        )
+        return False, "ALREADY_AVAILABLE", msg
+
+    # 3. Check MongoDB (paid stories)
+    if await _check_story_in_mongo(story_clean):
+        msg = (
+            f"◎ <b>𝗔𝗟𝗥𝗘𝗔𝗗𝗬 𝗔𝗩𝗔𝗜𝗟𝗔𝗕𝗟𝗘</b>\n\n"
+            f"▣ <b>{html.escape(story_clean)}</b> is already available in our story collection!\n\n"
+            "◑ Please do not request stories that are already uploaded."
+        )
+        return False, "ALREADY_AVAILABLE", msg
+
+    # 4. Check Deduplication across voting_queue, active_polls, and request_db
+    story_lower = story_clean.lower()
+    
+    # Check if this user already requested it
+    user_already_requested = False
+    if story_lower in request_db:
+        for c_id, u_set in request_db[story_lower].items():
+            if isinstance(u_set, (set, list)) and user_id in u_set:
+                user_already_requested = True
+                break
+
+    if user_already_requested:
+        msg = (
+            f"◎ <b>𝗗𝗨𝗣𝗟𝗜𝗖𝗔𝗧𝗘 𝗥𝗘𝗤𝗨𝗘𝗦𝗧</b>\n\n"
+            f"▣ You have already submitted a request for <b>{html.escape(story_clean)}</b>.\n\n"
+            "◑ Please avoid duplicate requests!"
+        )
+        return False, "DUPLICATE", msg
+
+    # Check if already in active voting queue
+    in_queue = any(
+        clean_story(q.get("name", "")).lower() == story_lower 
+        for q in voting_queue if isinstance(q, dict)
+    )
+    
+    # Check if in active polls
+    in_polls = any(
+        any(clean_story(opt).lower() == story_lower for opt in p.get("options", []))
+        for p in active_polls.values() if isinstance(p, dict)
+    )
+
+    if in_queue or in_polls:
+        msg = (
+            f"◎ <b>𝗔𝗟𝗥𝗘𝗔𝗗𝗬 𝗜𝗡 𝗤𝗨𝗘𝗨𝗘</b>\n\n"
+            f"▣ <b>{html.escape(story_clean)}</b> is already in the request queue / under voting!\n\n"
+            "◑ It is being processed, please avoid duplicate submissions."
+        )
+        return False, "IN_QUEUE", msg
+
+    return True, "OK", ""
+
+
 async def start_request_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Entry point for the interactive story request form in Private Chat."""
     chat = update.effective_chat
@@ -2325,11 +2457,29 @@ async def start_request_form(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
     return REQ_NAME
 
+
 async def handle_req_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name_input = update.message.text.strip()
+    if name_input.lower() in ("cancel", "ᴄᴀɴᴄᴇʟ"):
+        return await cancel_req_form(update, context)
+
     if len(name_input) < 2:
-        await update.message.reply_text("▸ Story name too short. Please enter a valid story name.")
+        await update.message.reply_text("▸ Story name too short. Please enter a valid story name:")
         return REQ_NAME
+
+    user = update.effective_user
+    user_id = user.id if user else 0
+
+    # Strict Check: Already available in DB or duplicate request
+    is_valid, reason, err_msg = await check_story_request_validity(name_input, user_id)
+    if not is_valid:
+        await update.effective_chat.send_message(
+            text=err_msg,
+            parse_mode="HTML",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        context.user_data.pop("req_data", None)
+        return ConversationHandler.END
         
     context.user_data["req_data"]["name"] = name_input
     
@@ -2474,56 +2624,7 @@ async def handle_req_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return REQ_STATUS
 
 
-async def _check_story_in_mongo(story_name: str) -> bool:
-    """
-    Check if a story exists in the Poster Bot's MongoDB (arya_premium.premium_stories).
-    Uses the same MONGO_URI env var as poster_bot.py.
-    Returns True if story is found, False otherwise (also False on any error).
-    """
-    try:
-        import asyncio
-        import os
-        try:
-            import pymongo
-        except ImportError:
-            return False
-        
-        mongo_uri = os.getenv("MONGO_URI", "")
-        if not mongo_uri:
-            return False
-        
-        db_name  = os.getenv("DATABASE_NAME", "arya_premium")
-        col_name = "premium_stories"
-        
-        def _sync_check():
-            client = pymongo.MongoClient(mongo_uri, serverSelectionTimeoutMS=4000)
-            try:
-                col = client[db_name][col_name]
-                # Try case-insensitive name match using regex
-                q = story_name.strip()
-                # Build a pattern that matches common variations
-                import re
-                pattern = re.compile(re.escape(q), re.IGNORECASE)
-                # Check common name fields
-                found = col.find_one({
-                    "$or": [
-                        {"name":  pattern},
-                        {"title": pattern},
-                        {"story": pattern},
-                    ]
-                })
-                return found is not None
-            except Exception:
-                return False
-            finally:
-                client.close()
-        
-        return await asyncio.to_thread(_sync_check)
-    except Exception:
-        return False
-
 async def handle_req_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     text = update.message.text.strip().lower()
     
     if text in ("cancel", "ᴄᴀɴᴄᴇʟ"):
@@ -2558,41 +2659,14 @@ async def handle_req_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     mention = user.mention_html()
     chat_id = str(update.effective_chat.id)
-    
     story = clean_story(story_name).lower()
     
-    existing = search_story_exact_or_alias(story)
-    if existing:
-        ex_link = existing.get("link", "")
-        # Reject request even if no link — story is in Riya bot's local DB
-        # Also check poster bot's MongoDB for availability
-        mongo_found = await _check_story_in_mongo(story)
-        notice_text = (
-            f"<b>{mention}</b>\n\n"
-            f"◎ <b>𝗔𝗟𝗥𝗘𝗔𝗗𝗬 𝗔𝗩𝗔𝗜𝗟𝗔𝗕𝗟𝗘</b>\n\n"
-            f"▣ <b>{html.escape(story_name)}</b> is already in our database!\n"
-            f"◑ Please do not request stories that are already available.\n"
-        )
-        if ex_link:
-            notice_text += f"◈ Link: <tg-spoiler>{ex_link}</tg-spoiler>"
+    # Strict validation: already available in DB or duplicate spam
+    is_valid, reason, err_msg = await check_story_request_validity(story_name, user.id, chat_id)
+    if not is_valid:
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text=notice_text,
-            parse_mode="HTML",
-            reply_markup=ReplyKeyboardRemove()
-        )
-        context.user_data.pop("req_data", None)
-        return ConversationHandler.END
-    # Also check poster bot's MongoDB even if not in local DB
-    if await _check_story_in_mongo(story):
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=(
-                f"<b>{mention}</b>\n\n"
-                f"◎ <b>𝗔𝗟𝗥𝗘𝗔𝗗𝗬 𝗔𝗩𝗔𝗜𝗟𝗔𝗕𝗟𝗘</b>\n\n"
-                f"▣ <b>{html.escape(story_name)}</b> is already available in our story collection!\n"
-                f"◑ Please do not request stories that are already uploaded."
-            ),
+            text=f"<b>{mention}</b>\n\n{err_msg}",
             parse_mode="HTML",
             reply_markup=ReplyKeyboardRemove()
         )
@@ -2603,21 +2677,6 @@ async def handle_req_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         request_db[story] = {}
     if chat_id not in request_db[story]:
         request_db[story][chat_id] = set()
-
-    if user.id in request_db[story][chat_id]:
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=(
-                f"<b>{mention}</b>\n\n"
-                f"◎ <b>𝗗𝗨𝗣𝗟𝗜𝗖𝗔𝗧𝗘 𝗥𝗘𝗤𝗨𝗘𝗦𝗧</b>\n\n"
-                f"▣ You have already requested <b>{story}</b>.\n"
-                f"◑ Please avoid duplicate requests!"
-            ),
-            parse_mode="HTML",
-            reply_markup=ReplyKeyboardRemove()
-        )
-        context.user_data.pop("req_data", None)
-        return ConversationHandler.END
 
     request_db[story][chat_id].add(user.id)
     save_requests({"requests": request_db})
@@ -2841,147 +2900,22 @@ async def request_story(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except: pass
         asyncio.create_task(_del_warn())
         return
+    user = update.effective_user
+    mention = user.mention_html() if user else ""
+    chat_id = str(update.effective_chat.id)
     story = clean_story(story_raw).lower()
 
-    # if story already exists in DB or matches alias, no need to request
-    existing = search_story_exact_or_alias(story)
-    if existing:
-        link = existing.get("link", "")
-        story_key = existing.get("key", story)
-        user = update.effective_user
-        mention = user.mention_html() if user else ""
-        lang = get_chat_lang(update.effective_chat.id)
-        
-        # Check if link is marked as broken
-        flag = link_flags.get(story_key, {})
-        if flag.get("broken"):
-            if lang == "hi":
-                text = f"""
-<b>{mention}</b>
-
-<b>☆ लिंक अस्थायी रूप से अनुपलब्ध है</b>
-<i>यह स्टोरी हमारे डेटाबेस में है, लेकिन फिलहाल इसका लिंक काम नहीं कर रहा है। एडमिन्स को सूचित कर दिया गया है। जब लिंक फिक्स हो जाएगा, तब आप इसे एक्सेस कर पाएंगे।</i>
-"""
-            else:
-                text = f"""
-<b>{mention}</b>
-
-<b>☆ Link Temporarily Unavailable</b>
-<i>This story is in our database, but its link is currently broken or experiencing issues. Admins have been notified. Please wait until it is fixed.</i>
-"""
-            await update.effective_chat.send_message(text=text, parse_mode="HTML")
-            try:
-                await update.message.delete()
-            except Exception:
-                pass
-            return
-
-        # Story exists in local DB — reject regardless of link status
-        if lang == "hi":
-            if link:
-                text = f"""
-<b>{mention}</b>
-
-<b>☆ यह स्टोरी पहले से उपलब्ध है</b>
-<i>यह पहले से हमारे डेटाबेस में मौजूद है।</i>
-
-<b>Link:</b> <tg-spoiler>{link}</tg-spoiler>
-"""
-            else:
-                text = f"""
-<b>{mention}</b>
-
-<b>☆ यह स्टोरी पहले से उपलब्ध है</b>
-<i>यह स्टोरी पहले से हमारे डेटाबेस में है। कृपया इसकी Request न करें।</i>
-"""
+    # Strict validation: check already available or duplicate
+    is_valid, reason, err_msg = await check_story_request_validity(story_raw, user.id if user else 0, chat_id)
+    if not is_valid:
+        if chat.type == "private":
+            await update.effective_chat.send_message(text=f"<b>{mention}</b>\n\n{err_msg}", parse_mode="HTML")
         else:
-            if link:
-                text = f"""
-<b>{mention}</b>
-
-<b>☆ Already in Database</b>
-<i>It already exists in our database.</i>
-
-<b>Link:</b> <tg-spoiler>{link}</tg-spoiler>
-"""
-            else:
-                text = f"""
-<b>{mention}</b>
-
-<b>☆ Already Available</b>
-<i>This story already exists in our database. Please do not request it.</i>
-"""
-        await context.bot.send_message(chat_id=user.id, text=text, parse_mode="HTML")
+            await context.bot.send_message(chat_id=user.id, text=f"<b>{mention}</b>\n\n{err_msg}", parse_mode="HTML")
         try:
             await update.message.delete()
         except Exception:
             pass
-        return
-
-    # Check poster bot's MongoDB as well
-    story_lower = story
-    if await _check_story_in_mongo(story_lower):
-        user = update.effective_user
-        mention = user.mention_html() if user else ""
-        lang = get_chat_lang(update.effective_chat.id)
-        if lang == "hi":
-            text = f"<b>{mention}</b>\n\n<b>☆ यह स्टोरी पहले से उपलब्ध है</b>\n<i>यह स्टोरी पहले से हमारे Collection में मौजूद है। कृपया इसकी Request न करें।</i>"
-        else:
-            text = f"<b>{mention}</b>\n\n<b>☆ Already Available</b>\n<i>This story already exists in our story collection. Please do not request it.</i>"
-        await context.bot.send_message(chat_id=user.id, text=text, parse_mode="HTML")
-        try:
-            await update.message.delete()
-        except Exception:
-            pass
-        return
-
-    user = update.effective_user
-    mention = user.mention_html()
-
-    try:
-        await update.message.delete()
-    except:
-        pass
-
-    chat_id = str(update.effective_chat.id)
-
-    if story not in request_db:
-        request_db[story] = {}
-    if chat_id not in request_db[story]:
-        request_db[story][chat_id] = set()
-
-    if user.id in request_db[story][chat_id]:
-        
-        spam_key = f"{user.id}:{story}"
-        spam_requests_count[spam_key] = spam_requests_count.get(spam_key, 0) + 1
-        
-        if spam_requests_count[spam_key] >= 2:  # It warns them on the 3rd total attempt (1 original + 2 dupes)
-            _set_cooldown(user.id, 30, "Repeated spam requests for the same voice/story")
-            lang = get_chat_lang(update.effective_chat.id)
-            if lang == "hi":
-                text = f"<b>☆ Cooldown Active / आप कोल्डाउन पर हैं</b>\n\n{mention}\n✧ <i>कारण:</i> <b>एक ही स्टोरी के लिए बार-बार स्पैम रिक्वेस्ट करना</b>\n<i>कृपया लगभग 30 मिनट बाद फिर से कोशिश करें।</i>"
-            else:
-                text = f"<b>☆ Cooldown Active</b>\n\n{mention}\n✧ <i>Reason:</i> <b>Repeated spam requests for the same story</b>\n<i>Please try again after approximately 30 minutes.</i>"
-            await update.effective_chat.send_message(text=text, parse_mode="HTML")
-            return
-
-        lang = get_chat_lang(update.effective_chat.id)
-        if lang == "hi":
-            text = f"""
-<b>{mention}</b>
-
-<i>◌ आप पहले ही <b>{story}</b> रिक्वेस्ट कर चुके हैं।  
-कृपया डुप्लीकेट रिक्वेस्ट न भेजें।</i>
-"""
-        else:
-            text = f"""
-<b>{mention}</b>
-
-<i>◌ You have already requested <b>{story}</b>.  
-Please avoid sending duplicate requests.</i>
-"""
-        await update.effective_chat.send_message(text=text, parse_mode="HTML")
-
         return
 
     request_db[story][chat_id].add(user.id)
@@ -5945,6 +5879,133 @@ async def chat_member_update(update: Update, context: ContextTypes.DEFAULT_TYPE)
             parse_mode="HTML",
             reply_markup=keyboard,
         )
+
+
+async def anti_bot_addition_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Strict Anti-Bot Security Layer:
+    If any non-admin user adds a bot to a group:
+    1. Instantly remove/kick/ban the added bot.
+    2. Instantly mute the user who added the bot for 60 minutes.
+    3. Delete the join service message.
+    4. Send a security warning in the group.
+    """
+    chat = update.effective_chat
+    if not chat or chat.type not in ("group", "supergroup"):
+        return
+
+    new_bot_members = []
+    adder = update.effective_user
+
+    # Case 1: Status update message
+    if update.message and update.message.new_chat_members:
+        for m in update.message.new_chat_members:
+            if m.is_bot and (not context.bot or m.id != context.bot.id):
+                new_bot_members.append(m)
+        if update.message.from_user:
+            adder = update.message.from_user
+
+    # Case 2: Chat member update
+    elif update.chat_member:
+        cm = update.chat_member
+        if cm.new_chat_member and cm.old_chat_member:
+            old_s = cm.old_chat_member.status
+            new_s = cm.new_chat_member.status
+            if old_s in ("left", "kicked", "restricted") and new_s in ("member", "administrator"):
+                u = cm.new_chat_member.user
+                if u.is_bot and (not context.bot or u.id != context.bot.id):
+                    new_bot_members.append(u)
+                    adder = cm.from_user
+
+    if not new_bot_members:
+        return
+
+    # Check if adder is Admin or Owner
+    is_adder_admin = False
+    if adder:
+        if is_admin(adder.id):
+            is_adder_admin = True
+        else:
+            try:
+                chat_member = await context.bot.get_chat_member(chat.id, adder.id)
+                is_adder_admin = chat_member.status in ("creator", "administrator")
+            except Exception:
+                is_adder_admin = False
+
+    # Admins are authorized to add bots
+    if is_adder_admin:
+        return
+
+    # NON-ADMIN ADDED A BOT -> STRICT ENFORCEMENT
+    for bot_user in new_bot_members:
+        logger.warning(f"[AntiBot] Non-admin {adder.id if adder else 'unknown'} added bot @{bot_user.username or bot_user.id} in chat {chat.id}")
+        
+        # 1. Remove the added bot instantly
+        try:
+            await context.bot.ban_chat_member(chat_id=chat.id, user_id=bot_user.id)
+            await context.bot.unban_chat_member(chat_id=chat.id, user_id=bot_user.id)
+        except Exception as e_bot:
+            logger.error(f"[AntiBot] Failed to remove bot {bot_user.id}: {e_bot}")
+
+        # 2. Mute the adder for 60 minutes
+        if adder and (not context.bot or adder.id != context.bot.id):
+            mute_until = int(time.time()) + 3600
+            try:
+                from telegram import ChatPermissions
+                await context.bot.restrict_chat_member(
+                    chat_id=chat.id,
+                    user_id=adder.id,
+                    permissions=ChatPermissions(
+                        can_send_messages=False,
+                        can_send_media_messages=False,
+                        can_send_other_messages=False,
+                        can_add_web_page_previews=False,
+                        can_send_polls=False,
+                        can_change_info=False,
+                        can_invite_users=False,
+                        can_pin_messages=False,
+                    ),
+                    until_date=mute_until
+                )
+            except Exception as e_mute:
+                logger.error(f"[AntiBot] Failed to mute adder {adder.id}: {e_mute}")
+
+        # 3. Delete service message
+        if update.message:
+            try:
+                await update.message.delete()
+            except Exception:
+                pass
+
+        # 4. Send Security Alert in Group
+        adder_mention = adder.mention_html() if adder else "User"
+        bot_display = f"@{bot_user.username}" if bot_user.username else f"<b>{html.escape(bot_user.first_name)}</b>"
+        
+        alert_text = (
+            "🛡️ <b>Anti-Bot Security Enforcement</b>\n"
+            "<code>────────────────────────────</code>\n"
+            f"⛔ <b>Action:</b> Unauthorized Bot Added\n"
+            f"🤖 <b>Removed Bot:</b> {bot_display} (<code>{bot_user.id}</code>)\n"
+            f"👤 <b>Added By:</b> {adder_mention} (<code>{adder.id if adder else 0}</code>)\n"
+            f"⏳ <b>Penalty:</b> Muted for <b>60 minutes</b>\n"
+            "<code>────────────────────────────</code>\n"
+            "<i>ℹ️ Non-admins are strictly prohibited from adding bots to this group.</i>"
+        )
+        try:
+            alert_msg = await context.bot.send_message(
+                chat_id=chat.id,
+                text=alert_text,
+                parse_mode="HTML"
+            )
+            async def _del_alert(m):
+                await asyncio.sleep(60)
+                try:
+                    await m.delete()
+                except Exception:
+                    pass
+            asyncio.create_task(_del_alert(alert_msg))
+        except Exception as e_alert:
+            logger.warning(f"[AntiBot] Alert send error: {e_alert}")
 
 
 # -----------------------
@@ -10632,6 +10693,10 @@ def start_bot():
     app.add_handler(CommandHandler("setreplicate", setreplicate_cmd))
     from plugins.broadcast import clean_broadcast_cmd
     app.add_handler(CommandHandler("clean_broadcast", clean_broadcast_cmd))
+
+    # ── Strict Anti-Bot Security Layer (High Priority group=-1) ───────────────
+    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, anti_bot_addition_guard), group=-1)
+    app.add_handler(ChatMemberHandler(anti_bot_addition_guard, ChatMemberHandler.CHAT_MEMBER), group=-1)
 
     # react when bot is added/removed
     app.add_handler(ChatMemberHandler(chat_member_update))
