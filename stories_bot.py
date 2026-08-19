@@ -230,7 +230,7 @@ from config import (
 import gemini_chat
 from scanner_client import scan_channel
 from search_engine import search_story_exact_or_alias, get_suggestions
-from filters_text import is_valid_query
+from filters_text import is_valid_query, is_conversational_text
 import ai_security
 
 from link_checker import start_link_checker
@@ -9126,10 +9126,26 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if await _handle_no_or_thanks(update, context):
         return
 
-    # ── 1. Check AI Chat Intent: ONLY when explicitly calling Riya, asking for voice, or replying to Riya AI
-    # (Normal story searches in PM or Groups will NEVER trigger accidental chit-chat!)
+    # ── 1. Check Digit Story Index (e.g. "12", "3") ───────────────────────────
+    if text_content.isdigit():
+        idx = int(text_content) - 1
+        if 0 <= idx < len(story_index):
+            digit_res = search_story_exact_or_alias(story_index[idx])
+            if digit_res:
+                return await send_story_result_card(update, context, digit_res, user=user)
+
+    # ── 2. Check Direct & High-Confidence Story Match ──────────────────────────
+    direct_story = search_story_exact_or_alias(text_content)
+    if direct_story:
+        return await send_story_result_card(update, context, direct_story, user=user)
+
+    # ── 3. Conversational vs Story Search Routing ──────────────────────────────
     is_reply_to_search = bool(replied_msg and _bot_search_replies.get((update.effective_chat.id, replied_msg.message_id)))
-    is_ai_chat_intent = is_riya_mentioned or wants_voice_text or (replied_to_bot and not is_reply_to_search)
+    is_conversational = is_conversational_text(text_content)
+
+    # In private chat (DM): If user is talking/greeting/chatting, Riya replies as AI.
+    # In groups: Only chat if Riya is explicitly mentioned or user replied to bot
+    is_ai_chat_intent = is_riya_mentioned or wants_voice_text or (is_private and is_conversational) or (replied_to_bot and not is_reply_to_search and is_conversational)
 
     if is_ai_chat_intent:
         await context.bot.send_chat_action(
@@ -9180,40 +9196,6 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await render_genre_dashboard(update.effective_chat.id, user_mention, matched_genre, page=1, context=context)
                 return
 
-            # 4. Check Suggestions
-            suggestions = get_suggestions(search_query, limit=5)
-            if suggestions:
-                keyboard = []
-                for s in suggestions:
-                    key = clean_story(s).lower()
-                    if len(f"srch|{key}") <= 64:
-                        keyboard.append([InlineKeyboardButton(s, callback_data=f"srch|{key}")])
-                keyboard.append([get_tutorial_inline_button()])
-                lang = get_chat_lang(update.effective_chat.id)
-                await update.message.reply_text(
-                    "✧ Did you mean one of these?" if lang != "hi" else "✧ क्या आप इनमें से कोई स्टोरी कहना चाहते थे?",
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-                return
-
-            # 5. Not found in DB -> Clean polite message with Request button
-            lower_in = actual_input.lower()
-            is_english = "english" in lower_in or not any(w in lower_in for w in ["hai", "karo", "do", "bhejo", "chahiye", "main", "ko", "par", "se", "naam", "btao"])
-            if is_english:
-                not_found_msg = f"Aww, <b>{html.escape(search_query)}</b> is not available in our database yet 🙁\n\nYou can submit a request below:"
-            else:
-                not_found_msg = f"Aww, <b>{html.escape(search_query)}</b> abhi mere database mein nahi mili 🙁\n\nAap request submit kar sakte ho, main jald add karne ki koshish karungi!"
-
-            await update.message.reply_text(
-                inject_premium_emojis(not_found_msg),
-                parse_mode="HTML",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("📬 Request Story", switch_inline_query_current_chat=f"/request {search_query}")],
-                    [get_tutorial_inline_button()]
-                ])
-            )
-            return
-
         # ── B. AI Conversational Reply ─────────────────────────────────────────
         if wants_stop:
             gemini_chat.deactivate_gemini(user_id)
@@ -9226,22 +9208,10 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not reply_text:
             return
 
-        # Human typing delay simulation
+        # Fast typing delay
         _chars = len(reply_text)
-        _typing_delay = max(1.2, min(4.0, _chars / 45))
-        async def _keep_typing(chat_id, delay):
-            elapsed = 0.0
-            while elapsed < delay:
-                try:
-                    await context.bot.send_chat_action(chat_id=chat_id, action="typing")
-                except Exception:
-                    break
-                await asyncio.sleep(min(3.5, delay - elapsed))
-                elapsed += 3.5
-        await asyncio.gather(
-            _keep_typing(update.effective_chat.id, _typing_delay),
-            asyncio.sleep(_typing_delay)
-        )
+        _typing_delay = max(0.8, min(2.5, _chars / 50))
+        await asyncio.sleep(_typing_delay)
 
         reply_text = inject_premium_emojis(reply_text)
 
@@ -9302,7 +9272,12 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Fallback to search if valid query
+    # ── 4. Non-Conversational Query -> Story Search! ────────────────────────────
+    # Ignore invalid queries (e.g. links, emojis, empty)
+    if not is_valid_query(text_content):
+        return
+
+    # Fallback to search with "Searching..." indicator
     return await search(update, context)
 
 
