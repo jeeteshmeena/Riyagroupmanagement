@@ -663,8 +663,10 @@ async def process_gemini_message(user_id: int, user_name: str, message_text: str
 
 async def ai_resolve_story_name(query: str) -> Optional[str]:
     """
-    Direct lightweight AI call to resolve a tricky, misspelled, or conversational query
-    to an exact story title from the database.
+    High-Precision AI Story Resolver:
+    Uses RapidFuzz to pre-filter candidate titles from the whole database,
+    then uses AI to resolve typos/phonetics.
+    Strictly verifies that the returned story is genuine and not a random hallucination.
     """
     titles, _ = get_db_stories_info()
     if not titles or not query or len(query.strip()) < 2:
@@ -675,14 +677,34 @@ async def ai_resolve_story_name(query: str) -> Optional[str]:
     if direct:
         return direct.get("text") or direct.get("name") or query
 
+    from rapidfuzz import fuzz
+    q_clean = query.strip().lower()
+
+    # Pre-filter top candidates from the entire database by similarity
+    candidates_with_score = []
+    for t in titles:
+        t_clean = t.lower()
+        # Check partial ratio, token sort, and direct ratio
+        score = max(fuzz.partial_ratio(q_clean, t_clean), fuzz.token_sort_ratio(q_clean, t_clean), fuzz.ratio(q_clean, t_clean))
+        if score >= 55:
+            candidates_with_score.append((t, score))
+
+    candidates_with_score.sort(key=lambda x: x[1], reverse=True)
+    candidate_titles = [c[0] for c in candidates_with_score[:25]]
+
+    # If no plausible candidates exist in the entire DB, the story is definitely not in the DB
+    if not candidate_titles:
+        return None
+
     prompt = (
-        f"You are a story database query resolver.\n"
-        f"User search query: \"{query}\"\n"
-        f"Available story titles in database:\n{titles[:100]}\n\n"
-        "Instructions:\n"
-        "- If the user query clearly refers to, partially matches, or misspells one of the available story titles, output ONLY that EXACT title name from the list.\n"
-        "- If the user query is NOT referring to any story in the list (or is just casual chat / greetings), output ONLY 'NONE'.\n"
-        "Output ONLY the title or 'NONE':"
+        f"You are a strict story database resolver.\n"
+        f"User query: \"{query}\"\n"
+        f"Available candidate titles:\n{candidate_titles}\n\n"
+        "Rules:\n"
+        "1. If the user query is clearly searching for one of the candidate titles (even with typos or phonetics), output ONLY that EXACT title from the list.\n"
+        "2. If the user query is searching for a DIFFERENT story that is not in the list, or is casual conversation, you MUST output ONLY 'NONE'.\n"
+        "3. NEVER make up or guess an incorrect story title.\n"
+        "Output:"
     )
 
     try:
@@ -691,7 +713,10 @@ async def ai_resolve_story_name(query: str) -> Optional[str]:
         if res and res.upper() != "NONE" and len(res) < 100:
             match = search_story_exact_or_alias(res)
             if match:
-                return match.get("text") or match.get("name") or res
+                matched_title = match.get("text") or match.get("name") or res
+                # Double check confidence threshold
+                if fuzz.partial_ratio(q_clean, matched_title.lower()) >= 65 or fuzz.token_sort_ratio(q_clean, matched_title.lower()) >= 65:
+                    return matched_title
     except Exception as e:
         logger.debug(f"[AI] ai_resolve_story_name error: {e}")
     return None

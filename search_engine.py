@@ -85,100 +85,105 @@ SEARCH_STOP_WORDS = {
 
 def search_story_exact_or_alias(query):
     """
+    Strict High-Precision Story Match:
     1. Exact story title match
     2. Normalized story title match
     3. Alias match
-    4. High-confidence token / whole-word fuzzy match (with stopword filtering)
+    4. Exact title with common platform / season suffix stripped
+    5. High-confidence direct string similarity (fuzz.ratio >= 88 with length guard)
+    
+    Prevents false positive matching of completely different stories!
     """
     _get_cache()  # ensure cache is warm
     if not query:
         return None
     q = clean_story(query).lower().strip()
     qn = normalize_text(query)
-    if not q:
+    if not q or len(q) < 2:
         return None
         
+    # 1. Exact match
     if q in _exact_cache:
         return _exact_cache[q]
         
+    # 2. Normalized match
     if qn and qn in _norm_cache:
         return _norm_cache[qn]
         
+    # 3. Alias match
     if q in _alias_cache:
         return _alias_cache[q]
         
     if qn and qn in _alias_cache:
         return _alias_cache[qn]
 
-    # Extract meaningful non-stopword words
-    q_words = [w for w in re.findall(r"\w+", q) if w not in SEARCH_STOP_WORDS and len(w) >= 2]
+    # 4. Clean platform tags from query: e.g. "Vashikaran Pocket FM" -> "Vashikaran"
+    clean_q = q
+    for tag in ["pocket fm", "kuku fm", "kuku tv", "pratilipi", "headfone", "eight fm", "audiobook", "full story", "all episodes", "season 1", "season 2", "part 1", "part 2"]:
+        clean_q = clean_q.replace(tag, "").strip()
+    clean_qn = normalize_text(clean_q)
+    
+    if clean_q and clean_q != q:
+        if clean_q in _exact_cache:
+            return _exact_cache[clean_q]
+        if clean_qn in _norm_cache:
+            return _norm_cache[clean_qn]
+        if clean_q in _alias_cache:
+            return _alias_cache[clean_q]
 
-    # Whole-word substring search and high-confidence fuzzy matching
-    if q_words and len(q) >= 3:
-        # Check boundary match: e.g. "secret fauji" in "secret fauji episode 1"
-        try:
-            pattern = re.compile(rf"\b{re.escape(q)}\b", re.IGNORECASE)
-            for key, data in _exact_cache.items():
-                if pattern.search(key):
-                    return data
-        except Exception:
-            pass
-
-        # High-confidence token match across exact cache
-        best_match = None
-        best_score = 0
-        for key, data in _exact_cache.items():
-            # Calculate token set and sort ratios
-            ts_score = fuzz.token_set_ratio(q, key)
-            t_sort = fuzz.token_sort_ratio(q, key)
-            score = max(ts_score, t_sort)
-
-            # If all meaningful query words are in the title, boost score
-            if q_words and all(qw in key for qw in q_words):
-                score = max(score, 92)
-
-            if score > best_score and score >= 85:
-                best_score = score
-                best_match = data
-
-        if best_match:
-            return best_match
+    # 5. Strict high-precision fuzzy match (Typo correction for VERY similar names only)
+    # E.g. "Vashikarn" -> "Vashikaran", "Asli Warish" -> "Asli Waris"
+    # Never matches different stories or loose tokens!
+    best_match = None
+    best_score = 0
+    q_len = len(q)
+    
+    for key, data in _exact_cache.items():
+        k_len = len(key)
+        # Length guard: title length must be close (within 3 chars or 20%)
+        if abs(k_len - q_len) > max(3, int(0.20 * max(k_len, q_len))):
+            continue
+            
+        ratio = fuzz.ratio(q, key)
+        if ratio >= 88 and ratio > best_score:
+            best_score = ratio
+            best_match = data
+            
+    if best_match:
+        return best_match
 
     return None
 
 def get_suggestions(query, limit=5):
     """
-    Return similar titles from the database using fuzzy matching.
-    Filters out common conversational stopwords so random queries don't match.
+    Return genuinely similar titles from the database for typos.
+    Filters out loose matches so non-existent stories don't get random suggestions.
     """
     _get_cache()
     if not query or len(query.strip()) < 3:
         return []
 
     q = clean_story(query).lower().strip()
-    qn = normalize_text(query)
     q_words = set(w for w in re.findall(r"\w+", q) if w not in SEARCH_STOP_WORDS and len(w) >= 3)
     
-    # If query only contains stopwords or is too generic, do not suggest random stories
     if not q_words and len(q) < 5:
         return []
 
     results = []
+    q_len = len(q)
     for title in _list_cache:
         title_clean = clean_story(title).lower()
-        title_words = set(re.findall(r"\w+", title_clean))
-
-        # Check whole meaningful word overlap
-        meaningful_overlap = q_words & title_words
-        if q_words and len(meaningful_overlap) == len(q_words):
-            results.append((title, 95))
+        t_len = len(title_clean)
+        
+        # Length guard to prevent tiny words matching long unrelated stories
+        if abs(t_len - q_len) > max(5, int(0.35 * max(t_len, q_len))):
             continue
 
-        ratio = fuzz.token_sort_ratio(q, title_clean)
-        token_set = fuzz.token_set_ratio(q, title_clean)
-        best = max(ratio, token_set)
+        ratio = fuzz.ratio(q, title_clean)
+        sort_ratio = fuzz.token_sort_ratio(q, title_clean)
+        best = max(ratio, sort_ratio)
 
-        if best >= 75:
+        if best >= 78:
             results.append((title, best))
 
     # Sort by best score descending

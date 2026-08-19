@@ -9196,14 +9196,15 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if digit_res:
                 return await send_story_result_card(update, context, digit_res, user=user)
 
-    # ── 2. Check Direct & High-Confidence Story Match ──────────────────────────
-    direct_story = search_story_exact_or_alias(text_content)
-    if direct_story:
-        return await send_story_result_card(update, context, direct_story, user=user)
-
-    # ── 3. Conversational vs Story Search Routing ──────────────────────────────
+    # ── 2. Conversational vs Story Search Routing ──────────────────────────────
     is_reply_to_search = bool(replied_msg and _bot_search_replies.get((update.effective_chat.id, replied_msg.message_id)))
     is_conversational = is_conversational_text(text_content)
+
+    # If it is NOT conversational, check direct high-confidence match
+    if not is_conversational and len(text_content.split()) <= 6:
+        direct_story = search_story_exact_or_alias(text_content)
+        if direct_story:
+            return await send_story_result_card(update, context, direct_story, user=user)
 
     # In private chat (DM): If user is talking/greeting/chatting, Riya replies as AI.
     # In groups: Only chat if Riya is explicitly mentioned or user replied to bot

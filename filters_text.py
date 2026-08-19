@@ -28,8 +28,22 @@ _CONVERSATIONAL_PREFIXES = (
 )
 
 
+_CONVERSATIONAL_KEYWORDS = {
+    "maine", "humne", "tumne", "aapne", "mujhe", "tujhe", "humko", "tumko", "aapko",
+    "kaise", "kaisi", "kyun", "kyu", "kya", "kab", "kaha", "kahan", "kaun", "kon",
+    "bolo", "batao", "sunao", "kaho", "padho", "dekho", "samjho", "samjhao",
+    "karu", "karun", "karein", "kare", "karte", "karti", "karta", "karega", "karegi",
+    "raha", "rahi", "rahe", "tha", "thi", "the", "hai", "hain", "hoon", "hun",
+    "hoga", "hogi", "honge", "chahiye", "chahta", "chahti", "chahte",
+    "achha", "accha", "theek", "thik", "sahi", "galat", "pata", "malum", "maloom",
+    "pagal", "bhai", "yaar", "dost", "meri", "mera", "mere", "tera", "teri", "tere",
+    "apna", "apni", "apne", "kuch", "sab", "kisi", "koi", "sirf", "bas", "today",
+    "tomorrow", "yesterday", "always", "never", "because", "think", "doing"
+}
+
+
 def is_conversational_text(text: str) -> bool:
-    """Check if the input is purely small-talk, greeting, or casual conversation."""
+    """Check if the input is small-talk, greeting, sentence chat, or casual conversation."""
     if not text:
         return False
     t = text.strip().lower()
@@ -44,7 +58,12 @@ def is_conversational_text(text: str) -> bool:
     for p in _CONVERSATIONAL_PREFIXES:
         if t.startswith(p) or alphanumeric.startswith(p):
             return True
-            
+
+    # Check multi-word sentence conversational density
+    words = [w for w in re.findall(r"\w+", t) if len(w) >= 2]
+    if len(words) >= 4 and sum(1 for w in words if w in _CONVERSATIONAL_KEYWORDS) >= 2:
+        return True
+
     return False
 
 
