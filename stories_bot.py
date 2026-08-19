@@ -172,6 +172,7 @@ import json
 import random
 import html
 from datetime import datetime, timedelta, timezone
+from typing import Tuple, Optional, Dict, Any, List, Set, Union
 
 def to_small_caps(text: str) -> str:
     if not text:
