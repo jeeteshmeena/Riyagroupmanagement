@@ -9196,19 +9196,19 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if digit_res:
                 return await send_story_result_card(update, context, digit_res, user=user)
 
-    # ── 2. Conversational vs Story Search Routing ──────────────────────────────
-    is_reply_to_search = bool(replied_msg and _bot_search_replies.get((update.effective_chat.id, replied_msg.message_id)))
-    is_conversational = is_conversational_text(text_content)
-
-    # If it is NOT conversational, check direct high-confidence match
-    if not is_conversational and len(text_content.split()) <= 6:
+    # ── 2. Check Direct & High-Confidence Story Match ──────────────────────────
+    # If query is short (1-5 words) and matches an exact story title in DB -> send story card
+    if len(text_content.split()) <= 5:
         direct_story = search_story_exact_or_alias(text_content)
         if direct_story:
             return await send_story_result_card(update, context, direct_story, user=user)
 
-    # In private chat (DM): If user is talking/greeting/chatting, Riya replies as AI.
-    # In groups: Only chat if Riya is explicitly mentioned or user replied to bot
-    is_ai_chat_intent = is_riya_mentioned or wants_voice_text or (is_private and is_conversational) or (replied_to_bot and not is_reply_to_search and is_conversational)
+    # ── 3. Routing: Private Chat (DM) vs Group Chat ───────────────────────────
+    is_reply_to_search = bool(replied_msg and _bot_search_replies.get((update.effective_chat.id, replied_msg.message_id)))
+
+    # In PRIVATE CHAT (DM): ALL messages are natural interactions with Riya AI!
+    # In GROUPS: Only interact if Riya is mentioned, voice requested, or replying to Riya
+    is_ai_chat_intent = is_private or is_riya_mentioned or wants_voice_text or (replied_to_bot and not is_reply_to_search)
 
     if is_ai_chat_intent:
         await context.bot.send_chat_action(
@@ -9335,13 +9335,8 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # ── 4. Non-Conversational Query -> Story Search! ────────────────────────────
-    # Ignore invalid queries (e.g. links, emojis, empty)
-    if not is_valid_query(text_content):
-        return
-
-    # Fallback to search with "Searching..." indicator
-    return await search(update, context)
+    # In groups: If it reached here (not an exact DB story and not calling Riya), stay completely silent!
+    return
 
 
 # ── 24-Hour Auto Reminder: "Riya bolkar chat kijiye" ─────────────────────────
