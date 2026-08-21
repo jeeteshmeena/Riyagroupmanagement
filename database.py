@@ -548,4 +548,57 @@ def add_broadcast_record(chat_id, message_id, timestamp: float):
         logging.getLogger(__name__).error(f"[Database] add_broadcast_record error: {e}")
 
 
+# --- Global Ban (GBan) Persistent Database ---
+GBAN_FILE = _data_path("gban_db.json")
+
+def load_gban_db() -> dict:
+    """
+    Returns persistent GBan dictionary:
+    {
+      "user_id_str": {
+         "username": "...",
+         "reason": "...",
+         "by": admin_id,
+         "time": timestamp
+      }
+    }
+    """
+    return _load_json(GBAN_FILE, {})
+
+def save_gban_db(data: dict):
+    _save_json(GBAN_FILE, data)
+
+def is_gban_user(user_id: int) -> bool:
+    if not user_id:
+        return False
+    gb = load_gban_db()
+    return str(user_id) in gb
+
+def add_gban_user(user_id: int, username: str = "", reason: str = "", by_admin: int = 0) -> bool:
+    if not user_id:
+        return False
+    gb = load_gban_db()
+    import time
+    gb[str(user_id)] = {
+        "username": username or "",
+        "reason": reason or "No reason provided",
+        "by": by_admin,
+        "time": time.time()
+    }
+    save_gban_db(gb)
+    return True
+
+def remove_gban_user(user_id: int) -> bool:
+    if not user_id:
+        return False
+    gb = load_gban_db()
+    uid_str = str(user_id)
+    if uid_str in gb:
+        del gb[uid_str]
+        save_gban_db(gb)
+        return True
+    return False
+
+
+
 

@@ -4065,7 +4065,7 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
     if len(lnw_data) > 64: lnw_data = "lnw|toolong"
     
     is_paid = result.get("is_paid", False)
-    tut_url = "https://t.me/StoriesLinkopningguide/19" if is_paid else "https://t.me/StoriesLinkopningguide/5"
+    tut_url = get_tutorial_url() if is_paid else "https://t.me/StoriesLinkopningguide/5"
     
     if is_paid:
         keyboard.append([
@@ -5125,7 +5125,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if len(lnw_data) > 64: lnw_data = "lnw|toolong"
 
         is_paid = result.get("is_paid", False)
-        tut_url = "https://t.me/StoriesLinkopningguide/19" if is_paid else "https://t.me/StoriesLinkopningguide/5"
+        tut_url = get_tutorial_url() if is_paid else "https://t.me/StoriesLinkopningguide/5"
 
         if is_paid:
             keyboard = [
@@ -10482,8 +10482,64 @@ async def auto_channel_react(update: Update, context: ContextTypes.DEFAULT_TYPE)
             continue
 
 
+async def gban_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Universal Early GBan Guard Handler (group=-2).
+    Intercepts any update from a globally banned user and enforces instant bans.
+    """
+    user = update.effective_user
+    if not user:
+        return
+
+    # Never block bot admins or owner
+    if is_admin(user.id):
+        return
+
+    from database import is_gban_user
+    if not is_gban_user(user.id):
+        return
+
+    chat = update.effective_chat
+    chat_type = chat.type if chat else "private"
+
+    # Group / Supergroup: Ban user instantly from group and delete their message
+    if chat and chat_type in ("group", "supergroup", "channel"):
+        try:
+            await context.bot.ban_chat_member(chat_id=chat.id, user_id=user.id)
+        except Exception as _e:
+            logger.debug(f"[GBan Guard] Ban failed in {chat.id}: {_e}")
+
+        if update.message:
+            try:
+                await update.message.delete()
+            except Exception:
+                pass
+        elif update.callback_query:
+            try:
+                await update.callback_query.answer("⛔ You are globally banned from Riya Bot.", show_alert=True)
+                await update.callback_query.message.delete()
+            except Exception:
+                pass
+
+    # Private DM: Reject interactions
+    elif chat_type == "private":
+        if update.callback_query:
+            try:
+                await update.callback_query.answer("⛔ You are globally banned from using Riya Bot.", show_alert=True)
+            except Exception:
+                pass
+        elif update.message:
+            try:
+                await update.message.reply_text("⛔ <b>Access Denied</b>\n\nYou are globally banned from using Riya Bot.", parse_mode="HTML")
+            except Exception:
+                pass
+
+    # Stop propagation so no other handlers run for this banned user
+    raise Application.StopPropagation
+
+
 async def gban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin-only: globally ban a user from all authorized channels."""
+    """Admin-only: globally ban a user from all authorized channels and persist in GBan DB."""
     if not is_admin(update.effective_user.id):
         lang = get_chat_lang(update.effective_chat.id)
         await update.message.reply_text("⛔ Admin only." if lang != "hi" else "⛔ केवल एडमिन।")
@@ -10493,13 +10549,13 @@ async def gban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lang = get_chat_lang(update.effective_chat.id)
         await update.message.reply_text(
             "<b>Usage:</b> /gban &lt;user_id or @username&gt; [reason]\n\n"
-            "Bans the user from all groups/channels where the bot is admin and tracks them.",
+            "Bans the user from all groups/channels and permanently records them in GBan DB.",
             parse_mode="HTML"
         )
         return
 
     user_str = context.args[0]
-    reason_str = " ".join(context.args[1:]).strip()
+    reason_str = " ".join(context.args[1:]).strip() or "Violation of bot rules"
     target_user_id = None
     target_user_name = None
 
@@ -10513,6 +10569,13 @@ async def gban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
     else:
         target_user_id = int(user_str)
+
+    if is_admin(target_user_id):
+        await update.message.reply_text("❌ <b>Error:</b> Cannot GBan a bot admin or owner!", parse_mode="HTML")
+        return
+
+    from database import add_gban_user
+    add_gban_user(target_user_id, username=target_user_name or "", reason=reason_str, by_admin=update.effective_user.id)
 
     wait_msg = await update.message.reply_text(f"⏳ Searching and executing Global Ban for <code>{target_user_id}</code>...\nPlease wait.", parse_mode="HTML")
 
@@ -10530,7 +10593,6 @@ async def gban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             cid = int(cid_str)
             try:
-                # Blindly ban without getting chat member to avoid "not found" skip bug
                 await context.bot.ban_chat_member(chat_id=cid, user_id=target_user_id)
                 success.append(cid_str)
             except Exception as e:
@@ -10541,7 +10603,7 @@ async def gban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     failed.append(cid_str)
         except Exception:
              continue
-        await asyncio.sleep(0.1) # Prevent FloodWait
+        await asyncio.sleep(0.1)
 
     success_names = []
     for cid_str in success:
@@ -10556,11 +10618,12 @@ async def gban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bullets = "\n".join(f"• {name}" for name in success_names)
         success_text = f"\n<blockquote expandable>{bullets}</blockquote>"
 
-    reason_text = f"\n<b>Reason:</b> {reason_str}" if reason_str else ""
     report = (
         f"<b>🚫 Global Ban Report</b>\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"<b>Target:</b> <code>{target_user_id}</code> {('@' + target_user_name) if target_user_name else ''}{reason_text}\n\n"
+        f"<b>Target:</b> <code>{target_user_id}</code> {('@' + target_user_name) if target_user_name else ''}\n"
+        f"<b>Reason:</b> {html.escape(reason_str)}\n"
+        f"<b>Status:</b> Added to Permanent GBan DB ✅\n\n"
         f"<b>✅ Successfully Banned in ({len(success)}):</b>{success_text}\n\n"
         f"<b>⚪ Not Present / Already Banned:</b> {len(already_banned_or_not_present)} chats\n"
         f"<b>❌ Failed (No Admin Rights):</b> {len(failed)} chats\n"
@@ -10572,7 +10635,7 @@ async def gban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await log(context, f"GLOBAL BAN | Admin={update.effective_user.id} Target={target_user_id} Reason={reason_str}")
 
 async def gunban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin-only: globally unban a user across all authorized channels."""
+    """Admin-only: globally unban a user across all authorized channels and remove from GBan DB."""
     if not is_admin(update.effective_user.id):
         lang = get_chat_lang(update.effective_chat.id)
         await update.message.reply_text("⛔ Admin only." if lang != "hi" else "⛔ केवल एडमिन।")
@@ -10581,7 +10644,7 @@ async def gunban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await update.message.reply_text(
             "<b>Usage:</b> /gunban &lt;user_id or @username&gt;\n\n"
-            "Unbans the user from all groups/channels where the bot is admin.",
+            "Unbans the user from all groups/channels and removes them from GBan DB.",
             parse_mode="HTML"
         )
         return
@@ -10601,6 +10664,9 @@ async def gunban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         target_user_id = int(user_str)
 
+    from database import remove_gban_user
+    remove_gban_user(target_user_id)
+
     wait_msg = await update.message.reply_text(f"⏳ Searching and executing Global Unban for <code>{target_user_id}</code>...\nPlease wait.", parse_mode="HTML")
 
     chats_to_check = set(chat_languages.keys())
@@ -10617,15 +10683,12 @@ async def gunban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             cid = int(cid_str)
             try:
-                # only_if_banned=True prevents error if user was already not banned.
-                # However, PTB version used might not support only_if_banned so we catch gracefully.
                 await context.bot.unban_chat_member(chat_id=cid, user_id=target_user_id, only_if_banned=True)
                 success.append(cid_str)
             except Exception as e:
                 err = str(e).lower()
                 if "not found" in err or "participant_id_invalid" in err or "user_not_participant" in err or "not banned" in err or "only_if_banned" in err:
                     not_banned.append(cid_str)
-                    # If kwargs fail (old PTB version unban_chat_member), let's retry normally:
                     if "only_if_banned" in err:
                         try:
                             await context.bot.unban_chat_member(chat_id=cid, user_id=target_user_id)
@@ -10654,7 +10717,8 @@ async def gunban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     report = (
         f"<b>✅ Global Unban Report</b>\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"<b>Target:</b> <code>{target_user_id}</code> {('@' + target_user_name) if target_user_name else ''}\n\n"
+        f"<b>Target:</b> <code>{target_user_id}</code> {('@' + target_user_name) if target_user_name else ''}\n"
+        f"<b>Status:</b> Removed from GBan DB ✅\n\n"
         f"<b>✅ Successfully Unbanned in ({len(success)}):</b>{success_bullet}\n\n"
         f"<b>⚪ Not Banned / Ignored:</b> {len(not_banned)} chats\n"
         f"<b>❌ Failed (No Admin Rights):</b> {len(failed)} chats\n"
@@ -10664,6 +10728,32 @@ async def gunban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await wait_msg.edit_text(report, parse_mode="HTML")
     await log(context, f"GLOBAL UNBAN | Admin={update.effective_user.id} Target={target_user_id}")
+
+async def gbanlist_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin-only: list all globally banned users."""
+    if not is_admin(update.effective_user.id):
+        return
+
+    from database import load_gban_db
+    gb = load_gban_db()
+    if not gb:
+        await update.message.reply_text("<b>🚫 GBan List</b>\n\nNo users are currently globally banned.", parse_mode="HTML")
+        return
+
+    lines = []
+    for uid, data in gb.items():
+        uname = f" (@{data['username']})" if data.get("username") else ""
+        reason = data.get("reason", "No reason")
+        lines.append(f"• <code>{uid}</code>{uname} — <i>{html.escape(reason)}</i>")
+
+    joined_lines = "\n".join(lines)
+    text = (
+        f"<b>🚫 Globally Banned Users ({len(gb)})</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n\n"
+        f"<blockquote expandable>{joined_lines}</blockquote>\n\n"
+        f"<i>Use <code>/gunban &lt;user_id&gt;</code> to unban a user.</i>"
+    )
+    await update.message.reply_text(text, parse_mode="HTML")
 
 def start_bot():
 
@@ -10765,12 +10855,18 @@ def start_bot():
     app.add_handler(CommandHandler("addalias", addalias_cmd))
     app.add_handler(CommandHandler("gban", gban_cmd))
     app.add_handler(CommandHandler("gunban", gunban_cmd))
+    app.add_handler(CommandHandler("gbanlist", gbanlist_cmd))
     app.add_handler(CommandHandler("removealias", removealias_cmd))
     app.add_handler(CommandHandler("listalias", listalias_cmd))
     app.add_handler(CommandHandler("whisper", whisper_cmd))
     app.add_handler(CommandHandler("setreplicate", setreplicate_cmd))
     from plugins.broadcast import clean_broadcast_cmd
     app.add_handler(CommandHandler("clean_broadcast", clean_broadcast_cmd))
+
+    # ── Universal Early GBan Enforcement Guard (Highest Priority group=-2) ─────
+    app.add_handler(MessageHandler(filters.ALL, gban_guard), group=-2)
+    app.add_handler(CallbackQueryHandler(gban_guard), group=-2)
+    app.add_handler(ChatMemberHandler(gban_guard, ChatMemberHandler.CHAT_MEMBER), group=-2)
 
     # ── Strict Anti-Bot Security Layer (High Priority group=-1) ───────────────
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, anti_bot_addition_guard), group=-1)
