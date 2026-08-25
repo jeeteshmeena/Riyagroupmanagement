@@ -1352,6 +1352,37 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=kb
             )
             return
+        elif raw_param.startswith("buy_") or raw_param.startswith("story_"):
+            sid = raw_param.replace("buy_", "").replace("story_", "").strip()
+            try:
+                from plugins.poster_bot import get_story_by_id_from_mongo
+                story = await get_story_by_id_from_mongo(sid)
+                if story:
+                    story_name = story.get("story_name_en") or story.get("story_name_hi") or story.get("story_name") or story.get("title") or "Story"
+                    app_link = f"https://t.me/UseAryaBot/apminibyarya?startapp=story_{sid}"
+                    kb = InlineKeyboardMarkup([
+                        [InlineKeyboardButton("🛍️ Buy Via App", url=app_link)],
+                        [get_tutorial_inline_button()]
+                    ])
+                    desc = story.get("story_description") or story.get("description") or ""
+                    desc_text = f"\n\n<i>{html.escape(desc[:500])}...</i>" if desc else ""
+                    text = (
+                        f"<b>🛍️ {html.escape(story_name)}</b>{desc_text}\n\n"
+                        f"Neeche diye gaye button par click karke story buy karein:"
+                    )
+                    text = inject_premium_emojis(text)
+                    img_url = ""
+                    for field in ["image", "poster_url", "banner_url", "cover_url", "photo_url", "cover", "poster"]:
+                        val = str(story.get(field) or "").strip()
+                        if val.startswith("http://") or val.startswith("https://"):
+                            img_url = val
+                            break
+                    if img_url:
+                        return await update.message.reply_photo(photo=img_url, caption=text, parse_mode="HTML", reply_markup=kb)
+                    else:
+                        return await update.message.reply_text(text=text, parse_mode="HTML", reply_markup=kb)
+            except Exception as _e:
+                logger.debug(f"[Start Deep-link Buy] Error: {_e}")
 
     # Normal /start — apply cooldown gate only here
     if await _enforce_cooldown(update, context):
