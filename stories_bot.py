@@ -7541,182 +7541,21 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
         await _edit_cfg(query, text, markup)
         return
 
-    # ── Premium Account ───────────────────────────────────────────────────────
+    # ── Premium Account / Reaction Engine Config ──────────────────────────────
     if section == "premium_account":
-        import premium_userbot
-        p_cfg    = bot_config.get("premium_account", {})
-        pid      = p_cfg.get("api_id", "")
-        sess_set = "✅ Set" if (p_cfg.get("session_string") or os.getenv("PREMIUM_SESSION_STRING")) else "❌ Not Set"
-        connected = "🟢 Connected" if premium_userbot.is_connected() else "🔴 Disconnected"
         text = (
-            "<b>⭐ Premium Telegram Account</b>\n"
+            "<b>⭐ Reaction & Emoji System</b>\n"
             f"{_CFG_DIV}\n\n"
-            f"▪ <b>Status:</b> <code>{connected}</code>\n"
-            f"▪ <b>Session:</b> <code>{sess_set}</code>\n\n"
-            "<b>── Easy Phone Login (Recommended) ──</b>\n"
-            "Tap <b>📱 Phone Login Wizard</b> below to login with your mobile phone number. Riya Bot will send OTP to your Telegram & auto-generate the session key!\n\n"
-            "<i>Once connected, Riya sends premium animated emojis & big reactions ⭐</i>"
+            "▪ <b>Reaction Mode:</b> Standard Telegram Bot API (Pure Bot Mode)\n"
+            "▪ <b>Userbot Infrastructure:</b> Disabled & Completely Removed\n\n"
+            "<i>Riya Bot handles reactions via official Telegram Bot API set_message_reaction!</i>"
         )
         markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📱 Phone Login Wizard (Auto Session)", callback_data=f"cfg|prem_login_phone||{caller_id}")],
-            [InlineKeyboardButton("✨ Premium Emojis Manager",           callback_data=f"cfg|prem_emojis||{caller_id}")],
-            [
-                InlineKeyboardButton("Set API ID",    callback_data=f"cfg|prem_apiid||{caller_id}"),
-                InlineKeyboardButton("Set API Hash",  callback_data=f"cfg|prem_apihash||{caller_id}"),
-            ],
-            [InlineKeyboardButton("Set Session String", callback_data=f"cfg|prem_session||{caller_id}")],
-            [InlineKeyboardButton("🔌 Connect Now",     callback_data=f"cfg|prem_connect||{caller_id}")],
-            [InlineKeyboardButton("❌ Disconnect",      callback_data=f"cfg|prem_disconnect||{caller_id}")],
+            [InlineKeyboardButton("✨ Custom Emojis Manager", callback_data=f"cfg|prem_emojis||{caller_id}")],
             _cfg_nav(caller_id, back="main")
         ])
         await _edit_cfg(query, text, markup)
         await query.answer()
-        return
-
-    # ── Premium Emojis Manager Config ──────────────────────────────────────────
-    if section == "prem_emojis":
-        custom_map = load_custom_premium_emojis()
-        count = len(custom_map)
-        text = (
-            "<b>✨ Custom Premium Emojis Manager</b>\n"
-            f"{_CFG_DIV}\n\n"
-            f"▪ <b>Active Custom Mapped Emojis:</b> <code>{count}</code>\n\n"
-            "You can add/update custom premium emoji IDs in bulk by pasting list in any format:\n"
-            "<code>101)👎 [5348132683304156113]</code>\n"
-            "<code>🔥: 5350279866304445948</code>\n\n"
-            "<i>These custom animated emojis will be used across AI Chat, search results, and reactions!</i>"
-        )
-        markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("➕ Add / Update Bulk Emojis", callback_data=f"cfg|prem_add_emojis||{caller_id}")],
-            [
-                InlineKeyboardButton("📋 View Mapped List", callback_data=f"cfg|prem_view_emojis||{caller_id}"),
-                InlineKeyboardButton("↺ Reset to Defaults",  callback_data=f"cfg|prem_reset_emojis||{caller_id}"),
-            ],
-            _cfg_nav(caller_id, back="premium_account")
-        ])
-        await _edit_cfg(query, text, markup)
-        await query.answer()
-        return
-
-    if section == "prem_add_emojis":
-        context.chat_data["config_state"] = "waiting_prem_emojis"
-        await query.answer()
-        await query.message.reply_text(
-            "<b>✨ Add / Update Bulk Premium Emojis</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━\n\n"
-            "Send or paste your Emoji IDs text below.\n"
-            "Formats supported:\n"
-            "• <code>101)👎 [5348132683304156113]</code>\n"
-            "• <code>🔥 [5350279866304445948]</code>\n"
-            "• <code>❤️: 5350831267090809192</code>\n\n"
-            "<i>Send any message containing single or multiple emoji IDs! Or send /cancel to abort.</i>",
-            parse_mode="HTML"
-        )
-        return
-
-    if section == "prem_view_emojis":
-        custom_map = load_custom_premium_emojis()
-        if not custom_map:
-            await query.answer("No custom emojis configured.", show_alert=True)
-            return
-        lines = [f"{i+1}. {em} ➔ <code>{eid}</code>" for i, (em, eid) in enumerate(list(custom_map.items())[:60])]
-        preview = "\n".join(lines)
-        if len(custom_map) > 60:
-            preview += f"\n\n<i>...and {len(custom_map)-60} more. Total: {len(custom_map)}</i>"
-        
-        await _edit_cfg(query,
-            f"<b>📋 Mapped Custom Emojis ({len(custom_map)})</b>\n\n{preview}",
-            InlineKeyboardMarkup([_cfg_nav(caller_id, back="prem_emojis")])
-        )
-        await query.answer()
-        return
-
-    if section == "prem_reset_emojis":
-        save_custom_premium_emojis(DEFAULT_CUSTOM_EMOJIS.copy())
-        await query.answer("↺ Reset to default 88 premium emojis!", show_alert=True)
-        custom_map = DEFAULT_CUSTOM_EMOJIS.copy()
-        text = (
-            "<b>✨ Custom Premium Emojis Manager</b>\n"
-            f"{_CFG_DIV}\n\n"
-            f"▪ <b>Active Custom Mapped Emojis:</b> <code>{len(custom_map)}</code>\n\n"
-            "Reset to default 88 custom emojis completed."
-        )
-        markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("➕ Add / Update Bulk Emojis", callback_data=f"cfg|prem_add_emojis||{caller_id}")],
-            [
-                InlineKeyboardButton("📋 View Mapped List", callback_data=f"cfg|prem_view_emojis||{caller_id}"),
-                InlineKeyboardButton("↺ Reset to Defaults",  callback_data=f"cfg|prem_reset_emojis||{caller_id}"),
-            ],
-            _cfg_nav(caller_id, back="premium_account")
-        ])
-        await _edit_cfg(query, text, markup)
-        return
-
-    if section == "prem_login_phone":
-        context.chat_data["config_state"] = "waiting_prem_phone"
-        await query.answer()
-        await query.message.reply_text(
-            "<b>📱 Telegram Premium Phone Login Wizard</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━\n\n"
-            "Please send your mobile phone number with country code.\n"
-            "Example: <code>+919876543210</code>\n\n"
-            "<i>Note: Riya Bot will send an official Telegram login OTP code to your Telegram app so your session key is generated automatically!</i>",
-            parse_mode="HTML"
-        )
-        return
-
-    if section == "prem_apiid":
-        context.chat_data["config_state"] = "waiting_prem_apiid"
-        await query.answer()
-        await query.message.reply_text(
-            "<b>⭐ Set Premium API ID</b>\n\nGet it from <code>my.telegram.org</code> → API development tools.\nSend your API ID (numeric):",
-            parse_mode="HTML"
-        )
-        return
-
-    if section == "prem_apihash":
-        context.chat_data["config_state"] = "waiting_prem_apihash"
-        await query.answer()
-        await query.message.reply_text(
-            "<b>⭐ Set Premium API Hash</b>\n\nGet it from <code>my.telegram.org</code> → API development tools.\nSend your API Hash:",
-            parse_mode="HTML"
-        )
-        return
-
-    if section == "prem_session":
-        context.chat_data["config_state"] = "waiting_prem_session"
-        await query.answer()
-        await query.message.reply_text(
-            "<b>⭐ Set Session String</b>\n\n"
-            "Generate with Telethon on the server:\n"
-            "<pre>python3 -c \"\nfrom telethon.sync import TelegramClient\nc = TelegramClient('riya', API_ID, API_HASH)\nc.start(); print(c.session.save()); c.disconnect()\n\"</pre>\n\n"
-            "Paste the session string here (starts with <code>1BJWap1</code>...):",
-            parse_mode="HTML"
-        )
-        return
-
-    if section == "prem_connect":
-        import premium_userbot
-        p_cfg = bot_config.get("premium_account", {})
-        sess  = p_cfg.get("session_string", "")
-        pid   = p_cfg.get("api_id", 0)
-        ph    = p_cfg.get("api_hash", "")
-        if not (sess and pid and ph):
-            await query.answer("❌ Set API ID, API Hash, and Session String first!", show_alert=True)
-            return
-        await query.answer("Connecting...", show_alert=False)
-        ok = await premium_userbot.connect_userbot(sess, _safe_api_id(pid), _safe_api_hash(ph))
-        if ok:
-            await query.message.reply_text("✅ <b>Premium userbot connected!</b>\nRiya can now react with premium emoji.", parse_mode="HTML")
-        else:
-            await query.message.reply_text("❌ Connection failed. Check the session string and API credentials.", parse_mode="HTML")
-        return
-
-    if section == "prem_disconnect":
-        import premium_userbot
-        await premium_userbot.disconnect_userbot()
-        await query.answer("Disconnected", show_alert=False)
-        await query.message.reply_text("🔴 Premium userbot disconnected.", parse_mode="HTML")
         return
 
     # ── Tutorial / Guide Config ───────────────────────────────────────────────
@@ -8421,9 +8260,6 @@ async def handle_config_input(update: Update, context: ContextTypes.DEFAULT_TYPE
             context.chat_data.pop("config_state", None)
             context.chat_data.pop("prem_login_data", None)
 
-            import premium_userbot
-            await premium_userbot.connect_userbot(sess_str, login_data["api_id"], login_data["api_hash"])
-
             await msg_wait.edit_text(
                 "🎉 <b>Success! Premium Account Connected!</b>\n"
                 "━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -8474,9 +8310,6 @@ async def handle_config_input(update: Update, context: ContextTypes.DEFAULT_TYPE
 
             context.chat_data.pop("config_state", None)
             context.chat_data.pop("prem_login_data", None)
-
-            import premium_userbot
-            await premium_userbot.connect_userbot(sess_str, login_data["api_id"], login_data["api_hash"])
 
             await msg_wait.edit_text(
                 "🎉 <b>Success! Premium Account Connected!</b>\n"
@@ -8562,71 +8395,7 @@ async def handle_config_input(update: Update, context: ContextTypes.DEFAULT_TYPE
         context.user_data["pb_data"] = post_data
         context.user_data["pb_data"]["post_mode"] = "new"
 
-        from post_builder import _do_post
         await update.message.reply_text(f"🚀 Re-publishing to {dest_val}... Please wait.", parse_mode="HTML")
-        
-        # ── Premium Emoji & Reaction via Userbot ─────────────────────────
-        reply_text = f"🚀 Re-publishing to {dest_val}... Please wait."
-        _EMOJI_TO_MOOD = {
-            "🚀": "rocket",
-        }
-
-        detected_mood = None
-        try:
-            import premium_userbot
-            for emoji_char, mood in _EMOJI_TO_MOOD.items():
-                if emoji_char in reply_text:
-                    detected_mood = mood
-                    break
-
-            if detected_mood:
-                react_emoji = next(k for k, v in _EMOJI_TO_MOOD.items() if v == detected_mood)
-                asyncio.create_task(_try_react(
-                    context.bot,
-                    update.effective_chat.id,
-                    update.message.message_id,
-                    react_emoji
-                ))
-        except Exception as e:
-            logger.warning(f"[Premium] Reaction error: {e}")
-
-        sent_via_userbot = False
-        try:
-            import premium_userbot
-            if premium_userbot.is_connected() and detected_mood:
-                emoji_id = premium_userbot.get_emoji_id(detected_mood)
-                if emoji_id:
-                    import re as _re
-                    plain_for_offset = _re.sub(r"<[^>]+>", "", reply_text)
-                    emoji_char = next(
-                        (ch for ch, m in _EMOJI_TO_MOOD.items() if m == detected_mood and ch in plain_for_offset),
-                        None
-                    )
-                    if emoji_char:
-                        offset = plain_for_offset.find(emoji_char)
-                        from telethon.tl.types import MessageEntityCustomEmoji
-                        entities = [
-                            MessageEntityCustomEmoji(
-                                offset=offset,
-                                length=len(emoji_char),
-                                document_id=int(emoji_id),
-                            )
-                        ]
-                        plain_text = _re.sub(r"<[^>]+>", "", reply_text).strip()
-                        client = premium_userbot._userbot_client
-                        await client.send_message(
-                            entity=update.effective_chat.id,
-                            message=plain_text,
-                            formatting_entities=entities,
-                            reply_to=update.message.message_id,
-                        )
-                        sent_via_userbot = True
-        except Exception as e:
-            logger.warning(f"[Premium] Userbot send failed, falling back: {e}")
-
-        if not sent_via_userbot:
-            await update.message.reply_text(reply_text, parse_mode="HTML")
-            
         await _do_post(update, context)
         return
 
@@ -8864,57 +8633,12 @@ def _is_thanks_msg(text: str) -> bool:
 
 async def _try_react(bot, chat_id: int, message_id: int, emoji: str, big: bool = True) -> bool:
     """
-    Unified reaction engine for Riya Bot.
-    Architecture:
-      Main Bot decides reaction
-      ↓
-      Custom / Premium Emoji mapped?
-        YES -> Route ONLY through Telethon Premium Userbot.
-               NEVER send custom emoji reactions via Bot API set_message_reaction (since Bot API rejects custom reactions with 400 Bad Request for non-premium bots).
-        NO  -> Standard Unicode Emoji Reaction via Bot API if allowed by Telegram.
+    Standard Bot API reaction engine for Riya Bot.
+    Uses Telegram Bot API set_message_reaction ONLY for allowed standard Telegram reactions.
     """
     if not chat_id or not message_id or not emoji:
         return False
 
-    all_mapped = get_all_mapped_emojis()
-    custom_id = all_mapped.get(emoji) or all_mapped.get(emoji.replace('\ufe0f', ''))
-
-    # 1. Premium Custom Emoji Reaction -> Route via Telethon Premium Userbot ONLY
-    if custom_id:
-        try:
-            import premium_userbot
-            if premium_userbot.is_connected():
-                success = await premium_userbot.react_with_emoji(
-                    chat_id=chat_id,
-                    message_id=message_id,
-                    emoji=emoji,
-                    custom_emoji_id=custom_id,
-                    big=big
-                )
-                if success:
-                    logger.info(
-                        f"[Reaction ✅] Sent Premium Custom Emoji reaction | chat_id={chat_id} | "
-                        f"msg_id={message_id} | emoji={emoji} | custom_emoji_id={custom_id} | handler=PremiumUserbot"
-                    )
-                    return True
-                else:
-                    logger.warning(
-                        f"[Reaction Error] Premium Userbot failed reaction | chat_id={chat_id} | "
-                        f"msg_id={message_id} | emoji={emoji} | custom_emoji_id={custom_id}"
-                    )
-            else:
-                logger.info(
-                    f"[Reaction Info] Premium Userbot disconnected. Custom emoji reaction skipped | "
-                    f"chat_id={chat_id} | msg_id={message_id} | custom_emoji_id={custom_id}"
-                )
-        except Exception as pe:
-            logger.warning(
-                f"[Reaction Error] Exception in Premium Userbot reaction | chat_id={chat_id} | "
-                f"msg_id={message_id} | custom_emoji_id={custom_id} | error={pe}"
-            )
-        return False
-
-    # 2. Standard Emoji Reaction -> Route via Bot API (only for allowed standard reactions)
     ALLOWED_BOT_REACTIONS = {'👍', '👎', '❤', '🔥', '🥰', '👏', '😁', '🤔', '🤯', '😱', '🤬', '😢', '🎉', '🤩', '🤮', '💩', '🙏', '👌', '🕊', '🤡', '🥱', '🥴', '😍', '🐳', '❤‍🔥', '🌚', '🌭', '💯', '🤣', '⚡', '🍌', '🏆', '💔', '🤨', '😐', '🍓', '🍾', '🍿', '🍕', '🎄', '🎈', '🎁'}
     std_emoji = emoji.replace('\ufe0f', '')
     target_emoji = std_emoji if std_emoji in ALLOWED_BOT_REACTIONS else (emoji if emoji in ALLOWED_BOT_REACTIONS else None)
@@ -10723,21 +10447,7 @@ def start_bot():
         from plugins.ads_manager import auto_ads_loop_task
         asyncio.create_task(auto_ads_loop_task(application))
 
-        # ── Premium userbot auto-connect ──────────────────────────────────────
-        p_cfg = bot_config.get("premium_account", {})
-        sess  = (p_cfg.get("session_string", "") or os.getenv("PREMIUM_SESSION_STRING", "") or os.getenv("SESSION_STRING", "")).strip()
-        pid   = p_cfg.get("api_id", 0) or os.getenv("PREMIUM_API_ID", 0) or os.getenv("API_ID", 0)
-        ph    = (p_cfg.get("api_hash", "") or os.getenv("PREMIUM_API_HASH", "") or os.getenv("API_HASH", "")).strip()
-        if sess:
-            try:
-                import premium_userbot
-                ok = await premium_userbot.connect_userbot(sess, _safe_api_id(pid), _safe_api_hash(ph))
-                if ok:
-                    logger.info("[Premium] Userbot connected at startup ✅")
-                else:
-                    logger.warning("[Premium] Userbot connect failed at startup")
-            except Exception as e:
-                logger.error(f"[Premium] Startup connect error: {e}")
+
 
         # Launch Poster Bot 24/7 background worker loop
         try:
