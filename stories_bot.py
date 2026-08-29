@@ -10476,41 +10476,36 @@ async def auto_channel_react(update: Update, context: ContextTypes.DEFAULT_TYPE)
     chat_id = update.effective_chat.id
     msg_id  = update.channel_post.message_id
 
-    # ── Bot reacts on channel post (premium custom emoji preferred, standard fallback) ──
+    # ── Channel post reaction (Premium Userbot first for custom animated reaction, standard bot fallback) ──
     try:
         import premium_userbot
         if premium_userbot.is_connected():
             em = random.choice(emojis)
-            custom_id = premium_userbot.CUSTOM_EMOJI_MAP.get(em)
-            if custom_id:
-                try:
-                    from telegram import ReactionTypeCustomEmoji
-                    await context.bot.set_message_reaction(
-                        chat_id=chat_id,
-                        message_id=msg_id,
-                        reaction=[ReactionTypeCustomEmoji(custom_emoji_id=custom_id)],
-                        is_big=True
-                    )
-                    logger.info(f"[AutoReact] Bot reacted with premium emoji on channel {chat_id}")
-                    return
-                except Exception as ce:
-                    logger.debug(f"[AutoReact] Premium emoji via bot failed: {ce}")
+            all_mapped = get_all_mapped_emojis()
+            custom_id = all_mapped.get(em) or premium_userbot.CUSTOM_EMOJI_MAP.get(em)
+            success = await premium_userbot.react_with_emoji(chat_id, msg_id, em, custom_emoji_id=custom_id, big=True)
+            if success:
+                logger.info(f"[AutoReact] Premium userbot reacted on channel {chat_id}")
+                return
     except Exception as pe:
-        logger.debug(f"[AutoReact] Premium emoji lookup skipped: {pe}")
+        logger.debug(f"[AutoReact] Premium userbot reaction failed: {pe}")
 
+    ALLOWED_BOT_REACTIONS = {'👍', '👎', '❤', '🔥', '🥰', '👏', '😁', '🤔', '🤯', '😱', '🤬', '😢', '🎉', '🤩', '🤮', '💩', '🙏', '👌', '🕊', '🤡', '🥱', '🥴', '😍', '🐳', '❤‍🔥', '🌚', '🌭', '💯', '🤣', '⚡', '🍌', '🏆', '💔', '🤨', '😐', '🍓', '🍾', '🍿', '🍕', '🎄', '🎈', '🎁'}
     for em in emojis:
-        try:
-            from telegram import ReactionTypeEmoji
-            await context.bot.set_message_reaction(
-                chat_id=chat_id,
-                message_id=msg_id,
-                reaction=[ReactionTypeEmoji(emoji=em)],
-                is_big=True
-            )
-            logger.info(f"[AutoReact] Riya Bot reacted '{em}' on channel {chat_id}")
-            break
-        except Exception:
-            continue
+        std_em = em.replace('\ufe0f', '')
+        if std_em in ALLOWED_BOT_REACTIONS or em in ALLOWED_BOT_REACTIONS:
+            try:
+                from telegram import ReactionTypeEmoji
+                await context.bot.set_message_reaction(
+                    chat_id=chat_id,
+                    message_id=msg_id,
+                    reaction=[ReactionTypeEmoji(emoji=std_em if std_em in ALLOWED_BOT_REACTIONS else em)],
+                    is_big=True
+                )
+                logger.info(f"[AutoReact] Riya Bot reacted '{em}' on channel {chat_id}")
+                break
+            except Exception:
+                continue
 
 
 async def gban_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
