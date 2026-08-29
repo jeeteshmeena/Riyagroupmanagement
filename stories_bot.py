@@ -1047,19 +1047,19 @@ def _menu_main(caller_id: int, lang: str = "en", mention: str = "") -> tuple:
     )
     btn_rows = [
         [
-            InlineKeyboardButton("FvTs", callback_data=f"menu|saved|{caller_id}", api_kwargs={"icon_custom_emoji_id": "6023852792697854544"}),
-            InlineKeyboardButton("Smtg New", callback_data=f"menu|new|{caller_id}", api_kwargs={"icon_custom_emoji_id": "5294524383279198295"}),
+            InlineKeyboardButton("♡ FvTs", callback_data=f"menu|saved|{caller_id}", api_kwargs={"icon_custom_emoji_id": "6023852792697854544"}),
+            InlineKeyboardButton("✯ Smtg New", callback_data=f"menu|new|{caller_id}", api_kwargs={"icon_custom_emoji_id": "5294524383279198295"}),
         ],
         [
-            InlineKeyboardButton("About", callback_data=f"menu|about|{caller_id}", api_kwargs={"icon_custom_emoji_id": "6021487472603568286"}),
-            InlineKeyboardButton("Commands", callback_data="cmdmenu|0", api_kwargs={"icon_custom_emoji_id": "6021607757457660145"}),
+            InlineKeyboardButton("❁ About", callback_data=f"menu|about|{caller_id}", api_kwargs={"icon_custom_emoji_id": "6021487472603568286"}),
+            InlineKeyboardButton("✺ Commands", callback_data="cmdmenu|0", api_kwargs={"icon_custom_emoji_id": "6021607757457660145"}),
         ],
         [
-            InlineKeyboardButton("Language", callback_data=f"menu|lang|{caller_id}", api_kwargs={"icon_custom_emoji_id": "6030768072296502910"}),
-            InlineKeyboardButton("Help", callback_data="cmdmenu|0", api_kwargs={"icon_custom_emoji_id": "6019130940012370273"}),
+            InlineKeyboardButton("✧ Language", callback_data=f"menu|lang|{caller_id}", api_kwargs={"icon_custom_emoji_id": "6030768072296502910"}),
+            InlineKeyboardButton("✦ Help", callback_data="cmdmenu|0", api_kwargs={"icon_custom_emoji_id": "6019130940012370273"}),
         ]
     ]
-    btn_rows.append([InlineKeyboardButton("Close", callback_data=f"menu|close|{caller_id}", api_kwargs={"icon_custom_emoji_id": "5774077015388852135"})])
+    btn_rows.append([InlineKeyboardButton("✖ Close", callback_data=f"menu|close|{caller_id}", api_kwargs={"icon_custom_emoji_id": "5774077015388852135"})])
 
     markup = InlineKeyboardMarkup(btn_rows)
     return text, markup
@@ -4085,9 +4085,9 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
             story_link = "https://" + story_link.lstrip("/")
         
         if result.get("is_paid"):
-            keyboard.append([InlineKeyboardButton("Buy Now", url=story_link, api_kwargs={"icon_custom_emoji_id": "5456343263340405032"})])
+            keyboard.append([InlineKeyboardButton("🛍 Buy Now", url=story_link, api_kwargs={"icon_custom_emoji_id": "5456343263340405032"})])
         else:
-            keyboard.append([InlineKeyboardButton("Open Story", url=story_link, api_kwargs={"icon_custom_emoji_id": "5429633836684157942"})])
+            keyboard.append([InlineKeyboardButton("📖 Open Story", url=story_link, api_kwargs={"icon_custom_emoji_id": "5429633836684157942"})])
 
     # safeguard for long lengths
     fav_data = f"fav|{story_key}"
@@ -5160,11 +5160,11 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if is_paid:
             keyboard = [
-                [InlineKeyboardButton("Buy Now", url=result["link"], api_kwargs={"icon_custom_emoji_id": "5456343263340405032"})]
+                [InlineKeyboardButton("🛍 Buy Now", url=result["link"], api_kwargs={"icon_custom_emoji_id": "5456343263340405032"})]
             ]
         else:
             keyboard = [
-                [InlineKeyboardButton("Open Story", url=result["link"], api_kwargs={"icon_custom_emoji_id": "5429633836684157942"})]
+                [InlineKeyboardButton("📖 Open Story", url=result["link"], api_kwargs={"icon_custom_emoji_id": "5429633836684157942"})]
             ]
         if is_paid:
             keyboard.append([
@@ -8863,36 +8863,34 @@ def _is_thanks_msg(text: str) -> bool:
 
 
 async def _try_react(bot, chat_id: int, message_id: int, emoji: str, big: bool = True):
-    """Send a reaction strictly from the Riya Bot account directly (never via userbot)."""
-    all_mapped = get_all_mapped_emojis()
-    custom_id = all_mapped.get(emoji)
+    """Send a reaction from Premium Userbot or standard Riya Bot."""
+    # 1. Try premium userbot if available for animated custom reactions
+    try:
+        from premium_userbot import is_connected, react_with_emoji
+        if is_connected():
+            all_mapped = get_all_mapped_emojis()
+            custom_id = all_mapped.get(emoji)
+            success = await react_with_emoji(chat_id, message_id, emoji, custom_emoji_id=custom_id, big=big)
+            if success:
+                return
+    except Exception as pe:
+        logger.debug("[React] Premium userbot reaction check: %s", pe)
 
-    # 1. Try custom emoji reaction via Bot API directly from Riya Bot
-    if custom_id:
-        try:
-            from telegram import ReactionTypeCustomEmoji
-            await bot.set_message_reaction(
-                chat_id=chat_id,
-                message_id=message_id,
-                reaction=[ReactionTypeCustomEmoji(custom_emoji_id=custom_id)],
-                is_big=big,
-            )
-            logger.debug("[Bot] ✅ Custom emoji reaction sent by Riya Bot on msg %s", message_id)
-            return
-        except Exception as ce:
-            logger.debug("[Bot] Custom emoji reaction failed on Riya Bot, falling back to standard emoji: %s", ce)
-
-    # 2. Standard emoji reaction directly from Riya Bot
+    # 2. Standard emoji reaction directly from Riya Bot (only for allowed standard Telegram reactions)
+    ALLOWED_BOT_REACTIONS = {'👍', '👎', '❤', '🔥', '🥰', '👏', '😁', '🤔', '🤯', '😱', '🤬', '😢', '🎉', '🤩', '🤮', '💩', '🙏', '👌', '🕊', '🤡', '🥱', '🥴', '😍', '🐳', '❤‍🔥', '🌚', '🌭', '💯', '🤣', '⚡', '🍌', '🏆', '💔', '🤨', '😐', '🍓', '🍾', '🍿', '🍕', '🎄', '🎈', '🎁'}
     try:
         from telegram import ReactionTypeEmoji
         std_emoji = emoji.replace('\ufe0f', '')
-        await bot.set_message_reaction(
-            chat_id=chat_id,
-            message_id=message_id,
-            reaction=[ReactionTypeEmoji(emoji=std_emoji)],
-            is_big=big,
-        )
-        logger.debug("[Bot] ✅ Standard emoji reaction sent by Riya Bot on msg %s", message_id)
+        if std_emoji in ALLOWED_BOT_REACTIONS or emoji in ALLOWED_BOT_REACTIONS:
+            await bot.set_message_reaction(
+                chat_id=chat_id,
+                message_id=message_id,
+                reaction=[ReactionTypeEmoji(emoji=std_emoji if std_emoji in ALLOWED_BOT_REACTIONS else emoji)],
+                is_big=big,
+            )
+            logger.debug("[Bot] ✅ Standard emoji reaction sent by Riya Bot on msg %s", message_id)
+    except Exception as ce:
+        logger.debug("[Bot] Standard emoji reaction ignored: %s", ce)
     except Exception as err:
         logger.debug("Riya Bot reaction failed: %s", err)
 
