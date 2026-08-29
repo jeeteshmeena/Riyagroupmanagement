@@ -209,7 +209,11 @@ def build_light_format(data):
         # No blank line between genre and description header
         t += f"\n<b>📝 Story Description :-</b>\n<blockquote expandable>{html.escape(bold_desc)}</blockquote>"
 
-    return t
+    try:
+        from stories_bot import inject_premium_emojis
+        return inject_premium_emojis(t)
+    except Exception:
+        return t
 
 def get_light_kb(data, is_alt=False):
     link        = data.get("link", "")
@@ -379,7 +383,12 @@ def build_light_pro_format(data):
 
         desc_block = f"{desc_header}{BQ_OPEN}{safe_desc}{BQ_CLOSE}"
 
-    return fixed + desc_block + paid_block
+    res = fixed + desc_block + paid_block
+    try:
+        from stories_bot import inject_premium_emojis
+        return inject_premium_emojis(res)
+    except Exception:
+        return res
 
 
 

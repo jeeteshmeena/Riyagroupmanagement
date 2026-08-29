@@ -377,7 +377,11 @@ def build_post_caption(story: Dict[str, Any]) -> str:
         f"<b>Story Description :</b>\n"
         f"<blockquote>{desc_monospace}</blockquote>"
     )
-    return caption
+    try:
+        from stories_bot import inject_premium_emojis
+        return inject_premium_emojis(caption)
+    except Exception:
+        return caption
 
 
 # ------------------------------------------------------------------------------
