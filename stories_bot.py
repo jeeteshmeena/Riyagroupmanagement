@@ -8862,37 +8862,88 @@ def _is_thanks_msg(text: str) -> bool:
     return t in _THANKS_WORDS
 
 
-async def _try_react(bot, chat_id: int, message_id: int, emoji: str, big: bool = True):
-    """Send a reaction from Premium Userbot or standard Riya Bot."""
-    # 1. Try premium userbot if available for animated custom reactions
-    try:
-        from premium_userbot import is_connected, react_with_emoji
-        if is_connected():
-            all_mapped = get_all_mapped_emojis()
-            custom_id = all_mapped.get(emoji)
-            success = await react_with_emoji(chat_id, message_id, emoji, custom_emoji_id=custom_id, big=big)
-            if success:
-                return
-    except Exception as pe:
-        logger.debug("[React] Premium userbot reaction check: %s", pe)
+async def _try_react(bot, chat_id: int, message_id: int, emoji: str, big: bool = True) -> bool:
+    """
+    Unified reaction engine for Riya Bot.
+    Architecture:
+      Main Bot decides reaction
+      ↓
+      Custom / Premium Emoji mapped?
+        YES -> Route ONLY through Telethon Premium Userbot.
+               NEVER send custom emoji reactions via Bot API set_message_reaction (since Bot API rejects custom reactions with 400 Bad Request for non-premium bots).
+        NO  -> Standard Unicode Emoji Reaction via Bot API if allowed by Telegram.
+    """
+    if not chat_id or not message_id or not emoji:
+        return False
 
-    # 2. Standard emoji reaction directly from Riya Bot (only for allowed standard Telegram reactions)
+    all_mapped = get_all_mapped_emojis()
+    custom_id = all_mapped.get(emoji) or all_mapped.get(emoji.replace('\ufe0f', ''))
+
+    # 1. Premium Custom Emoji Reaction -> Route via Telethon Premium Userbot ONLY
+    if custom_id:
+        try:
+            import premium_userbot
+            if premium_userbot.is_connected():
+                success = await premium_userbot.react_with_emoji(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    emoji=emoji,
+                    custom_emoji_id=custom_id,
+                    big=big
+                )
+                if success:
+                    logger.info(
+                        f"[Reaction ✅] Sent Premium Custom Emoji reaction | chat_id={chat_id} | "
+                        f"msg_id={message_id} | emoji={emoji} | custom_emoji_id={custom_id} | handler=PremiumUserbot"
+                    )
+                    return True
+                else:
+                    logger.warning(
+                        f"[Reaction Error] Premium Userbot failed reaction | chat_id={chat_id} | "
+                        f"msg_id={message_id} | emoji={emoji} | custom_emoji_id={custom_id}"
+                    )
+            else:
+                logger.info(
+                    f"[Reaction Info] Premium Userbot disconnected. Custom emoji reaction skipped | "
+                    f"chat_id={chat_id} | msg_id={message_id} | custom_emoji_id={custom_id}"
+                )
+        except Exception as pe:
+            logger.warning(
+                f"[Reaction Error] Exception in Premium Userbot reaction | chat_id={chat_id} | "
+                f"msg_id={message_id} | custom_emoji_id={custom_id} | error={pe}"
+            )
+        return False
+
+    # 2. Standard Emoji Reaction -> Route via Bot API (only for allowed standard reactions)
     ALLOWED_BOT_REACTIONS = {'👍', '👎', '❤', '🔥', '🥰', '👏', '😁', '🤔', '🤯', '😱', '🤬', '😢', '🎉', '🤩', '🤮', '💩', '🙏', '👌', '🕊', '🤡', '🥱', '🥴', '😍', '🐳', '❤‍🔥', '🌚', '🌭', '💯', '🤣', '⚡', '🍌', '🏆', '💔', '🤨', '😐', '🍓', '🍾', '🍿', '🍕', '🎄', '🎈', '🎁'}
-    try:
-        from telegram import ReactionTypeEmoji
-        std_emoji = emoji.replace('\ufe0f', '')
-        if std_emoji in ALLOWED_BOT_REACTIONS or emoji in ALLOWED_BOT_REACTIONS:
+    std_emoji = emoji.replace('\ufe0f', '')
+    target_emoji = std_emoji if std_emoji in ALLOWED_BOT_REACTIONS else (emoji if emoji in ALLOWED_BOT_REACTIONS else None)
+
+    if target_emoji:
+        try:
+            from telegram import ReactionTypeEmoji
             await bot.set_message_reaction(
                 chat_id=chat_id,
                 message_id=message_id,
-                reaction=[ReactionTypeEmoji(emoji=std_emoji if std_emoji in ALLOWED_BOT_REACTIONS else emoji)],
-                is_big=big,
+                reaction=[ReactionTypeEmoji(emoji=target_emoji)],
+                is_big=big
             )
-            logger.debug("[Bot] ✅ Standard emoji reaction sent by Riya Bot on msg %s", message_id)
-    except Exception as ce:
-        logger.debug("[Bot] Standard emoji reaction ignored: %s", ce)
-    except Exception as err:
-        logger.debug("Riya Bot reaction failed: %s", err)
+            logger.info(
+                f"[Reaction ✅] Sent Standard Emoji reaction | chat_id={chat_id} | "
+                f"msg_id={message_id} | emoji={target_emoji} | handler=BotAPI"
+            )
+            return True
+        except Exception as ce:
+            logger.warning(
+                f"[Reaction Error] Bot API rejected reaction | chat_id={chat_id} | "
+                f"msg_id={message_id} | emoji={target_emoji} | error={ce}"
+            )
+            return False
+    else:
+        logger.debug(
+            f"[Reaction Info] Emoji '{emoji}' is not in Telegram Bot API allowed reactions list. Skipped."
+        )
+        return False
 
 
 # NSFW / Adult emojis filter
@@ -10377,40 +10428,11 @@ async def auto_channel_react(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
     import random
     emojis = ["❤️", "🔥", "🎉", "🤩", "✨", "💯", "💖", "🥰", "⚡", "👍"]
-    random.shuffle(emojis)
     chat_id = update.effective_chat.id
     msg_id  = update.channel_post.message_id
 
-    # ── Channel post reaction (Premium Userbot first for custom animated reaction, standard bot fallback) ──
-    try:
-        import premium_userbot
-        if premium_userbot.is_connected():
-            em = random.choice(emojis)
-            all_mapped = get_all_mapped_emojis()
-            custom_id = all_mapped.get(em) or premium_userbot.CUSTOM_EMOJI_MAP.get(em)
-            success = await premium_userbot.react_with_emoji(chat_id, msg_id, em, custom_emoji_id=custom_id, big=True)
-            if success:
-                logger.info(f"[AutoReact] Premium userbot reacted on channel {chat_id}")
-                return
-    except Exception as pe:
-        logger.debug(f"[AutoReact] Premium userbot reaction failed: {pe}")
-
-    ALLOWED_BOT_REACTIONS = {'👍', '👎', '❤', '🔥', '🥰', '👏', '😁', '🤔', '🤯', '😱', '🤬', '😢', '🎉', '🤩', '🤮', '💩', '🙏', '👌', '🕊', '🤡', '🥱', '🥴', '😍', '🐳', '❤‍🔥', '🌚', '🌭', '💯', '🤣', '⚡', '🍌', '🏆', '💔', '🤨', '😐', '🍓', '🍾', '🍿', '🍕', '🎄', '🎈', '🎁'}
-    for em in emojis:
-        std_em = em.replace('\ufe0f', '')
-        if std_em in ALLOWED_BOT_REACTIONS or em in ALLOWED_BOT_REACTIONS:
-            try:
-                from telegram import ReactionTypeEmoji
-                await context.bot.set_message_reaction(
-                    chat_id=chat_id,
-                    message_id=msg_id,
-                    reaction=[ReactionTypeEmoji(emoji=std_em if std_em in ALLOWED_BOT_REACTIONS else em)],
-                    is_big=True
-                )
-                logger.info(f"[AutoReact] Riya Bot reacted '{em}' on channel {chat_id}")
-                break
-            except Exception:
-                continue
+    # Route through unified reaction engine
+    await _try_react(context.bot, chat_id, msg_id, random.choice(emojis), big=True)
 
 
 async def gban_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
