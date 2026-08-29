@@ -144,18 +144,30 @@ async def react_with_emoji(chat_id: int, message_id: int, emoji: str,
         return False
     try:
         from telethon.tl.functions.messages import SendReactionRequest
-        from telethon.tl.types import ReactionEmoji, ReactionCustomEmoji
+        from telethon.tl.types import ReactionEmoji, ReactionCustomEmoji, PeerChannel, PeerChat, PeerUser
 
-        peer = await _userbot_client.get_entity(int(chat_id))
+        cid = int(chat_id)
+        try:
+            peer = await _userbot_client.get_input_entity(cid)
+        except Exception:
+            try:
+                peer = await _userbot_client.get_entity(cid)
+            except Exception:
+                cid_str = str(cid)
+                if cid_str.startswith("-100"):
+                    peer = await _userbot_client.get_input_entity(int(cid_str.replace("-100", "")))
+                else:
+                    peer = cid
 
         if custom_emoji_id and str(custom_emoji_id).isdigit():
             reaction_item = ReactionCustomEmoji(document_id=int(custom_emoji_id))
         else:
-            custom_id = CUSTOM_EMOJI_MAP.get(emoji, CUSTOM_EMOJI_MAP.get("heart"))
-            if custom_id and custom_id.isdigit():
+            custom_id = CUSTOM_EMOJI_MAP.get(emoji)
+            if custom_id and str(custom_id).isdigit():
                 reaction_item = ReactionCustomEmoji(document_id=int(custom_id))
             else:
-                reaction_item = ReactionEmoji(emoticon=emoji)
+                std_em = emoji.replace('\ufe0f', '')
+                reaction_item = ReactionEmoji(emoticon=std_em)
 
         await _userbot_client(SendReactionRequest(
             peer=peer,
@@ -163,23 +175,25 @@ async def react_with_emoji(chat_id: int, message_id: int, emoji: str,
             reaction=[reaction_item],
             big=big,
         ))
-        logger.debug(f"[Premium] ✅ Sent animated reaction on msg {message_id}")
+        logger.info(f"[Premium Reaction ✅] Userbot reacted on chat={chat_id} msg={message_id} with emoji={emoji}")
         return True
 
     except Exception as e:
+        logger.warning(f"[Premium Reaction Warning] Userbot custom reaction failed | chat_id={chat_id} | msg_id={message_id} | emoji={emoji} | custom_emoji_id={custom_emoji_id} | error={e}")
         try:
             from telethon.tl.functions.messages import SendReactionRequest
             from telethon.tl.types import ReactionEmoji
-            peer = await _userbot_client.get_entity(int(chat_id))
+            std_em = emoji.replace('\ufe0f', '')
             await _userbot_client(SendReactionRequest(
                 peer=peer,
                 msg_id=message_id,
-                reaction=[ReactionEmoji(emoticon=emoji)],
+                reaction=[ReactionEmoji(emoticon=std_em)],
                 big=big,
             ))
+            logger.info(f"[Premium Reaction ✅] Userbot fallback standard reaction sent on chat={chat_id} msg={message_id}")
             return True
         except Exception as e2:
-            logger.debug(f"[Premium] Reaction failed: {e2}")
+            logger.warning(f"[Premium Reaction Error] Userbot fallback reaction failed | chat_id={chat_id} | msg_id={message_id} | error={e2}")
             return False
 
 
