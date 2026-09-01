@@ -95,7 +95,7 @@ def format_mongo_story_to_result(doc: Dict[str, Any], settings: Optional[Dict[st
         genre = "Drama"
 
     episodes = extract_smart_field(doc, "episodes", default="Full Story")
-    description = extract_smart_field(doc, "description", default="")
+    description = ""
 
     # Link: prefer doc link, or fallback to StoryfiBot / Arya MiniApp deep link
     story_link = str(doc.get("link") or doc.get("url") or "").strip()

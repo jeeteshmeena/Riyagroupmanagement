@@ -4166,13 +4166,6 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
             caption += f'<tg-emoji emoji-id="5937999673510858217">🎬</tg-emoji> <b>Episodes :</b> <b>{html.escape(ep_str)}</b>\n'
         if result.get("is_paid"):
             caption += "\n█▓▒▒░░░<b>Paid Story</b>  → Purchase required for access.░░░▒▒▓█\n"
-        if result.get("description"):
-            try:
-                from plugins.poster_bot import format_description
-                desc_text = format_description(result["description"])
-            except Exception:
-                desc_text = html.escape(str(result["description"]))
-            caption += f'\n<tg-emoji emoji-id="6021487472603568286">📝</tg-emoji> <b>Story Description :</b>\n<blockquote>{desc_text}</blockquote>\n'
         caption += f"\n<tg-spoiler>◒ This reply will be deleted automatically in 24 hours.</tg-spoiler>"
     else:
         paid_line = "\n█▓▒▒░░░<b>Paid Story</b>  → Purchase required for access.░░░▒▒▓█\n" if result.get("is_paid") else ""
@@ -5225,13 +5218,6 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 caption += f'<tg-emoji emoji-id="5937999673510858217">🎬</tg-emoji> <b>Episodes :</b> <b>{html.escape(ep_str)}</b>\n'
             if result.get("is_paid"):
                 caption += "\n█▓▒▒░░░<b>Paid Story</b>  → Purchase required for access.░░░▒▒▓█\n"
-            if result.get("description"):
-                try:
-                    from plugins.poster_bot import format_description
-                    desc_text = format_description(result["description"])
-                except Exception:
-                    desc_text = html.escape(str(result["description"]))
-                caption += f'\n<tg-emoji emoji-id="6021487472603568286">📝</tg-emoji> <b>Story Description :</b>\n<blockquote>{desc_text}</blockquote>\n'
         else:
             story_type_line = (
                 f"\n<b>✽ Story Type:-</b> <i>{html.escape(str(story_type))}</i>"
