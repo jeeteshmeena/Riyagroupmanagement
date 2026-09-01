@@ -4194,7 +4194,8 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
         if photo_str.startswith(("http://", "https://")):
             try:
                 import requests
-                resp = await asyncio.to_thread(requests.get, photo_str, timeout=8)
+                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+                resp = await asyncio.to_thread(requests.get, photo_str, headers=headers, timeout=8)
                 if resp.status_code == 200 and len(resp.content) > 100:
                     photo_payload = io.BytesIO(resp.content)
                     photo_payload.name = "cover.jpg"
@@ -4206,7 +4207,7 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
                 photo_payload = open(photo_str, "rb")
             except Exception:
                 photo_payload = None
-        elif re.match(r"^[A-Za-z0-9_-]{20,}$", photo_str):
+        elif not result.get("from_mongo") and re.match(r"^[A-Za-z0-9_-]{20,}$", photo_str):
             photo_payload = photo_str
 
     if photo_payload and not sent_msg:
@@ -5284,7 +5285,8 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if photo_str.startswith(("http://", "https://")):
                 try:
                     import requests
-                    resp = await asyncio.to_thread(requests.get, photo_str, timeout=8)
+                    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+                    resp = await asyncio.to_thread(requests.get, photo_str, headers=headers, timeout=8)
                     if resp.status_code == 200 and len(resp.content) > 100:
                         photo_payload = io.BytesIO(resp.content)
                         photo_payload.name = "cover.jpg"
@@ -5296,7 +5298,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     photo_payload = open(photo_str, "rb")
                 except Exception:
                     photo_payload = None
-            elif re.match(r"^[A-Za-z0-9_-]{20,}$", photo_str):
+            elif not result.get("from_mongo") and re.match(r"^[A-Za-z0-9_-]{20,}$", photo_str):
                 photo_payload = photo_str
 
         if photo_payload:
