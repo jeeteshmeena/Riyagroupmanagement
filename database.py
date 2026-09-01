@@ -189,7 +189,14 @@ def add_story(story):
 
 def get_story(name):
     db = load_db()
-    return db.get(name)
+    res = db.get(name)
+    if res:
+        return res
+    try:
+        from mongo_search import search_story_from_mongo_sync
+        return search_story_from_mongo_sync(name)
+    except Exception:
+        return None
 
 
 def remove_stories_not_in(keys_to_keep):

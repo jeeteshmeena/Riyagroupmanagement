@@ -4137,7 +4137,7 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
     photo = result.get("photo") or result.get("image")
     story_type_line = f"\n<b>✽ Story Type:-</b> <i>{html.escape(str(story_type))}</i>" if story_type != "Not specified" else ""
 
-    if result.get("format") in ("LIGHT", "LIGHT_PRO"):
+    if result.get("format") in ("LIGHT", "LIGHT_PRO") or result.get("from_mongo"):
         light_name     = result.get("text", story_name)
         light_status   = result.get("status", "Unknown")
         light_platform = result.get("platform", "Unknown")
@@ -4145,15 +4145,25 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
         caption = (
             f"Hey {target_mention} 👋\n"
             f"<b>✫ I found this story</b> ➴\n\n"
-            f"♨️<b>Story</b> : <b>{html.escape(str(light_name))}</b>\n"
-            f"🔰<b>Status</b> : <b>{html.escape(str(light_status))}</b>\n"
-            f"🖥<b>Platform</b> : <b>{html.escape(str(light_platform))}</b>\n"
-            f"🧩<b>Genre</b> : <b>{html.escape(str(light_genre))}</b>\n"
+            f'<tg-emoji emoji-id="5465432711218863135">♨️</tg-emoji> <b>Story :</b> <b>{html.escape(str(light_name))}</b>\n'
+            f'<tg-emoji emoji-id="6019118553326689234">🔰</tg-emoji> <b>Status :</b> <b>{html.escape(str(light_status))}</b>\n'
+            f'<tg-emoji emoji-id="6019455905827920171">🖥</tg-emoji> <b>Platform :</b> <b>{html.escape(str(light_platform))}</b>\n'
+            f'<tg-emoji emoji-id="6024065724291488135">🧩</tg-emoji> <b>Genre :</b> <b>{html.escape(str(light_genre))}</b>\n'
         )
-        if result.get("format") == "LIGHT_PRO" and result.get("episodes"):
-            caption += f"🎬<b>Episodes</b> : <b>{html.escape(str(result['episodes']))}</b>\n"
-        if result.get("is_paid"):
+        if result.get("episodes"):
+            ep_str = f"{result['episodes']} Episodes" if str(result['episodes']).isdigit() else str(result['episodes'])
+            caption += f'<tg-emoji emoji-id="5937999673510858217">🎬</tg-emoji> <b>Episodes :</b> <b>{html.escape(ep_str)}</b>\n'
+        if result.get("price") and str(result.get("price")).lower() not in ("free", "0", "none", "null", ""):
+            caption += f"\n   █▓▒▒░░░ᑭᖇIᑕE - ₹<b>{html.escape(str(result['price']))}</b> ░░░▒▒▓█\n"
+        elif result.get("is_paid"):
             caption += "\n█▓▒▒░░░<b>Paid Story</b>  → Purchase required for access.░░░▒▒▓█\n"
+        if result.get("description"):
+            try:
+                from plugins.poster_bot import format_description
+                desc_text = format_description(result["description"])
+            except Exception:
+                desc_text = html.escape(str(result["description"]))
+            caption += f'\n<tg-emoji emoji-id="6021487472603568286">📝</tg-emoji> <b>Story Description :</b>\n<blockquote>{desc_text}</blockquote>\n'
         caption += f"\n<tg-spoiler>◒ This reply will be deleted automatically in 24 hours.</tg-spoiler>"
     else:
         paid_line = "\n█▓▒▒░░░<b>Paid Story</b>  → Purchase required for access.░░░▒▒▓█\n" if result.get("is_paid") else ""
@@ -4170,11 +4180,21 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
     _reply_markup = InlineKeyboardMarkup(keyboard)
     sent_msg = None
 
-    # Tier 1: stored Telegram photo (channel file_id) + HTML caption
+    # Tier 1: stored Telegram photo (channel file_id) + HTML caption OR remote URL
     if photo and not sent_msg:
         try:
+            photo_payload = photo
+            if isinstance(photo, str) and (photo.startswith("http://") or photo.startswith("https://")):
+                try:
+                    import requests
+                    resp = await asyncio.to_thread(requests.get, photo, timeout=10)
+                    if resp.status_code == 200:
+                        photo_payload = io.BytesIO(resp.content)
+                        photo_payload.name = "cover.jpg"
+                except Exception:
+                    photo_payload = photo
             sent_msg = await context.bot.send_photo(
-                chat_id=chat_id, photo=photo, caption=caption,
+                chat_id=chat_id, photo=photo_payload, caption=caption,
                 parse_mode="HTML", reply_markup=_reply_markup)
         except Exception as _e1:
             logger.warning(f"[SEARCH T1 failed] {_e1}")
@@ -4416,6 +4436,16 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not result and len(keyword_matches) > 1:
         await _del_searching()
         return await send_story_suggestions_card(update.effective_chat.id, query_text, keyword_matches, context, user=user)
+
+    # 4. Fallback: If not found in Riya Bot's local parsed DB, query Poster Bot's MongoDB!
+    if not result and not keyword_matches:
+        try:
+            from mongo_search import async_search_story_from_mongo
+            mongo_result = await async_search_story_from_mongo(query_text)
+            if mongo_result:
+                result = mongo_result
+        except Exception as _m_err:
+            logger.debug(f"[Search Mongo Fallback] {_m_err}")
 
     # If no story found, check if it's a genre search or show suggestions
     if not result:
@@ -5142,36 +5172,47 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         story_type = result.get("story_type") or extract_story_type(result.get("caption", "")) or "Not specified"
 
         # Light Pro / Light format caption
-        if result.get("format") in ("LIGHT", "LIGHT_PRO"):
+        if result.get("format") in ("LIGHT", "LIGHT_PRO") or result.get("from_mongo"):
             light_name     = result.get("text", story_name)
             light_status   = result.get("status", "Unknown")
             light_platform = result.get("platform", "Unknown")
             light_genre    = result.get("genre", "Unknown")
             caption = (
-                f"Hey {mention} \U0001f44b\n"
-                f"<b>\u272b I found this story</b> \u27b4\n\n"
-                f"\u2668\ufe0f<b>Story</b> : <b>{html.escape(str(light_name))}</b>\n"
-                f"\U0001f530<b>Status</b> : <b>{html.escape(str(light_status))}</b>\n"
-                f"\U0001f5a5<b>Platform</b> : <b>{html.escape(str(light_platform))}</b>\n"
-                f"\U0001f9e9<b>Genre</b> : <b>{html.escape(str(light_genre))}</b>\n"
+                f"Hey {mention} 👋\n"
+                f"<b>✫ I found this story</b> ➴\n\n"
+                f'<tg-emoji emoji-id="5465432711218863135">♨️</tg-emoji> <b>Story :</b> <b>{html.escape(str(light_name))}</b>\n'
+                f'<tg-emoji emoji-id="6019118553326689234">🔰</tg-emoji> <b>Status :</b> <b>{html.escape(str(light_status))}</b>\n'
+                f'<tg-emoji emoji-id="6019455905827920171">🖥</tg-emoji> <b>Platform :</b> <b>{html.escape(str(light_platform))}</b>\n'
+                f'<tg-emoji emoji-id="6024065724291488135">🧩</tg-emoji> <b>Genre :</b> <b>{html.escape(str(light_genre))}</b>\n'
             )
-            if result.get("format") == "LIGHT_PRO" and result.get("episodes"):
-                caption += f"\U0001f3ac<b>Episodes</b> : <b>{html.escape(str(result['episodes']))}</b>\n"
-            if result.get("is_paid"):
+            if result.get("episodes"):
+                ep_str = f"{result['episodes']} Episodes" if str(result['episodes']).isdigit() else str(result['episodes'])
+                caption += f'<tg-emoji emoji-id="5937999673510858217">🎬</tg-emoji> <b>Episodes :</b> <b>{html.escape(ep_str)}</b>\n'
+            if result.get("price") and str(result.get("price")).lower() not in ("free", "0", "none", "null", ""):
+                caption += f"\n   █▓▒▒░░░ᑭᖇIᑕE - ₹<b>{html.escape(str(result['price']))}</b> ░░░▒▒▓█\n"
+            elif result.get("is_paid"):
                 caption += "\n█▓▒▒░░░<b>Paid Story</b>  → Purchase required for access.░░░▒▒▓█\n"
+            if result.get("description"):
+                try:
+                    from plugins.poster_bot import format_description
+                    desc_text = format_description(result["description"])
+                except Exception:
+                    desc_text = html.escape(str(result["description"]))
+                caption += f'\n<tg-emoji emoji-id="6021487472603568286">📝</tg-emoji> <b>Story Description :</b>\n<blockquote>{desc_text}</blockquote>\n'
         else:
             story_type_line = (
-                f"\n<b>\u273d Story Type:-</b> <i>{html.escape(str(story_type))}</i>"
+                f"\n<b>✽ Story Type:-</b> <i>{html.escape(str(story_type))}</i>"
                 if story_type != "Not specified" else ""
             )
             paid_line = "\n█▓▒▒░░░<b>Paid Story</b>  → Purchase required for access.░░░▒▒▓█\n" if result.get("is_paid") else ""
             caption = (
-                f"Hey {mention} \U0001f44b\n"
-                f"<b>\u272b I found this story</b> \u27b4\n\n"
-                f"<i>\u2741 Name:-</i> <b>{html.escape(str(story_name))}</b>{story_type_line}{paid_line}\n\n"
+                f"Hey {mention} 👋\n"
+                f"<b>✫ I found this story</b> ➴\n\n"
+                f"<i>❁ Name:-</i> <b>{html.escape(str(story_name))}</b>{story_type_line}{paid_line}\n\n"
             )
 
-        caption += "\n<tg-spoiler>\u25d2 This reply will be deleted automatically in 24 hours.</tg-spoiler>"
+        caption += "\n<tg-spoiler>◒ This reply will be deleted automatically in 24 hours.</tg-spoiler>"
+        caption = inject_premium_emojis(caption)
 
         # Keyboard matching normal search
         fav_data = f"fav|{story_key}"
@@ -5213,11 +5254,21 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         _reply_markup = InlineKeyboardMarkup(keyboard)
         sent = None
 
-        # Tier 1: stored photo
+        # Tier 1: stored photo / remote URL
         if photo:
             try:
+                photo_payload = photo
+                if isinstance(photo, str) and (photo.startswith("http://") or photo.startswith("https://")):
+                    try:
+                        import requests
+                        resp = await asyncio.to_thread(requests.get, photo, timeout=10)
+                        if resp.status_code == 200:
+                            photo_payload = io.BytesIO(resp.content)
+                            photo_payload.name = "cover.jpg"
+                    except Exception:
+                        photo_payload = photo
                 sent = await context.bot.send_photo(
-                    chat_id=query.message.chat.id, photo=photo,
+                    chat_id=query.message.chat.id, photo=photo_payload,
                     caption=caption, parse_mode="HTML", reply_markup=_reply_markup
                 )
             except Exception as _e:
@@ -9008,6 +9059,15 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif len(kw_matches) > 1:
             return await send_story_suggestions_card(update.effective_chat.id, text_content, kw_matches, context, user=user)
 
+        # Fallback to MongoDB if not in local DB
+        try:
+            from mongo_search import async_search_story_from_mongo
+            mongo_story = await async_search_story_from_mongo(text_content)
+            if mongo_story:
+                return await send_story_result_card(update, context, mongo_story, user=user)
+        except Exception as _m_err:
+            logger.debug(f"[Direct Mongo Fallback] {_m_err}")
+
     # ── 4. Routing: Private Chat (DM) vs Group Chat ───────────────────────────
     is_reply_to_search = bool(replied_msg and _bot_search_replies.get((update.effective_chat.id, replied_msg.message_id)))
 
@@ -9048,6 +9108,15 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         st_res = search_story_exact_or_alias(resolved_name)
                 except Exception as _re_err:
                     logger.debug(f"[AI Search] Resolver error: {_re_err}")
+
+            if not st_res:
+                try:
+                    from mongo_search import async_search_story_from_mongo
+                    mongo_st = await async_search_story_from_mongo(search_query)
+                    if mongo_st:
+                        st_res = mongo_st
+                except Exception as _m_err:
+                    logger.debug(f"[AI Mongo Fallback] {_m_err}")
 
             if st_res:
                 return await send_story_result_card(update, context, st_res, user=user)
