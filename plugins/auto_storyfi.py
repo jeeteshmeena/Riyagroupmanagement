@@ -100,6 +100,8 @@ def clean_channel_title_for_story(channel_title: str) -> str:
     Strips noise, buzzwords, and platforms from channel titles to extract the core story name.
     Example: 'K for King - Pocket FM (Pvt)' -> 'K for King'
              'Dhruvash Story TV [Official]' -> 'Dhruvash'
+             'Detective Ajay - Window TV' -> 'Detective Ajay'
+             'Vashikaran | Channel Shifted' -> 'Vashikaran'
     """
     if not channel_title:
         return ""
@@ -114,8 +116,10 @@ def clean_channel_title_for_story(channel_title: str) -> str:
         r"pocket\s*fm", r"kuku\s*fm", r"story\s*tv", r"pvt", r"private",
         r"official", r"audiobook", r"audio\s*story", r"all\s*episodes",
         r"episodes?", r"hindi", r"season\s*\d+", r"part\s*\d+", r"4k", r"hd",
-        r"channel", r"series", r"stories", r"story", r"full\s*story",
-        r"vip", r"premium", r"exclusive", r"backup", r"discussion", r"group"
+        r"channel\s*shifted", r"channel\s*shift", r"shifted", r"channel",
+        r"series", r"stories", r"story", r"full\s*story", r"window\s*tv",
+        r"window", r"audio", r"vip", r"premium", r"exclusive", r"backup",
+        r"discussion", r"group"
     ]
     for bw in buzzwords:
         t = re.sub(rf"\b{bw}\b", " ", t, flags=re.IGNORECASE)
@@ -130,106 +134,148 @@ def clean_channel_title_for_story(channel_title: str) -> str:
     return t
 
 
-def find_story_for_channel_sync(clean_title: str, config: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+def extract_candidate_titles(channel_title: str) -> List[str]:
+    """
+    Extracts high-probability story title variations from a channel name.
+    Handles pipes (MTAH | Married to a...), dashes, brackets, and full clean names.
+    """
+    if not channel_title:
+        return []
+
+    raw = str(channel_title).strip()
+    candidates: List[str] = []
+
+    # 1. Clean full title
+    cleaned_full = clean_channel_title_for_story(raw)
+    if cleaned_full and len(cleaned_full) >= 2:
+        candidates.append(cleaned_full)
+
+    # 2. Segments split by |, -, •, :, /
+    parts = re.split(r"[|\-•:/\\—–]", raw)
+    for p in parts:
+        c_p = clean_channel_title_for_story(p)
+        if c_p and len(c_p) >= 2 and c_p not in candidates:
+            # Multi-word segments get priority over 1-word acronyms
+            if len(c_p.split()) > 1:
+                candidates.insert(0, c_p)
+            else:
+                candidates.append(c_p)
+
+    # 3. Inside brackets
+    inside_brackets = re.findall(r"\((.*?)\)|\[(.*?)\]|\{(.*?)\}", raw)
+    for tup in inside_brackets:
+        for item in tup:
+            if item:
+                c_item = clean_channel_title_for_story(item)
+                if c_item and len(c_item) >= 2 and c_item not in candidates:
+                    candidates.append(c_item)
+
+    return candidates
+
+
+def find_story_for_channel_sync(channel_title: str, config: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     """
     Finds matching story in MongoDB 'premium_stories' by title or fuzzy match.
+    Uses mongo_search connection pool with fallback to local database.
     """
-    if not clean_title or len(clean_title) < 2:
+    if not channel_title or len(str(channel_title).strip()) < 2:
         return None
 
-    if not config:
-        config = load_storyfi_config()
+    candidates = extract_candidate_titles(channel_title)
+    if not candidates:
+        candidates = [clean_channel_title_for_story(channel_title)]
 
-    mongo_uri = os.getenv("MONGO_URI", "")
-    db_name = os.getenv("DATABASE_NAME", "forward-bot")
-
-    if not mongo_uri:
-        # Fallback to local scanned database
-        from database import load_db
-        db = load_db()
-        from search_engine import search_story_exact_or_alias
-        match = search_story_exact_or_alias(clean_title)
-        if match:
-            return match
-        # Try finding key containing clean_title
-        clean_lower = clean_title.lower()
-        for k, v in db.items():
-            if clean_lower in k.lower() or k.lower() in clean_lower:
-                return v
-        return None
-
+    # 1. Try search_story_from_mongo_sync for each candidate
     try:
-        from pymongo import MongoClient
-        client = MongoClient(mongo_uri, serverSelectionTimeoutMS=4000)
-        db = client[db_name]
-        collection = db.get_collection("premium_stories")
+        from mongo_search import search_story_from_mongo_sync
+        for cand in candidates:
+            res = search_story_from_mongo_sync(cand)
+            if res:
+                return res
+    except Exception as _ms_e:
+        logger.debug(f"[AutoStoryfi Matcher] search_story_from_mongo_sync note: {_ms_e}")
 
-        # 1. Exact / Case-insensitive Regex match
-        escaped_title = re.escape(clean_title)
-        regex_query = {"$regex": f"^{escaped_title}$", "$options": "i"}
+    # 2. Direct MongoDB collection scan with candidate regex & fuzzy matching
+    try:
+        from mongo_search import _get_mongo_client
+        client, db, collection = _get_mongo_client()
+        if collection is not None:
+            for cand in candidates:
+                if not cand or len(cand) < 2:
+                    continue
+                escaped = re.escape(cand)
+                # Exact or case-insensitive match
+                doc = collection.find_one({
+                    "$or": [
+                        {"story_name_en": {"$regex": f"^{escaped}$", "$options": "i"}},
+                        {"story_name_hi": {"$regex": f"^{escaped}$", "$options": "i"}},
+                        {"story_name": {"$regex": f"^{escaped}$", "$options": "i"}},
+                        {"title": {"$regex": f"^{escaped}$", "$options": "i"}},
+                        {"name": {"$regex": f"^{escaped}$", "$options": "i"}},
+                    ]
+                })
+                if doc:
+                    doc["_id"] = str(doc["_id"])
+                    return doc
 
-        doc = collection.find_one({
-            "$or": [
-                {"story_name_en": regex_query},
-                {"story_name_hi": regex_query},
-                {"story_name": regex_query},
-                {"title": regex_query},
-                {"name": regex_query},
-            ]
-        })
-        if doc:
-            doc["_id"] = str(doc["_id"])
-            return doc
+                # Substring match
+                doc = collection.find_one({
+                    "$or": [
+                        {"story_name_en": {"$regex": escaped, "$options": "i"}},
+                        {"story_name_hi": {"$regex": escaped, "$options": "i"}},
+                        {"story_name": {"$regex": escaped, "$options": "i"}},
+                        {"title": {"$regex": escaped, "$options": "i"}},
+                        {"name": {"$regex": escaped, "$options": "i"}},
+                    ]
+                })
+                if doc:
+                    doc["_id"] = str(doc["_id"])
+                    return doc
 
-        # 2. Substring / Word Match
-        sub_regex = {"$regex": escaped_title, "$options": "i"}
-        doc = collection.find_one({
-            "$or": [
-                {"story_name_en": sub_regex},
-                {"story_name_hi": sub_regex},
-                {"story_name": sub_regex},
-                {"title": sub_regex},
-                {"name": sub_regex},
-            ]
-        })
-        if doc:
-            doc["_id"] = str(doc["_id"])
-            return doc
-
-        # 3. Fuzzy match across all documents if small collection
-        all_docs = list(collection.find({}, limit=300))
-        from difflib import SequenceMatcher
-        best_doc = None
-        best_ratio = 0.0
-        clean_lower = clean_title.lower()
-
-        for d in all_docs:
-            d_name = (
-                d.get("story_name_en") or d.get("story_name_hi") or
-                d.get("story_name") or d.get("title") or d.get("name") or ""
-            ).strip().lower()
-            if not d_name:
-                continue
-            ratio = SequenceMatcher(None, clean_lower, d_name).ratio()
-            if ratio > best_ratio and ratio >= 0.70:
-                best_ratio = ratio
-                best_doc = d
-
-        if best_doc:
-            best_doc["_id"] = str(best_doc["_id"])
-            return best_doc
-
+            # Fuzzy match across collection documents
+            all_docs = list(collection.find({}, limit=500))
+            from difflib import SequenceMatcher
+            for cand in candidates:
+                cand_lower = cand.lower()
+                best_doc = None
+                best_ratio = 0.0
+                for d in all_docs:
+                    d_name = (
+                        d.get("story_name_en") or d.get("story_name_hi") or
+                        d.get("story_name") or d.get("title") or d.get("name") or ""
+                    ).strip().lower()
+                    if not d_name:
+                        continue
+                    if cand_lower == d_name or cand_lower in d_name or d_name in cand_lower:
+                        d["_id"] = str(d["_id"])
+                        return d
+                    ratio = SequenceMatcher(None, cand_lower, d_name).ratio()
+                    if ratio > best_ratio and ratio >= 0.65:
+                        best_ratio = ratio
+                        best_doc = d
+                if best_doc:
+                    best_doc["_id"] = str(best_doc["_id"])
+                    return best_doc
     except Exception as e:
-        logger.warning(f"[AutoStoryfi Matcher] MongoDB search error: {e}")
+        logger.warning(f"[AutoStoryfi Matcher] MongoDB query error: {e}")
 
-    # Fallback to local DB
+    # 3. Fallback to Local Scanned Database
     try:
         from database import load_db
+        from search_engine import search_story_exact_or_alias, search_stories_by_keyword
+        for cand in candidates:
+            res = search_story_exact_or_alias(cand)
+            if res:
+                return res
+            res_kw = search_stories_by_keyword(cand)
+            if res_kw:
+                return res_kw[0]
         db = load_db()
-        clean_lower = clean_title.lower()
-        for k, v in db.items():
-            if clean_lower == k.lower() or clean_lower in k.lower():
-                return v
+        for cand in candidates:
+            c_low = cand.lower()
+            for k, v in db.items():
+                if c_low == k.lower() or c_low in k.lower() or k.lower() in c_low:
+                    return v
     except Exception:
         pass
 
@@ -709,7 +755,8 @@ async def handle_storyfi_callbacks(query, context: ContextTypes.DEFAULT_TYPE, pa
 
     if action == "channels":
         page = int(param) if param.isdigit() else 0
-        channels = list(config.get("channels", {}).values())
+        channels_dict = config.get("channels", {})
+        channels = list(channels_dict.values())
         per_page = 6
         total_pages = max(1, (len(channels) + per_page - 1) // per_page)
         page = max(0, min(page, total_pages - 1))
@@ -719,21 +766,41 @@ async def handle_storyfi_callbacks(query, context: ContextTypes.DEFAULT_TYPE, pa
         lines = [f"<b>📋 Connected Channels (Page {page + 1}/{total_pages})</b>\n──────────────────────"]
         btn_rows = []
 
+        cfg_dirty = False
         if not chunk:
             lines.append("<i>No channels found. Tap 'Auto-Scan Channels' first.</i>")
         else:
             for idx, ch in enumerate(chunk, 1):
                 c_title = ch.get("title", "Unknown")[:25]
-                s_name = ch.get("matched_story_name") or "❌ No Story Match"
+                s_name = ch.get("matched_story_name")
+                if not s_name or s_name == "None":
+                    # Dynamic auto-resolve on demand
+                    m_story = find_story_for_channel_sync(ch.get("title", ""), config)
+                    if m_story:
+                        s_name = (
+                            m_story.get("story_name_en") or
+                            m_story.get("story_name") or
+                            m_story.get("title") or "None"
+                        )
+                        ch["matched_story_name"] = s_name
+                        ch["matched_story_id"] = str(m_story.get("_id", ""))
+                        channels_dict[str(ch.get("id"))] = ch
+                        cfg_dirty = True
+
+                display_s_name = s_name if s_name and s_name != "None" else "❌ No Story Match"
                 is_en = "✅" if ch.get("enabled", True) else "❌"
                 cid = ch.get("id")
-                lines.append(f"<b>{idx}.</b> {c_title}\n   ↳ <i>Story:</i> <b>{s_name}</b> [{is_en}]")
+                lines.append(f"<b>{idx}.</b> {c_title}\n   ↳ <i>Story:</i> <b>{display_s_name}</b> [{is_en}]")
 
                 # Toggle button per channel
                 toggle_cb = f"cfg|storyfi|chtoggle|{cid}|{caller_id}"
                 btn_rows.append([
                     InlineKeyboardButton(f"{is_en} {c_title}", callback_data=toggle_cb)
                 ])
+
+        if cfg_dirty:
+            config["channels"] = channels_dict
+            save_storyfi_config(config)
 
         nav_row = []
         if page > 0:
