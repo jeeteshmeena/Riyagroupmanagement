@@ -12,7 +12,11 @@ import html
 import logging
 import os
 import re
-from typing import Optional, Dict, Any, List
+import sys
+if 'OpenSSL' not in sys.modules:
+    sys.modules['OpenSSL'] = None
+    sys.modules['OpenSSL.crypto'] = None
+    sys.modules['OpenSSL.SSL'] = None
 
 try:
     import pymongo

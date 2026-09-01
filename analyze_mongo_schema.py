@@ -7,6 +7,12 @@ from typing import Dict, Any, List
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger('MongoAnalyzer')
 
+import sys
+# Bypass broken PyOpenSSL in Ubuntu to force standard library ssl
+sys.modules['OpenSSL'] = None
+sys.modules['OpenSSL.crypto'] = None
+sys.modules['OpenSSL.SSL'] = None
+
 try:
     import pymongo
 except ImportError:
