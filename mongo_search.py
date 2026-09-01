@@ -150,7 +150,7 @@ def format_mongo_story_to_result(doc: Dict[str, Any], settings: Optional[Dict[st
         "genre": genre,
         "episodes": episodes,
         "price": "",
-        "description": description,
+        "description": "",
         "is_paid": True,
         "format": "LIGHT_PRO",
         "from_mongo": True,
