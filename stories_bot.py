@@ -4102,11 +4102,11 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
     
     if is_paid:
         keyboard.append([
-            InlineKeyboardButton("Buying Guide", url=guide_url, api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})
+            InlineKeyboardButton("Add2", callback_data=fav_data, api_kwargs={"icon_custom_emoji_id": "6217662152547766453"})
         ])
         keyboard.append([
-            InlineKeyboardButton("Add2", callback_data=fav_data, api_kwargs={"icon_custom_emoji_id": "6217662152547766453"}),
-            InlineKeyboardButton(" ", callback_data="delete", api_kwargs={"icon_custom_emoji_id": "6021413766669801212"})
+            InlineKeyboardButton(" ", callback_data="delete", api_kwargs={"icon_custom_emoji_id": "6021413766669801212"}),
+            InlineKeyboardButton(guide_title, url=guide_url, api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})
         ])
     else:
         keyboard.append([
@@ -5173,11 +5173,11 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]
         if is_paid:
             keyboard.append([
-                InlineKeyboardButton("Buying Guide", url=guide_url, api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})
+                InlineKeyboardButton("Add2", callback_data=fav_data, api_kwargs={"icon_custom_emoji_id": "6217662152547766453"})
             ])
             keyboard.append([
-                InlineKeyboardButton("Add2", callback_data=fav_data, api_kwargs={"icon_custom_emoji_id": "6217662152547766453"}),
-                InlineKeyboardButton(" ", callback_data="delete", api_kwargs={"icon_custom_emoji_id": "6021413766669801212"})
+                InlineKeyboardButton(" ", callback_data="delete", api_kwargs={"icon_custom_emoji_id": "6021413766669801212"}),
+                InlineKeyboardButton(guide_title, url=guide_url, api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})
             ])
         else:
             keyboard.append([
