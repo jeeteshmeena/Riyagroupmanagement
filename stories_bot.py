@@ -4116,7 +4116,7 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
     else:
         keyboard.append([
             InlineKeyboardButton(" ", callback_data=fav_data, api_kwargs={"icon_custom_emoji_id": "6217662152547766453"}),
-            InlineKeyboardButton("Link Broken ?", callback_data=lnw_data, api_kwargs={"icon_custom_emoji_id": "5350695039318114023"})
+            InlineKeyboardButton("Broken ?", callback_data=lnw_data, api_kwargs={"icon_custom_emoji_id": "5350695039318114023"})
         ])
         keyboard.append([
             InlineKeyboardButton(" ", callback_data="delete", api_kwargs={"icon_custom_emoji_id": "6021413766669801212"}),
@@ -5185,7 +5185,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             keyboard.append([
                 InlineKeyboardButton(" ", callback_data=fav_data, api_kwargs={"icon_custom_emoji_id": "6217662152547766453"}),
-                InlineKeyboardButton("Link Broken ?", callback_data=lnw_data, api_kwargs={"icon_custom_emoji_id": "5350695039318114023"})
+                InlineKeyboardButton("Broken ?", callback_data=lnw_data, api_kwargs={"icon_custom_emoji_id": "5350695039318114023"})
             ])
             keyboard.append([
                 InlineKeyboardButton(" ", callback_data="delete", api_kwargs={"icon_custom_emoji_id": "6021413766669801212"}),
