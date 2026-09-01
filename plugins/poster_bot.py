@@ -261,11 +261,13 @@ def extract_smart_field(story: Dict[str, Any], field_type: str, default: str = "
                 if isinstance(v, str) and v.strip():
                     return v.strip()
 
-    elif field_type == "cover":
+    elif field_type == "cover" or field_type == "poster":
         cover_keys = [
-            "cover", "coverurl", "coverimage", "banner", "bannerurl", "poster", "posterurl",
-            "image", "imageurl", "photo", "photourl", "thumbnail", "thumb", "fileid", "img",
-            "imgurl", "pic", "picture", "photoid", "telegramfileid", "telefileid"
+            "poster_url", "posterurl", "poster", "image_url", "imageurl",
+            "cover", "coverurl", "coverimage", "image", "photo_url", "photourl",
+            "photo", "thumbnail", "thumb", "fileid", "img", "imgurl",
+            "pic", "picture", "banner_url", "bannerurl", "banner",
+            "photoid", "telegramfileid", "telefileid"
         ]
         for k in cover_keys:
             if k in flat:
@@ -499,14 +501,15 @@ async def publish_next_story(app) -> Tuple[bool, str]:
         extract_smart_field(story, "name", default="Story")
     )
 
-    # 2. Image URL Resolution Formula:
-    # Prioritize HTTP image URLs from image, poster_url, banner_url fields (do not use getFile on file IDs)
+    # 2. Image URL Resolution Formula for SQUARE Poster (1:1):
     img_url = ""
-    for field in ["image", "poster_url", "banner_url", "cover_url", "photo_url", "cover", "poster", "banner"]:
+    for field in ["poster_url", "poster", "image_url", "cover", "image", "cover_url", "photo_url", "photo", "banner_url", "banner"]:
         val = str(story.get(field) or "").strip()
         if val.startswith("http://") or val.startswith("https://"):
             img_url = val
             break
+    if not img_url:
+        img_url = "https://images.unsplash.com/photo-1614729939124-032f0b56c9ce?w=400"
 
     logger.info(f"[PosterBot] Story fetched from MongoDB: name='{story_name}' | img_url='{img_url}' | keys={list(story.keys())}")
 
@@ -642,13 +645,15 @@ async def publish_story_doc(app, story: Dict[str, Any], target_channel: str) -> 
         extract_smart_field(story, "name", default="Story")
     )
 
-    # 2. Image URL
+    # 2. Image URL for SQUARE Poster (1:1):
     img_url = ""
-    for field in ["image", "poster_url", "banner_url", "cover_url", "photo_url", "cover", "poster", "banner"]:
+    for field in ["poster_url", "poster", "image_url", "cover", "image", "cover_url", "photo_url", "photo", "banner_url", "banner"]:
         val = str(story.get(field) or "").strip()
         if val.startswith("http://") or val.startswith("https://"):
             img_url = val
             break
+    if not img_url:
+        img_url = "https://images.unsplash.com/photo-1614729939124-032f0b56c9ce?w=400"
 
     caption = build_post_caption(story)
     story_id = str(story.get("_id", ""))

@@ -105,21 +105,24 @@ def format_mongo_story_to_result(doc: Dict[str, Any], settings: Optional[Dict[st
         else:
             story_link = "https://t.me/StoryfiBot"
 
-    # Photo / Cover - ensure only valid HTTP/HTTPS URL is returned
+    # Photo / Cover - Priority resolution for SQUARE Poster (1:1):
     raw_img = (
-        extract_smart_field(doc, "cover", default="") or
-        doc.get("image_url") or
-        doc.get("image") or
-        doc.get("poster") or
-        doc.get("cover") or
-        doc.get("photo") or
-        ""
+        doc.get("poster_url")
+        or doc.get("poster")
+        or doc.get("image_url")
+        or doc.get("cover")
+        or doc.get("image")  # Legacy field / Telegram file_id fallback
+        or doc.get("banner_url")  # Last resort fallback if no square image exists
+        or doc.get("banner")
+        or "https://images.unsplash.com/photo-1614729939124-032f0b56c9ce?w=400"  # Default placeholder
     )
-    raw_img = str(raw_img).strip()
+    raw_img = str(raw_img).strip() if raw_img else ""
     if raw_img.startswith(("http://", "https://")):
         image_url = raw_img
+    elif raw_img and re.match(r"^[A-Za-z0-9_-]{20,}$", raw_img):
+        image_url = raw_img
     else:
-        image_url = ""
+        image_url = "https://images.unsplash.com/photo-1614729939124-032f0b56c9ce?w=400"
 
     clean_key = _clean_query(story_name).lower()
 

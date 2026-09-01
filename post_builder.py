@@ -604,11 +604,13 @@ async def start_builder(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 buy_url = f"https://t.me/UseAryaBot/apminibyarya?startapp=story_{story_id}"
 
                 img_url = ""
-                for field in ["image", "poster_url", "banner_url", "cover_url", "photo_url", "cover", "poster", "banner"]:
+                for field in ["poster_url", "poster", "image_url", "cover", "image", "cover_url", "photo_url", "photo", "banner_url", "banner"]:
                     val = str(story.get(field) or "").strip()
                     if val.startswith("http://") or val.startswith("https://"):
                         img_url = val
                         break
+                if not img_url:
+                    img_url = "https://images.unsplash.com/photo-1614729939124-032f0b56c9ce?w=400"
 
                 target_channel = settings.get("target_channel") or ""
 

@@ -1391,11 +1391,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )
                     text = inject_premium_emojis(text)
                     img_url = ""
-                    for field in ["image", "poster_url", "banner_url", "cover_url", "photo_url", "cover", "poster"]:
+                    for field in ["poster_url", "poster", "image_url", "cover", "image", "cover_url", "photo_url", "photo", "banner_url", "banner"]:
                         val = str(story.get(field) or "").strip()
                         if val.startswith("http://") or val.startswith("https://"):
                             img_url = val
                             break
+                    if not img_url:
+                        img_url = "https://images.unsplash.com/photo-1614729939124-032f0b56c9ce?w=400"
                     if img_url:
                         return await update.message.reply_photo(photo=img_url, caption=text, parse_mode="HTML", reply_markup=kb)
                     else:
