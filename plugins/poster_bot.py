@@ -520,12 +520,12 @@ async def publish_next_story(app) -> Tuple[bool, str]:
     story_id = str(story.get("_id", ""))
     buy_app_url = f"https://t.me/UseAryaBot/apminibyarya?startapp=story_{story_id}"
     buy_bot_url = f"https://t.me/StoryfiBot?start=buy_{story_id}"
-    buying_guide_url = "https://t.me/StoriesLinkopningguide/19"
+    tutorial_url = "https://t.me/StoriesFinderBot?start=guide"
 
     markup = InlineKeyboardMarkup([
         [InlineKeyboardButton("Buy Via App", url=buy_app_url, api_kwargs={"icon_custom_emoji_id": "5456343263340405032"})],
         [InlineKeyboardButton("Buy Via Bot", url=buy_bot_url, api_kwargs={"icon_custom_emoji_id": "5456343263340405032"})],
-        [InlineKeyboardButton("Buying Guide", url=buying_guide_url, api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})]
+        [InlineKeyboardButton("Tutorial", url=tutorial_url, api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})]
     ])
 
     # Handle Photo & Watermark
@@ -654,12 +654,12 @@ async def publish_story_doc(app, story: Dict[str, Any], target_channel: str) -> 
     story_id = str(story.get("_id", ""))
     buy_app_url = f"https://t.me/UseAryaBot/apminibyarya?startapp=story_{story_id}"
     buy_bot_url = f"https://t.me/StoryfiBot?start=buy_{story_id}"
-    buying_guide_url = "https://t.me/StoriesLinkopningguide/19"
+    tutorial_url = "https://t.me/StoriesFinderBot?start=guide"
 
     markup = InlineKeyboardMarkup([
         [InlineKeyboardButton("Buy Via App", url=buy_app_url, api_kwargs={"icon_custom_emoji_id": "5456343263340405032"})],
         [InlineKeyboardButton("Buy Via Bot", url=buy_bot_url, api_kwargs={"icon_custom_emoji_id": "5456343263340405032"})],
-        [InlineKeyboardButton("Buying Guide", url=buying_guide_url, api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})]
+        [InlineKeyboardButton("Tutorial", url=tutorial_url, api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})]
     ])
 
     wm_settings = settings.get("watermark", {})
