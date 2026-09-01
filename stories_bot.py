@@ -4103,7 +4103,7 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
     if is_paid:
         keyboard.append([
             InlineKeyboardButton("Add2", callback_data=fav_data, api_kwargs={"icon_custom_emoji_id": "6217662152547766453"}),
-            InlineKeyboardButton("", callback_data="delete", api_kwargs={"icon_custom_emoji_id": "6021413766669801212"}),
+            InlineKeyboardButton(" ", callback_data="delete", api_kwargs={"icon_custom_emoji_id": "6021413766669801212"}),
             InlineKeyboardButton(guide_title, url=guide_url, api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})
         ])
     else:
@@ -4112,7 +4112,7 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
             InlineKeyboardButton("Link Broken?", callback_data=lnw_data)
         ])
         keyboard.append([
-            InlineKeyboardButton("", callback_data="delete", api_kwargs={"icon_custom_emoji_id": "6021413766669801212"}),
+            InlineKeyboardButton(" ", callback_data="delete", api_kwargs={"icon_custom_emoji_id": "6021413766669801212"}),
             InlineKeyboardButton(guide_title, url=guide_url, api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})
         ])
 
@@ -5172,7 +5172,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if is_paid:
             keyboard.append([
                 InlineKeyboardButton("Add2", callback_data=fav_data, api_kwargs={"icon_custom_emoji_id": "6217662152547766453"}),
-                InlineKeyboardButton("", callback_data="delete", api_kwargs={"icon_custom_emoji_id": "6021413766669801212"}),
+                InlineKeyboardButton(" ", callback_data="delete", api_kwargs={"icon_custom_emoji_id": "6021413766669801212"}),
                 InlineKeyboardButton(guide_title, url=guide_url, api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})
             ])
         else:
@@ -5181,7 +5181,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 InlineKeyboardButton("Link Broken?", callback_data=lnw_data)
             ])
             keyboard.append([
-                InlineKeyboardButton("", callback_data="delete", api_kwargs={"icon_custom_emoji_id": "6021413766669801212"}),
+                InlineKeyboardButton(" ", callback_data="delete", api_kwargs={"icon_custom_emoji_id": "6021413766669801212"}),
                 InlineKeyboardButton(guide_title, url=guide_url, api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})
             ])
 
