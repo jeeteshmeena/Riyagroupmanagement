@@ -51,7 +51,7 @@ def load_poster_settings() -> Dict[str, Any]:
         "delete_delay_hours": 0,
         "rot_idx": 0,
         "mongo_uri": os.getenv("MONGO_URI", ""),
-        "database_name": os.getenv("DATABASE_NAME", "arya_premium"),
+        "database_name": os.getenv("DATABASE_NAME", "forward-bot"),
         "collection_name": "premium_stories",
         "watermark": {
             "enabled": True,
@@ -127,7 +127,7 @@ def _fetch_mongo_story_sync(mongo_uri: str, db_name: str, col_name: str, rot_idx
 async def get_next_story_from_mongo(settings: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], int]:
     """Asynchronously fetch the next story from MongoDB in READ-ONLY mode."""
     mongo_uri = settings.get("mongo_uri") or os.getenv("MONGO_URI", "")
-    db_name = settings.get("database_name") or os.getenv("DATABASE_NAME", "arya_premium")
+    db_name = settings.get("database_name") or os.getenv("DATABASE_NAME", "forward-bot")
     col_name = settings.get("collection_name", "premium_stories")
     rot_idx = settings.get("rot_idx", 0)
 
@@ -164,7 +164,7 @@ async def get_story_by_id_from_mongo(story_id: str) -> Optional[Dict[str, Any]]:
     """Asynchronously fetch a single story by ID from MongoDB in READ-ONLY mode."""
     settings = load_poster_settings()
     mongo_uri = settings.get("mongo_uri") or os.getenv("MONGO_URI", "")
-    db_name = settings.get("database_name") or os.getenv("DATABASE_NAME", "arya_premium")
+    db_name = settings.get("database_name") or os.getenv("DATABASE_NAME", "forward-bot")
     col_name = settings.get("collection_name", "premium_stories")
     return await asyncio.to_thread(_fetch_story_by_id_sync, mongo_uri, db_name, col_name, story_id)
 

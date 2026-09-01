@@ -2363,7 +2363,7 @@ async def _check_story_in_mongo(story_name: str) -> bool:
         if not mongo_uri:
             return False
         
-        db_name  = os.getenv("DATABASE_NAME", "arya_premium")
+        db_name  = os.getenv("DATABASE_NAME", "forward-bot")
         col_name = "premium_stories"
         
         def _sync_check():
@@ -9135,27 +9135,27 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if extracted_story:
         return await send_story_result_card(update, context, extracted_story, user=user)
 
-    # ── 3. Check Direct & Keyword / 1-Word Story Match ─────────────────────────
-    # If query is short (1-4 words):
-    if len(text_content.split()) <= 4:
+    # ── 3. Check Direct & Keyword / Story Match (Both Local DB and MongoDB) ────
+    if len(text_content.split()) <= 10:
         direct_story = search_story_exact_or_alias(text_content)
         if direct_story:
             return await send_story_result_card(update, context, direct_story, user=user)
 
-        kw_matches = search_stories_by_keyword(text_content, limit=10)
-        if len(kw_matches) == 1:
-            return await send_story_result_card(update, context, kw_matches[0], user=user)
-        elif len(kw_matches) > 1:
-            return await send_story_suggestions_card(update.effective_chat.id, text_content, kw_matches, context, user=user)
-
-        # Fallback to MongoDB if not in local DB
+        # Fallback directly to MongoDB if exact match not in local DB
         try:
             from mongo_search import async_search_story_from_mongo
             mongo_story = await async_search_story_from_mongo(text_content)
             if mongo_story:
+                logger.info(f"[TextHandler Mongo Hit] ✅ Found story '{mongo_story.get('text')}' for '{text_content}'")
                 return await send_story_result_card(update, context, mongo_story, user=user)
         except Exception as _m_err:
-            logger.debug(f"[Direct Mongo Fallback] {_m_err}")
+            logger.error(f"[TextHandler Mongo Error] {_m_err}")
+
+        kw_matches = search_stories_by_keyword(text_content, limit=10)
+        if len(kw_matches) == 1:
+            return await send_story_result_card(update, context, kw_matches[0], user=user)
+        elif len(kw_matches) > 1 and not is_private:
+            return await send_story_suggestions_card(update.effective_chat.id, text_content, kw_matches, context, user=user)
 
     # ── 4. Routing: Private Chat (DM) vs Group Chat ───────────────────────────
     is_reply_to_search = bool(replied_msg and _bot_search_replies.get((update.effective_chat.id, replied_msg.message_id)))
