@@ -4107,27 +4107,27 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
                 text='<tg-emoji emoji-id="6021319161425172520">🔍</tg-emoji> Story not found in RIYA Database.',
                 parse_mode="HTML"
             )
-            await asyncio.sleep(0.18)
+            await asyncio.sleep(0.75)
             await status_msg.edit_text(
                 '<tg-emoji emoji-id="6021319161425172520">🔍</tg-emoji> Story not found in RIYA Database.\n<tg-emoji emoji-id="5258113901106580375">⏳</tg-emoji> Fetching from Storyfi...',
                 parse_mode="HTML"
             )
-            await asyncio.sleep(0.18)
+            await asyncio.sleep(0.75)
             await status_msg.edit_text(
                 '<tg-emoji emoji-id="6021319161425172520">🔍</tg-emoji> Story not found in RIYA Database.\n<tg-emoji emoji-id="5454074580010295588">✅</tg-emoji> Story details found.',
                 parse_mode="HTML"
             )
-            await asyncio.sleep(0.18)
+            await asyncio.sleep(0.75)
             await status_msg.edit_text(
                 '<tg-emoji emoji-id="5454345339043601366">✨</tg-emoji> Fetching complete...',
                 parse_mode="HTML"
             )
-            await asyncio.sleep(0.15)
+            await asyncio.sleep(0.65)
             await status_msg.edit_text(
                 '<tg-emoji emoji-id="5219943216781995020">🚀</tg-emoji> Sending results...',
                 parse_mode="HTML"
             )
-            await asyncio.sleep(0.15)
+            await asyncio.sleep(0.65)
             try:
                 await status_msg.delete()
             except Exception:
