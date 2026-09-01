@@ -2315,7 +2315,7 @@ async def stories(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"STORIES | user_id={cmd_msg.from_user.id} username={cmd_msg.from_user.username}"
     )
 
-    # Delete /stories command message after 5s, reply after 30 min
+    # Delete /stories command message after 5s, reply after 5 min
     async def _delete_cmd():
         await asyncio.sleep(5)
         try:
@@ -2324,7 +2324,7 @@ async def stories(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
     async def _delete_reply():
-        await asyncio.sleep(1800)
+        await asyncio.sleep(300)
         try:
             await reply.delete()
         except Exception:
@@ -4101,12 +4101,43 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
         asyncio.create_task(_del_broken())
         return sent
 
+    # React to user search message with custom emoji 5456140674028019486
+    target_msg_id = None
+    if user_query_msg and hasattr(user_query_msg, "message_id"):
+        target_msg_id = user_query_msg.message_id
+    elif update and update.message and hasattr(update.message, "message_id"):
+        target_msg_id = update.message.message_id
+
+    if target_msg_id:
+        async def _set_reaction():
+            try:
+                from telegram import ReactionTypeCustomEmoji, ReactionTypeEmoji
+                try:
+                    await context.bot.set_message_reaction(
+                        chat_id=chat_id,
+                        message_id=target_msg_id,
+                        reaction=[ReactionTypeCustomEmoji(custom_emoji_id="5456140674028019486")]
+                    )
+                except Exception:
+                    try:
+                        await context.bot.set_message_reaction(
+                            chat_id=chat_id,
+                            message_id=target_msg_id,
+                            reaction=[ReactionTypeEmoji(emoji="❤️")]
+                        )
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        asyncio.create_task(_set_reaction())
+
     # Progressive typewriter loading animation when fetching story from MongoDB
     if result.get("from_mongo"):
         try:
             status_msg = await context.bot.send_message(
                 chat_id=chat_id,
                 text='<tg-emoji emoji-id="6021319161425172520">🔍</tg-emoji> Story not found in RIYA Database.',
+                reply_to_message_id=target_msg_id,
                 parse_mode="HTML"
             )
             await asyncio.sleep(0.75)
@@ -5523,7 +5554,13 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         nav.append(InlineKeyboardButton(f"{page+1}/{total_pages}", callback_data="noop"))
         if has_next:
             nav.append(InlineKeyboardButton("Next ►", callback_data=f"stories_p|{page+1}|{caller_id}"))
-        rows = [nav, [InlineKeyboardButton("🗑️ Delete", callback_data=f"story_delete|{caller_id}")]]
+        rows = [
+            nav,
+            [
+                InlineKeyboardButton("🗑️ Delete", callback_data=f"story_delete|{caller_id}"),
+                InlineKeyboardButton("📋 Full List", callback_data=f"story_wtf|{caller_id}")
+            ]
+        ]
         try:
             await query.message.edit_text(
                 text=text,
@@ -9171,43 +9208,49 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if await _handle_no_or_thanks(update, context):
         return
 
+    # ── List word trigger: "list", "stories", "all stories" ─────────────────────
+    if text_content.lower().strip() in ("list", "stories", "story list", "storylist", "all stories", "all story", "story list do"):
+        return await stories(update, context)
+
     # ── 1. Check Digit Story Index (e.g. "12", "3") ───────────────────────────
     if text_content.isdigit():
         idx = int(text_content) - 1
         if 0 <= idx < len(story_index):
             digit_res = search_story_exact_or_alias(story_index[idx])
             if digit_res:
-                return await send_story_result_card(update, context, digit_res, user=user)
+                return await send_story_result_card(update, context, digit_res, user=user, user_query_msg=update.message)
 
     from search_engine import extract_story_from_text, search_stories_by_keyword, search_story_exact_or_alias
 
-    # ── 2. Scan Conversational Sentence for known Story Titles ─────────────────
-    # E.g. "kisi ke pas mahabali mayank story h kya free bali" -> detects "Mahabali Mayank"
+    # ── 2. Scan Conversational Sentence for known Story Titles (Local DB Priority) ────
     extracted_story, _ = extract_story_from_text(text_content)
     if extracted_story:
-        return await send_story_result_card(update, context, extracted_story, user=user)
+        return await send_story_result_card(update, context, extracted_story, user=user, user_query_msg=update.message)
 
-    # ── 3. Check Direct & Keyword / Story Match (Both Local DB and MongoDB) ────
+    # ── 3. Local Scanned DB Search First (Exact & Keyword Matches - 100% Free) ────
     if len(text_content.split()) <= 10:
+        # Step A: Exact / Alias match in Local DB
         direct_story = search_story_exact_or_alias(text_content)
         if direct_story:
-            return await send_story_result_card(update, context, direct_story, user=user)
+            return await send_story_result_card(update, context, direct_story, user=user, user_query_msg=update.message)
 
-        # Fallback directly to MongoDB if exact match not in local DB
-        try:
-            from mongo_search import async_search_story_from_mongo
-            mongo_story = await async_search_story_from_mongo(text_content)
-            if mongo_story:
-                logger.info(f"[TextHandler Mongo Hit] ✅ Found story '{mongo_story.get('text')}' for '{text_content}'")
-                return await send_story_result_card(update, context, mongo_story, user=user)
-        except Exception as _m_err:
-            logger.error(f"[TextHandler Mongo Error] {_m_err}")
-
+        # Step B: Keyword / Fuzzy match in Local DB
         kw_matches = search_stories_by_keyword(text_content, limit=10)
         if len(kw_matches) == 1:
-            return await send_story_result_card(update, context, kw_matches[0], user=user)
+            return await send_story_result_card(update, context, kw_matches[0], user=user, user_query_msg=update.message)
         elif len(kw_matches) > 1 and not is_private:
             return await send_story_suggestions_card(update.effective_chat.id, text_content, kw_matches, context, user=user)
+
+        # Step C: ONLY IF Local DB has ZERO matches -> Fallback to MongoDB (Paid Stories)
+        if not direct_story and not kw_matches:
+            try:
+                from mongo_search import async_search_story_from_mongo
+                mongo_story = await async_search_story_from_mongo(text_content)
+                if mongo_story:
+                    logger.info(f"[TextHandler Mongo Hit] ✅ Found story '{mongo_story.get('text')}' for '{text_content}'")
+                    return await send_story_result_card(update, context, mongo_story, user=user, user_query_msg=update.message)
+            except Exception as _m_err:
+                logger.error(f"[TextHandler Mongo Error] {_m_err}")
 
     # ── 4. Routing: Private Chat (DM) vs Group Chat ───────────────────────────
     is_reply_to_search = bool(replied_msg and _bot_search_replies.get((update.effective_chat.id, replied_msg.message_id)))
@@ -10188,13 +10231,26 @@ async def storylist_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not msgs_text:
         msgs_text = ["<i>No stories indexed yet.</i>"]
         
-    msg_ids = []
+    sent_msgs = []
     for text in msgs_text:
         try:
-            await context.bot.send_message(chat_id=chat_id, text=text, parse_mode="HTML", disable_web_page_preview=True)
+            s_msg = await context.bot.send_message(chat_id=chat_id, text=text, parse_mode="HTML", disable_web_page_preview=True)
+            sent_msgs.append(s_msg)
             await asyncio.sleep(0.5)
         except Exception as e:
             logger.error(f"Failed to send list: {e}")
+
+    # Auto-delete full list after 5 minutes (300s)
+    async def _del_full_list():
+        await asyncio.sleep(300)
+        for sm in sent_msgs:
+            try:
+                await sm.delete()
+            except Exception:
+                pass
+
+    if sent_msgs:
+        asyncio.create_task(_del_full_list())
 
 check_cooldowns = {}  # user_id -> [timestamps]
 _check_no_input_counts = {}  # user_id -> count of /check without args
@@ -10708,6 +10764,7 @@ def start_bot():
     app.add_handler(CommandHandler("scan", scan))
     app.add_handler(CommandHandler("check", check_command))
     app.add_handler(CommandHandler("stories", stories))
+    app.add_handler(CommandHandler("list", stories))
     app.add_handler(CommandHandler("genre", genre_cmd))
     app.add_handler(CommandHandler("genres", genre_cmd))
     # /storylist command removed — access via WTF button only
