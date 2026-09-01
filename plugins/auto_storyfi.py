@@ -392,11 +392,38 @@ async def publish_story_to_channel(bot, chat_id: int, channel_info: Dict[str, An
     """
     Builds poster card with storyfiwatermark.png (top_right), sends to channel,
     sends engaging reply, and deletes previous post + previous reply.
+    Supports multi-story assignment with round-robin rotation.
     """
-    clean_title = channel_info.get("cleaned_title") or clean_channel_title_for_story(channel_info.get("title", ""))
-    story = find_story_for_channel_sync(clean_title, config)
+    matched_list = channel_info.get("matched_stories")
+    if not matched_list:
+        s_id = channel_info.get("matched_story_id")
+        s_name = channel_info.get("matched_story_name")
+        if s_id or s_name:
+            matched_list = [{"id": str(s_id or ""), "name": s_name or ""}]
+        else:
+            clean_title = channel_info.get("cleaned_title") or clean_channel_title_for_story(channel_info.get("title", ""))
+            auto_s = find_story_for_channel_sync(channel_info.get("title", ""), config)
+            if auto_s:
+                s_name_found = auto_s.get("story_name_en") or auto_s.get("story_name") or auto_s.get("title") or clean_title
+                matched_list = [{"id": str(auto_s.get("_id", "")), "name": s_name_found}]
+
+    story = None
+    if matched_list:
+        rot_idx = int(channel_info.get("story_rotation_idx", 0))
+        selected_entry = matched_list[rot_idx % len(matched_list)]
+        channel_info["story_rotation_idx"] = (rot_idx + 1) % max(1, len(matched_list))
+        channel_info["matched_stories"] = matched_list
+        channel_info["matched_story_name"] = selected_entry.get("name")
+        channel_info["matched_story_id"] = selected_entry.get("id")
+        
+        # Save updated rotation index into config
+        config["channels"][str(chat_id)] = channel_info
+        save_storyfi_config(config)
+        
+        story = _fetch_full_story_by_id_cached(selected_entry.get("id", ""), selected_entry.get("name", ""))
 
     if not story:
+        clean_title = channel_info.get("cleaned_title") or clean_channel_title_for_story(channel_info.get("title", ""))
         logger.warning(f"[AutoStoryfi] No matching story found for channel '{channel_info.get('title')}' (clean='{clean_title}')")
         if config.get("notify_owner_on_missing", True):
             try:
@@ -419,7 +446,7 @@ async def publish_story_to_channel(bot, chat_id: int, channel_info: Dict[str, An
         story.get("story_name_hi") or
         story.get("story_name") or
         story.get("title") or
-        clean_title
+        "Story"
     )
 
     # 1. Image Resolution
@@ -522,71 +549,79 @@ async def publish_story_to_channel(bot, chat_id: int, channel_info: Dict[str, An
                 disable_web_page_preview=False
             )
     except Exception as e:
-        logger.error(f"[AutoStoryfi] Failed to send post to channel {chat_id}: {e}")
+        logger.error(f"[AutoStoryfi] Error sending post to channel {chat_id}: {e}")
         return False, str(e)
 
-    # 7. Send Engaging Reply tagged to the Main Post
-    sent_reply = None
-    if config.get("reply_enabled", True) and sent_post:
-        try:
-            await asyncio.sleep(1.5)  # small pause before reply
-            reply_text = get_random_engaging_reply(story_name, config.get("reply_tone", "mixed"))
-            sent_reply = await bot.send_message(
-                chat_id=chat_id,
-                text=reply_text,
-                reply_to_message_id=sent_post.message_id
-            )
-            logger.info(f"[AutoStoryfi] Sent auto-reply to msg {sent_post.message_id} in {chat_id}")
-        except Exception as e_reply:
-            logger.warning(f"[AutoStoryfi] Reply send error in {chat_id}: {e_reply}")
+    if not sent_post:
+        return False, "Failed to send main post"
 
-    # 8. Update Channel Stats in Configuration
-    channel_info["last_post_msg_id"] = sent_post.message_id if sent_post else None
+    # 7. Send Engaging Auto-Reply (Tagging / Replying to Post)
+    sent_reply = None
+    try:
+        reply_tone = config.get("reply_tone", "mixed")
+        reply_text = get_random_engaging_reply(story_name, reply_tone)
+
+        sent_reply = await bot.send_message(
+            chat_id=chat_id,
+            text=reply_text,
+            parse_mode="HTML",
+            reply_to_message_id=sent_post.message_id
+        )
+    except Exception as _e_rep:
+        logger.warning(f"[AutoStoryfi] Auto-reply send error in {chat_id}: {_e_rep}")
+
+    # 8. Update channel stats in config
+    channel_info["last_post_msg_id"] = sent_post.message_id
     channel_info["last_reply_msg_id"] = sent_reply.message_id if sent_reply else None
     channel_info["last_post_time"] = time.time()
-    channel_info["matched_story_name"] = story_name
-    channel_info["matched_story_id"] = story_id
-
     config["channels"][str(chat_id)] = channel_info
     save_storyfi_config(config)
 
+    logger.info(f"[AutoStoryfi] ✅ Successfully published '{story_name}' to channel {chat_id} (msg_id={sent_post.message_id})")
     return True, f"Posted '{story_name}' successfully!"
 
 
 # ------------------------------------------------------------------------------
-# 5. CHANNEL SCANNER & DISCOVERY
+# 5. ADMIN CHANNEL SCANNER & AUTO-MAPPER
 # ------------------------------------------------------------------------------
 
-async def scan_and_sync_admin_channels(bot, context=None) -> Dict[str, Any]:
+async def scan_and_sync_admin_channels(bot, context: ContextTypes.DEFAULT_TYPE) -> Dict[str, Any]:
     """
-    Discovers all channels where Riya Bot is Admin, extracts story names,
-    and updates auto_storyfi_config.json.
+    Scans all dialogs where the bot/userbot is admin.
+    Maps channel names to MongoDB stories and saves them into data/auto_storyfi_config.json.
+    Preserves any manually added stories.
     """
     config = load_storyfi_config()
-    discovered: Dict[str, Any] = config.get("channels", {})
+    discovered = config.get("channels", {})
     blacklisted = set(config.get("blacklisted_channels", []))
+
+    # Pre-warm catalog
+    _get_cached_story_catalog()
 
     known_channel_ids = set()
 
-    # 1. From database.py story_channels.json & channels_db.json
+    # 1. Collect from story_channels_db
     try:
-        from database import load_story_channels, load_config as _load_bot_cfg
-        sc = load_story_channels()
-        for c in sc.get("ongoing", []) + sc.get("completed", []):
-            known_channel_ids.add(c)
-        bc = _load_bot_cfg()
-        for c in bc.get("sources", []):
-            known_channel_ids.add(c)
-    except Exception:
-        pass
+        from database import story_channels_db
+        for cat_list in story_channels_db.values():
+            if isinstance(cat_list, list):
+                for cid in cat_list:
+                    if isinstance(cid, int) or (isinstance(cid, str) and cid.lstrip("-").isdigit()):
+                        known_channel_ids.add(int(cid))
+    except Exception as e:
+        logger.debug(f"[AutoStoryfi Scan] Local DB scan note: {e}")
 
-    # 2. From Telethon link_checker dialogs if available
+    # 2. Collect from Telethon if available
     try:
-        from link_checker import link_checker
-        if link_checker and link_checker.client and link_checker.client.is_connected():
-            async for dialog in link_checker.client.iter_dialogs():
-                if dialog.is_channel:
-                    known_channel_ids.add(dialog.id)
+        from plugins.forward_bot import client as telethon_client
+        if telethon_client and telethon_client.is_connected():
+            dialogs = await telethon_client.get_dialogs()
+            for d in dialogs:
+                if d.is_channel or d.is_group:
+                    entity = d.entity
+                    is_admin_flag = getattr(entity, "admin_rights", None) is not None or getattr(entity, "creator", False)
+                    if is_admin_flag:
+                        known_channel_ids.add(entity.id if entity.id < 0 else -1000000000000 - entity.id)
     except Exception as e:
         logger.debug(f"[AutoStoryfi Scan] Telethon scan note: {e}")
 
@@ -600,7 +635,6 @@ async def scan_and_sync_admin_channels(bot, context=None) -> Dict[str, Any]:
             if chat.type in ("channel", "supergroup"):
                 member = await bot.get_chat_member(cid, bot.id)
                 if member.status in ("administrator", "creator"):
-                    # Check post permissions
                     can_post = getattr(member, "can_post_messages", True)
                     if can_post:
                         title = chat.title or str_cid
@@ -609,17 +643,31 @@ async def scan_and_sync_admin_channels(bot, context=None) -> Dict[str, Any]:
                         matched_story = find_story_for_channel_sync(title, config)
 
                         existing = discovered.get(str_cid, {})
+                        
+                        m_stories = existing.get("matched_stories")
+                        if not m_stories:
+                            if matched_story:
+                                m_stories = [{
+                                    "id": str(matched_story.get("_id", "")),
+                                    "name": matched_story.get("story_name_en") or matched_story.get("story_name") or matched_story.get("title") or clean_title
+                                }]
+                            elif existing.get("matched_story_name"):
+                                m_stories = [{
+                                    "id": str(existing.get("matched_story_id") or ""),
+                                    "name": existing.get("matched_story_name")
+                                }]
+                            else:
+                                m_stories = []
+
                         discovered[str_cid] = {
                             "id": chat.id,
                             "title": title,
                             "username": username,
                             "cleaned_title": clean_title,
-                            "matched_story_name": (
-                                matched_story.get("story_name_en") or
-                                matched_story.get("story_name") or
-                                matched_story.get("title") or "None"
-                            ) if matched_story else None,
-                            "matched_story_id": str(matched_story.get("_id", "")) if matched_story else None,
+                            "matched_stories": m_stories,
+                            "matched_story_name": m_stories[0]["name"] if m_stories else None,
+                            "matched_story_id": m_stories[0]["id"] if m_stories else None,
+                            "story_rotation_idx": existing.get("story_rotation_idx", 0),
                             "last_post_msg_id": existing.get("last_post_msg_id"),
                             "last_reply_msg_id": existing.get("last_reply_msg_id"),
                             "last_post_time": existing.get("last_post_time", 0),
@@ -630,14 +678,17 @@ async def scan_and_sync_admin_channels(bot, context=None) -> Dict[str, Any]:
 
     # Re-match any existing channel that was missing match
     for str_cid, c_data in discovered.items():
-        if not c_data.get("matched_story_name") or c_data.get("matched_story_name") == "None":
+        m_stories = c_data.get("matched_stories") or []
+        if not m_stories:
             m_story = find_story_for_channel_sync(c_data.get("title", ""), config)
             if m_story:
-                c_data["matched_story_name"] = (
+                s_name = (
                     m_story.get("story_name_en") or
                     m_story.get("story_name") or
-                    m_story.get("title") or "None"
+                    m_story.get("title") or "Unknown"
                 )
+                c_data["matched_stories"] = [{"id": str(m_story.get("_id", "")), "name": s_name}]
+                c_data["matched_story_name"] = s_name
                 c_data["matched_story_id"] = str(m_story.get("_id", ""))
 
     config["channels"] = discovered
@@ -847,30 +898,42 @@ async def handle_storyfi_callbacks(query, context: ContextTypes.DEFAULT_TYPE, pa
         page = int(param) if param.isdigit() else 0
         channels_dict = config.get("channels", {})
         channels = list(channels_dict.values())
-        per_page = 6
+        per_page = 15
         total_pages = max(1, (len(channels) + per_page - 1) // per_page)
         page = max(0, min(page, total_pages - 1))
 
         chunk = channels[page * per_page : (page + 1) * per_page]
 
-        lines = [f"<b>📋 Connected Channels (Page {page + 1}/{total_pages})</b>\n──────────────────────"]
+        lines = [f"<b>📋 Connected Channels (Page {page + 1}/{total_pages})</b>\n──────────────────────\n<i>Tap any channel below to manage its assigned stories & settings:</i>\n"]
         btn_rows = []
 
         if not chunk:
             lines.append("<i>No channels found. Tap 'Auto-Scan Channels' first.</i>")
         else:
-            for idx, ch in enumerate(chunk, 1):
-                c_title = ch.get("title", "Unknown")[:25]
-                s_name = ch.get("matched_story_name")
-                display_s_name = s_name if s_name and s_name != "None" else "❌ No Story Match"
-                is_en = "✅" if ch.get("enabled", True) else "❌"
-                cid = ch.get("id")
-                lines.append(f"<b>{idx}.</b> {c_title}\n   ↳ <i>Story:</i> <b>{display_s_name}</b> [{is_en}]")
+            for idx, ch in enumerate(chunk, page * per_page + 1):
+                c_title = ch.get("title", "Unknown")[:24]
+                m_stories = ch.get("matched_stories")
+                if not m_stories:
+                    s_name = ch.get("matched_story_name")
+                    if s_name and s_name != "None":
+                        m_stories = [{"name": s_name}]
+                    else:
+                        m_stories = []
 
-                # Toggle button per channel
-                toggle_cb = f"cfg|storyfi|chtoggle|{cid}|{caller_id}"
+                story_names = [s.get("name") for s in m_stories if s.get("name")]
+                if story_names:
+                    s_summary = ", ".join(story_names[:2]) + (f" (+{len(story_names)-2})" if len(story_names) > 2 else "")
+                else:
+                    s_summary = "❌ No Story Match"
+
+                is_en = "🟢" if ch.get("enabled", True) else "🔴"
+                cid = ch.get("id")
+                lines.append(f"<b>{idx}.</b> {c_title} [{is_en}]\n   ↳ <i>Stories ({len(story_names)}):</i> <b>{s_summary}</b>")
+
+                # Channel Detail button (2 per row if short or 1 per row)
+                toggle_cb = f"cfg|storyfi|chdetail|{cid}|{page}|{caller_id}"
                 btn_rows.append([
-                    InlineKeyboardButton(f"{is_en} {c_title}", callback_data=toggle_cb)
+                    InlineKeyboardButton(f"{is_en} {idx}. {c_title} ({len(story_names)} 📚)", callback_data=toggle_cb)
                 ])
 
         nav_row = []
@@ -882,7 +945,7 @@ async def handle_storyfi_callbacks(query, context: ContextTypes.DEFAULT_TYPE, pa
 
         if nav_row:
             btn_rows.append(nav_row)
-        btn_rows.append([InlineKeyboardButton("➦ Back", callback_data=f"cfg|storyfi|main||{caller_id}")])
+        btn_rows.append([InlineKeyboardButton("➦ Back to Control Panel", callback_data=f"cfg|storyfi|main||{caller_id}")])
 
         try:
             await query.message.edit_text("\n".join(lines), parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btn_rows))
@@ -891,8 +954,187 @@ async def handle_storyfi_callbacks(query, context: ContextTypes.DEFAULT_TYPE, pa
                 logger.debug(f"[AutoStoryfi] Channels view edit error: {e}")
         return
 
+    if action == "chdetail":
+        cid_str = str(param)
+        return_page = parts[4] if len(parts) > 4 and parts[4].isdigit() else "0"
+        channels = config.get("channels", {})
+        c_data = channels.get(cid_str)
+        if not c_data:
+            try: await query.answer("Channel not found.", show_alert=True)
+            except Exception: pass
+            parts[2] = "channels"
+            parts[3] = return_page
+            await handle_storyfi_callbacks(query, context, parts, caller_id)
+            return
+
+        c_title = c_data.get("title", "Unknown")
+        is_en = c_data.get("enabled", True)
+        st_txt = "🟢 Active (Enabled)" if is_en else "🔴 Inactive (Disabled)"
+
+        m_stories = c_data.get("matched_stories")
+        if not m_stories:
+            s_name = c_data.get("matched_story_name")
+            s_id = c_data.get("matched_story_id")
+            if s_name and s_name != "None":
+                m_stories = [{"id": str(s_id or ""), "name": s_name}]
+            else:
+                m_stories = []
+            c_data["matched_stories"] = m_stories
+
+        rot_idx = int(c_data.get("story_rotation_idx", 0))
+
+        lines = [
+            f"<b>📢 Channel Settings</b>",
+            f"──────────────────────",
+            f"• <b>Title:</b> <code>{c_title}</code>",
+            f"• <b>Channel ID:</b> <code>{cid_str}</code>",
+            f"• <b>Status:</b> <b>{st_txt}</b>",
+            f"• <b>Assigned Stories:</b> <code>{len(m_stories)} Assigned</code>",
+            f"──────────────────────"
+        ]
+
+        if not m_stories:
+            lines.append("<i>❌ No stories assigned. Tap '➕ Add Story from MongoDB' below.</i>")
+        else:
+            lines.append("<b>📚 Assigned Stories (Rotating):</b>")
+            for s_i, s_obj in enumerate(m_stories):
+                is_next = " <b>[NEXT 🚀]</b>" if s_i == (rot_idx % len(m_stories)) else ""
+                lines.append(f"  <b>{s_i + 1}.</b> 📖 <b>{s_obj.get('name')}</b>{is_next}")
+
+        btn_rows = []
+        toggle_label = "🔴 Disable Channel" if is_en else "🟢 Enable Channel"
+        btn_rows.append([
+            InlineKeyboardButton(toggle_label, callback_data=f"cfg|storyfi|chtoggle|{cid_str}|{return_page}|{caller_id}"),
+            InlineKeyboardButton("➕ Add Story", callback_data=f"cfg|storyfi|chadd|{cid_str}|0|{caller_id}")
+        ])
+
+        # Story remove buttons
+        if m_stories:
+            for s_i, s_obj in enumerate(m_stories):
+                btn_rows.append([
+                    InlineKeyboardButton(f"🗑️ Remove: {s_obj.get('name')[:24]}", callback_data=f"cfg|storyfi|chdel|{cid_str}|{s_i}|{caller_id}")
+                ])
+
+        btn_rows.append([
+            InlineKeyboardButton("🚀 Instant Test Post", callback_data=f"cfg|storyfi|test_do|{cid_str}||{caller_id}")
+        ])
+        btn_rows.append([
+            InlineKeyboardButton("➦ Back to Channels List", callback_data=f"cfg|storyfi|channels|{return_page}||{caller_id}")
+        ])
+
+        try:
+            await query.message.edit_text("\n".join(lines), parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btn_rows))
+        except Exception:
+            pass
+        return
+
+    if action == "chadd":
+        cid_str = str(param)
+        st_page = int(parts[4]) if len(parts) > 4 and parts[4].isdigit() else 0
+        channels = config.get("channels", {})
+        c_data = channels.get(cid_str)
+        c_title = c_data.get("title", "Channel")[:22] if c_data else "Channel"
+
+        catalog = _get_cached_story_catalog()
+        per_page = 15
+        total_pages = max(1, (len(catalog) + per_page - 1) // per_page)
+        st_page = max(0, min(st_page, total_pages - 1))
+
+        chunk = catalog[st_page * per_page : (st_page + 1) * per_page]
+
+        text = (
+            f"<b>➕ Assign Story to Channel</b>\n"
+            f"<b>Target:</b> <code>{c_title}</code>\n"
+            f"──────────────────────\n"
+            f"<i>Tap any story below to add it (Page {st_page + 1}/{total_pages}):</i>"
+        )
+
+        btn_rows = []
+        for item in chunk:
+            s_id = item.get("_id")
+            s_name = item.get("primary_name", "Unknown")[:28]
+            btn_rows.append([
+                InlineKeyboardButton(f"📖 {s_name}", callback_data=f"cfg|storyfi|doadd|{cid_str}|{s_id}|{caller_id}")
+            ])
+
+        nav_row = []
+        if st_page > 0:
+            nav_row.append(InlineKeyboardButton("◄ Prev", callback_data=f"cfg|storyfi|chadd|{cid_str}|{st_page - 1}|{caller_id}"))
+        nav_row.append(InlineKeyboardButton(f"{st_page + 1}/{total_pages}", callback_data=f"cfg|storyfi|noop||{caller_id}"))
+        if st_page < total_pages - 1:
+            nav_row.append(InlineKeyboardButton("Next ►", callback_data=f"cfg|storyfi|chadd|{cid_str}|{st_page + 1}|{caller_id}"))
+
+        if nav_row:
+            btn_rows.append(nav_row)
+        btn_rows.append([InlineKeyboardButton("➦ Cancel / Back", callback_data=f"cfg|storyfi|chdetail|{cid_str}|0|{caller_id}")])
+
+        try:
+            await query.message.edit_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btn_rows))
+        except Exception:
+            pass
+        return
+
+    if action == "doadd":
+        cid_str = str(param)
+        story_id = parts[4] if len(parts) > 4 else ""
+        channels = config.get("channels", {})
+        c_data = channels.get(cid_str)
+        if not c_data:
+            try: await query.answer("Channel not found.", show_alert=True)
+            except Exception: pass
+            return
+
+        catalog = _get_cached_story_catalog()
+        matched_item = next((i for i in catalog if str(i.get("_id")) == str(story_id)), None)
+        story_name = matched_item.get("primary_name", "Story") if matched_item else "Story"
+
+        m_stories = c_data.get("matched_stories") or []
+        # Check duplicate
+        if any(str(s.get("id")) == str(story_id) for s in m_stories):
+            try: await query.answer(f"⚠️ Story '{story_name}' is already assigned!", show_alert=True)
+            except Exception: pass
+        else:
+            m_stories.append({"id": str(story_id), "name": story_name})
+            c_data["matched_stories"] = m_stories
+            c_data["matched_story_name"] = m_stories[0]["name"]
+            c_data["matched_story_id"] = m_stories[0]["id"]
+            save_storyfi_config(config)
+            try: await query.answer(f"✅ Added '{story_name}' to {c_data.get('title')}!", show_alert=True)
+            except Exception: pass
+
+        # Return to chdetail
+        parts[2] = "chdetail"
+        parts[3] = cid_str
+        parts[4] = "0"
+        await handle_storyfi_callbacks(query, context, parts, caller_id)
+        return
+
+    if action == "chdel":
+        cid_str = str(param)
+        s_idx = int(parts[4]) if len(parts) > 4 and parts[4].isdigit() else -1
+        channels = config.get("channels", {})
+        c_data = channels.get(cid_str)
+        if c_data and s_idx >= 0:
+            m_stories = c_data.get("matched_stories") or []
+            if 0 <= s_idx < len(m_stories):
+                removed = m_stories.pop(s_idx)
+                c_data["matched_stories"] = m_stories
+                c_data["matched_story_name"] = m_stories[0]["name"] if m_stories else None
+                c_data["matched_story_id"] = m_stories[0]["id"] if m_stories else None
+                save_storyfi_config(config)
+                try: await query.answer(f"🗑️ Removed '{removed.get('name')}'!", show_alert=True)
+                except Exception: pass
+
+        # Return to chdetail
+        parts[2] = "chdetail"
+        parts[3] = cid_str
+        parts[4] = "0"
+        await handle_storyfi_callbacks(query, context, parts, caller_id)
+        return
+
     if action == "chtoggle":
         cid_str = str(param)
+        return_page = parts[4] if len(parts) > 4 and parts[4].isdigit() else "0"
         channels = config.get("channels", {})
         if cid_str in channels:
             channels[cid_str]["enabled"] = not channels[cid_str].get("enabled", True)
@@ -900,9 +1142,10 @@ async def handle_storyfi_callbacks(query, context: ContextTypes.DEFAULT_TYPE, pa
             st = "Enabled" if channels[cid_str]["enabled"] else "Disabled"
             try: await query.answer(f"Channel {channels[cid_str].get('title')} {st}!", show_alert=True)
             except Exception: pass
-        # return to channel list
-        parts[2] = "channels"
-        parts[3] = "0"
+        # return to channel detail or list
+        parts[2] = "chdetail"
+        parts[3] = cid_str
+        parts[4] = return_page
         await handle_storyfi_callbacks(query, context, parts, caller_id)
         return
 
@@ -955,20 +1198,38 @@ async def handle_storyfi_callbacks(query, context: ContextTypes.DEFAULT_TYPE, pa
         return
 
     if action == "test_select":
+        page = int(param) if param.isdigit() else 0
         channels = list(config.get("channels", {}).values())
-        matched = [c for c in channels if c.get("matched_story_name")]
+        matched = [c for c in channels if (c.get("matched_stories") or c.get("matched_story_name"))]
         if not matched:
             try: await query.answer("No matched channels available. Run Auto-Scan first.", show_alert=True)
             except Exception: pass
             return
 
-        text = "<b>🚀 Select a Channel for Test Post:</b>\n──────────────────────\n<i>Tap a channel below to immediately send a test post + auto-reply.</i>"
+        per_page = 15
+        total_pages = max(1, (len(matched) + per_page - 1) // per_page)
+        page = max(0, min(page, total_pages - 1))
+        chunk = matched[page * per_page : (page + 1) * per_page]
+
+        text = f"<b>🚀 Select a Channel for Instant Test Post (Page {page + 1}/{total_pages}):</b>\n──────────────────────\n<i>Tap a channel below to immediately send a test post + auto-reply.</i>"
         btn_rows = []
-        for c in matched[:6]:
+        for c in chunk:
+            m_sts = c.get("matched_stories") or []
+            cnt_str = f" ({len(m_sts)} 📚)" if m_sts else ""
             btn_rows.append([
-                InlineKeyboardButton(f"🚀 {c.get('title')[:28]}", callback_data=f"cfg|storyfi|test_do|{c.get('id')}||{caller_id}")
+                InlineKeyboardButton(f"🚀 {c.get('title')[:26]}{cnt_str}", callback_data=f"cfg|storyfi|test_do|{c.get('id')}||{caller_id}")
             ])
-        btn_rows.append([InlineKeyboardButton("➦ Back", callback_data=f"cfg|storyfi|main||{caller_id}")])
+
+        nav_row = []
+        if page > 0:
+            nav_row.append(InlineKeyboardButton("◄ Prev", callback_data=f"cfg|storyfi|test_select|{page - 1}||{caller_id}"))
+        nav_row.append(InlineKeyboardButton(f"{page + 1}/{total_pages}", callback_data=f"cfg|storyfi|noop||{caller_id}"))
+        if page < total_pages - 1:
+            nav_row.append(InlineKeyboardButton("Next ►", callback_data=f"cfg|storyfi|test_select|{page + 1}||{caller_id}"))
+
+        if nav_row:
+            btn_rows.append(nav_row)
+        btn_rows.append([InlineKeyboardButton("➦ Back to Control Panel", callback_data=f"cfg|storyfi|main||{caller_id}")])
 
         try:
             await query.message.edit_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btn_rows))
