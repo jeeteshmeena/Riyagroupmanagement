@@ -521,8 +521,6 @@ async def publish_next_story(app) -> Tuple[bool, str]:
         if val.startswith("http://") or val.startswith("https://"):
             img_url = val
             break
-    if not img_url:
-        img_url = "https://images.unsplash.com/photo-1614729939124-032f0b56c9ce?w=400"
 
     logger.info(f"[PosterBot] Story fetched from MongoDB: name='{story_name}' | img_url='{img_url}' | keys={list(story.keys())}")
 
@@ -660,13 +658,11 @@ async def publish_story_doc(app, story: Dict[str, Any], target_channel: str) -> 
 
     # 2. Image URL for SQUARE Poster (1:1):
     img_url = ""
-    for field in ["poster_url", "poster", "image_url", "cover", "image", "cover_url", "photo_url", "photo", "banner_url", "banner"]:
+    for field in ["poster_url", "poster", "square_poster", "image_url", "cover", "image", "cover_url", "photo_url", "photo"]:
         val = str(story.get(field) or "").strip()
         if val.startswith("http://") or val.startswith("https://"):
             img_url = val
             break
-    if not img_url:
-        img_url = "https://images.unsplash.com/photo-1614729939124-032f0b56c9ce?w=400"
 
     caption = build_post_caption(story)
     story_id = str(story.get("_id", ""))
@@ -751,7 +747,7 @@ async def check_and_notify_new_mongo_stories(app) -> None:
     if not mongo_uri:
         return
 
-    db_name = settings.get("database_name") or os.getenv("DATABASE_NAME", "arya_premium")
+    db_name = settings.get("database_name") or os.getenv("DATABASE_NAME", "forward-bot")
     col_name = settings.get("collection_name", "premium_stories")
     
     docs = await asyncio.to_thread(_fetch_latest_mongo_stories_sync, mongo_uri, db_name, col_name, 10)
@@ -906,7 +902,7 @@ def build_poster_panel_markup(settings: Dict[str, Any], caller_id: int) -> tuple
 
     # Mongo info
     mongo_uri = settings.get("mongo_uri") or os.getenv("MONGO_URI", "")
-    db_name = settings.get("database_name") or os.getenv("DATABASE_NAME", "arya_premium")
+    db_name = settings.get("database_name") or os.getenv("DATABASE_NAME", "forward-bot")
     mongo_status = "🟢 Connected (Read-Only)" if mongo_uri else "🔴 Not Configured"
 
     rot_idx = settings.get("rot_idx", 0)
@@ -1277,7 +1273,7 @@ async def handle_poster_callbacks(query, context: ContextTypes.DEFAULT_TYPE, par
     # 8. MongoDB Connection Settings Menu
     if action == "mongo_menu":
         m_uri = settings.get("mongo_uri") or os.getenv("MONGO_URI", "")
-        db_n = settings.get("database_name") or os.getenv("DATABASE_NAME", "arya_premium")
+        db_n = settings.get("database_name") or os.getenv("DATABASE_NAME", "forward-bot")
         col_n = settings.get("collection_name", "premium_stories")
 
         masked_uri = (m_uri[:15] + "..." + m_uri[-10:]) if len(m_uri) > 25 else (m_uri or "Not Set")

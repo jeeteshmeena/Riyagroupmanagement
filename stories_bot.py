@@ -1391,16 +1391,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )
                     text = inject_premium_emojis(text)
                     img_url = ""
-                    for field in ["poster_url", "poster", "image_url", "cover", "image", "cover_url", "photo_url", "photo", "banner_url", "banner"]:
+                    for field in ["poster_url", "poster", "square_poster", "image_url", "cover", "image", "cover_url", "photo_url", "photo"]:
                         val = str(story.get(field) or "").strip()
                         if val.startswith("http://") or val.startswith("https://"):
                             img_url = val
                             break
-                    if not img_url:
-                        img_url = "https://images.unsplash.com/photo-1614729939124-032f0b56c9ce?w=400"
                     if img_url:
                         return await update.message.reply_photo(photo=img_url, caption=text, parse_mode="HTML", reply_markup=kb)
                     else:
+                        _cp = _os.path.join(_os.path.dirname(__file__), "default_cover.png")
+                        if _os.path.exists(_cp):
+                            with open(_cp, "rb") as _cf:
+                                return await update.message.reply_photo(photo=_cf, caption=text, parse_mode="HTML", reply_markup=kb)
                         return await update.message.reply_text(text=text, parse_mode="HTML", reply_markup=kb)
             except Exception as _e:
                 logger.debug(f"[Start Deep-link Buy] Error: {_e}")
@@ -4264,6 +4266,8 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
     if photo_payload and not sent_msg:
         try:
             logger.info(f"[StoryCard] Sending Tier 1 photo to chat {chat_id}...")
+            if hasattr(photo_payload, "seek"):
+                photo_payload.seek(0)
             sent_msg = await context.bot.send_photo(
                 chat_id=chat_id, photo=photo_payload, caption=caption,
                 parse_mode="HTML", reply_markup=_reply_markup)

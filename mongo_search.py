@@ -126,11 +126,15 @@ def extract_square_image_url(doc: Dict[str, Any], settings: Optional[Dict[str, A
         "photo_url", "photourl", "photoUrl", "photo", "thumbnail_url", "thumbnail", "thumb"
     ]
 
+    R2_BASE = "https://pub-d738aa13a7944050a7edb60cc5cd91bb.r2.dev/"
+
     def _extract_url_from_val(val: Any) -> str:
         if isinstance(val, str):
             s = val.strip()
             if s.startswith(("http://", "https://")):
                 return s
+            if any(s.lower().endswith(ext) for ext in [".webp", ".jpg", ".jpeg", ".png", ".jfif"]):
+                return f"{R2_BASE}{s.lstrip('/')}"
         elif isinstance(val, dict):
             for sub_k in ["square", "square_poster", "poster", "poster_url", "url", "src", "link", "r2_url", "cdn_url", "path", "image", "cover"]:
                 if sub_k in val:
@@ -152,10 +156,25 @@ def extract_square_image_url(doc: Dict[str, Any], settings: Optional[Dict[str, A
                 return url
 
     # 2. Check nested containers
-    for container_key in ["media", "images", "assets", "cloudflare", "r2", "files"]:
+    for container_key in ["media", "images", "assets", "cloudflare", "r2", "files", "story", "data"]:
         container = doc.get(container_key)
-        if isinstance(container, (dict, list)):
-            url = _extract_url_from_val(container)
+        if isinstance(container, dict):
+            for k in square_keys:
+                if k in container:
+                    url = _extract_url_from_val(container[k])
+                    if url:
+                        return url
+        elif isinstance(container, list) and container:
+            for item in container:
+                url = _extract_url_from_val(item)
+                if url:
+                    return url
+
+    # 3. Deep search any key containing 'poster', 'cover', 'square', 'image', 'photo', 'r2'
+    for k, v in doc.items():
+        k_lower = k.lower()
+        if any(w in k_lower for w in ["poster", "cover", "square", "image", "photo", "r2"]) and not any(w in k_lower for w in ["banner", "horizontal", "wide"]):
+            url = _extract_url_from_val(v)
             if url:
                 return url
 
@@ -235,7 +254,7 @@ def format_mongo_story_to_result(doc: Dict[str, Any], settings: Optional[Dict[st
     # Extract square poster / Cloudflare R2 image URL
     image_url = extract_square_image_url(doc, settings)
     if not image_url:
-        image_url = "https://images.unsplash.com/photo-1614729939124-032f0b56c9ce?w=400"
+        image_url = ""
 
     clean_key = _clean_query(story_name).lower()
 
