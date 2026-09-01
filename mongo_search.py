@@ -13,6 +13,8 @@ import logging
 import os
 import re
 import sys
+from typing import Optional, Dict, Any, List, Tuple
+
 if 'OpenSSL' not in sys.modules:
     sys.modules['OpenSSL'] = None
     sys.modules['OpenSSL.crypto'] = None
