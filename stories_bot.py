@@ -4107,27 +4107,27 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
                 text='<tg-emoji emoji-id="6021319161425172520">🔍</tg-emoji> Story not found in RIYA Database.',
                 parse_mode="HTML"
             )
-            await asyncio.sleep(0.35)
+            await asyncio.sleep(0.18)
             await status_msg.edit_text(
                 '<tg-emoji emoji-id="6021319161425172520">🔍</tg-emoji> Story not found in RIYA Database.\n<tg-emoji emoji-id="5258113901106580375">⏳</tg-emoji> Fetching from Storyfi...',
                 parse_mode="HTML"
             )
-            await asyncio.sleep(0.35)
+            await asyncio.sleep(0.18)
             await status_msg.edit_text(
                 '<tg-emoji emoji-id="6021319161425172520">🔍</tg-emoji> Story not found in RIYA Database.\n<tg-emoji emoji-id="5454074580010295588">✅</tg-emoji> Story details found.',
                 parse_mode="HTML"
             )
-            await asyncio.sleep(0.35)
+            await asyncio.sleep(0.18)
             await status_msg.edit_text(
                 '<tg-emoji emoji-id="5454345339043601366">✨</tg-emoji> Fetching complete...',
                 parse_mode="HTML"
             )
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(0.15)
             await status_msg.edit_text(
                 '<tg-emoji emoji-id="5219943216781995020">🚀</tg-emoji> Sending results...',
                 parse_mode="HTML"
             )
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(0.15)
             try:
                 await status_msg.delete()
             except Exception:
@@ -4469,7 +4469,6 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         nonlocal searching_msg
         if searching_msg:
             try:
-                await asyncio.sleep(0.8)
                 await searching_msg.delete()
                 searching_msg = None
             except Exception:
@@ -4487,22 +4486,13 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if len(keyword_matches) == 1:
             result = keyword_matches[0]
 
-    # 3. If no story found directly, try AI story name resolver (e.g. typos, Hinglish phonetics)
-    if not result and not keyword_matches:
-        try:
-            ai_resolved = await gemini_chat.ai_resolve_story_name(query_text)
-            if ai_resolved:
-                result = search_story_exact_or_alias(ai_resolved)
-        except Exception as _ai_err:
-            logger.debug(f"[Search AI Resolve] {_ai_err}")
-
-    # If multiple stories matched the keyword (e.g. 2 or more):
+    # If multiple stories matched the keyword in local DB (e.g. 2 or more):
     if not result and len(keyword_matches) > 1:
         await _del_searching()
         return await send_story_suggestions_card(update.effective_chat.id, query_text, keyword_matches, context, user=user)
 
-    # 4. Fallback: If not found in Riya Bot's local parsed DB, query Poster Bot's MongoDB!
-    if not result and not keyword_matches:
+    # 3. Fallback: If not found in Riya Bot's local DB, query MongoDB directly (super fast ~15ms)
+    if not result:
         try:
             from mongo_search import async_search_story_from_mongo
             mongo_result = await async_search_story_from_mongo(query_text)
@@ -4510,6 +4500,18 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 result = mongo_result
         except Exception as _m_err:
             logger.debug(f"[Search Mongo Fallback] {_m_err}")
+
+    # 4. If still no story found, try AI story name resolver (e.g. typos, Hinglish phonetics)
+    if not result:
+        try:
+            ai_resolved = await gemini_chat.ai_resolve_story_name(query_text)
+            if ai_resolved:
+                result = search_story_exact_or_alias(ai_resolved)
+                if not result:
+                    from mongo_search import async_search_story_from_mongo
+                    result = await async_search_story_from_mongo(ai_resolved)
+        except Exception as _ai_err:
+            logger.debug(f"[Search AI Resolve] {_ai_err}")
 
     # If no story found, check if it's a genre search or show suggestions
     if not result:
