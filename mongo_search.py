@@ -104,6 +104,42 @@ def _get_mongo_client():
 
 
 
+def resolve_file_id_via_source_bot(file_id: str) -> Optional[str]:
+    """
+    If SOURCE_BOT_TOKEN or ARYA_BOT_TOKEN or FORWARD_BOT_TOKEN or BOT_TOKEN is configured,
+    queries Telegram Bot API getFile to get the direct download URL for the file_id.
+    """
+    if not file_id:
+        return None
+    file_id = str(file_id).strip()
+    if not (file_id.startswith("AgAC") or len(file_id) >= 20):
+        return None
+
+    import requests
+    tokens = [
+        os.getenv("SOURCE_BOT_TOKEN"),
+        os.getenv("ARYA_BOT_TOKEN"),
+        os.getenv("FORWARD_BOT_TOKEN"),
+        os.getenv("POSTER_BOT_TOKEN"),
+        os.getenv("BOT_TOKEN"),
+    ]
+    tokens = [t.strip() for t in tokens if t and t.strip()]
+
+    for tok in tokens:
+        try:
+            resp = requests.get(f"https://api.telegram.org/bot{tok}/getFile", params={"file_id": file_id}, timeout=4)
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("ok") and data.get("result", {}).get("file_path"):
+                    file_path = data["result"]["file_path"]
+                    logger.info(f"[FileID Resolve] ✅ Successfully resolved file_id to Telegram URL: {file_path}")
+                    return f"https://api.telegram.org/file/bot{tok}/{file_path}"
+        except Exception as e:
+            logger.debug(f"[FileID Resolve] Error with token: {e}")
+
+    return None
+
+
 def extract_square_image_url(doc: Dict[str, Any], settings: Optional[Dict[str, Any]] = None) -> str:
     """
     Intelligently extracts the Square Poster (1:1) image URL from a MongoDB document in read-only mode.
@@ -111,19 +147,18 @@ def extract_square_image_url(doc: Dict[str, Any], settings: Optional[Dict[str, A
       1. Square / R2 Poster fields: poster_url, square_poster, poster, square_url, poster_image, square_cover, r2_url, cloudflare_url
       2. Nested objects: media.poster, images.square, images.poster, assets.poster, cloudflare.url, r2.url
       3. General cover / image fields: image_url, cover_url, cover, image, photo_url, photo
-      4. Array of media / images
-      5. Banner only as last fallback
+      4. Telegram file_id resolution via source bot token
     """
     if not isinstance(doc, dict):
         return ""
 
     square_keys = [
-        "square_poster", "square_poster_url", "square_image", "square_url", "square_cover",
-        "poster_url", "posterurl", "posterUrl", "poster", "poster_image", "poster_path",
+        "poster_url", "posterurl", "posterUrl", "square_poster", "square_poster_url",
+        "square_image", "square_url", "square_cover", "poster", "poster_image", "poster_path",
         "r2_url", "r2_poster", "r2_image", "cloudflare_url", "cdn_url",
-        "image_url", "imageurl", "imageUrl", "image", "img_url", "img",
-        "cover_url", "coverurl", "coverUrl", "cover", "cover_image", "cover_path",
-        "photo_url", "photourl", "photoUrl", "photo", "thumbnail_url", "thumbnail", "thumb"
+        "image_url", "imageurl", "imageUrl", "cover_url", "coverurl", "coverUrl",
+        "cover", "cover_image", "cover_path", "photo_url", "photourl", "photoUrl",
+        "photo", "thumbnail_url", "thumbnail", "thumb", "image", "img_url", "img"
     ]
 
     R2_BASE = "https://pub-d738aa13a7944050a7edb60cc5cd91bb.r2.dev/"
@@ -135,6 +170,24 @@ def extract_square_image_url(doc: Dict[str, Any], settings: Optional[Dict[str, A
                 return s
             if any(s.lower().endswith(ext) for ext in [".webp", ".jpg", ".jpeg", ".png", ".jfif"]):
                 return f"{R2_BASE}{s.lstrip('/')}"
+            # Check for /api/tg-image?file_id=...
+            if "/api/tg-image" in s and "file_id=" in s:
+                try:
+                    import urllib.parse
+                    parsed = urllib.parse.urlparse(s)
+                    params = urllib.parse.parse_qs(parsed.query)
+                    fid = params.get("file_id", [None])[0]
+                    if fid:
+                        resolved = resolve_file_id_via_source_bot(fid)
+                        if resolved:
+                            return resolved
+                except Exception:
+                    pass
+            # Check if val is a raw Telegram File ID (AgAC...)
+            if s.startswith("AgAC"):
+                resolved = resolve_file_id_via_source_bot(s)
+                if resolved:
+                    return resolved
         elif isinstance(val, dict):
             for sub_k in ["square", "square_poster", "poster", "poster_url", "url", "src", "link", "r2_url", "cdn_url", "path", "image", "cover"]:
                 if sub_k in val:
