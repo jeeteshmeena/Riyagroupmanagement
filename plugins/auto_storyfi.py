@@ -1071,9 +1071,14 @@ async def handle_storyfi_callbacks(query, context: ContextTypes.DEFAULT_TYPE, pa
         # Quick assign suggestions if 0 stories
         if not m_stories:
             suggestions = suggest_stories_for_channel(c_title, limit=3)
+            catalog = _get_cached_story_catalog()
             for sug in suggestions:
+                try:
+                    s_cat_idx = catalog.index(sug)
+                except Exception:
+                    s_cat_idx = next((i for i, c_it in enumerate(catalog) if c_it.get("_id") == sug.get("_id")), 0)
                 btn_rows.append([
-                    InlineKeyboardButton(f"💡 Quick Add: {sug.get('primary_name')[:22]}", callback_data=f"cfg|storyfi|doadd|{cid_str}|{sug.get('_id')}|{caller_id}")
+                    InlineKeyboardButton(f"💡 Quick Add: {sug.get('primary_name')[:22]}", callback_data=f"cfg|storyfi|doadd|{cid_str}|{s_cat_idx}|{caller_id}")
                 ])
 
         # Story remove buttons
@@ -1092,8 +1097,8 @@ async def handle_storyfi_callbacks(query, context: ContextTypes.DEFAULT_TYPE, pa
 
         try:
             await query.message.edit_text("\n".join(lines), parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btn_rows))
-        except Exception:
-            pass
+        except Exception as _e_det:
+            logger.error(f"[AutoStoryfi] chdetail edit error: {_e_det}")
         return
 
     if action == "chadd":
@@ -1118,11 +1123,11 @@ async def handle_storyfi_callbacks(query, context: ContextTypes.DEFAULT_TYPE, pa
         )
 
         btn_rows = []
-        for item in chunk:
-            s_id = item.get("_id")
-            s_name = item.get("primary_name", "Unknown")[:28]
+        for s_rel_idx, item in enumerate(chunk):
+            s_abs_idx = st_page * per_page + s_rel_idx
+            s_name = item.get("primary_name", "Unknown")[:26]
             btn_rows.append([
-                InlineKeyboardButton(f"📖 {s_name}", callback_data=f"cfg|storyfi|doadd|{cid_str}|{s_id}|{caller_id}")
+                InlineKeyboardButton(f"📖 {s_name}", callback_data=f"cfg|storyfi|doadd|{cid_str}|{s_abs_idx}|{caller_id}")
             ])
 
         nav_row = []
@@ -1138,13 +1143,13 @@ async def handle_storyfi_callbacks(query, context: ContextTypes.DEFAULT_TYPE, pa
 
         try:
             await query.message.edit_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btn_rows))
-        except Exception:
-            pass
+        except Exception as _e_add:
+            logger.error(f"[AutoStoryfi] chadd edit error: {_e_add}")
         return
 
     if action == "doadd":
         cid_str = str(param)
-        story_id = parts[4] if len(parts) > 4 else ""
+        s_idx_str = parts[4] if len(parts) > 4 else ""
         channels = config.get("channels", {})
         c_data = channels.get(cid_str)
         if not c_data:
@@ -1153,8 +1158,19 @@ async def handle_storyfi_callbacks(query, context: ContextTypes.DEFAULT_TYPE, pa
             return
 
         catalog = _get_cached_story_catalog()
-        matched_item = next((i for i in catalog if str(i.get("_id")) == str(story_id)), None)
-        story_name = matched_item.get("primary_name", "Story") if matched_item else "Story"
+        matched_item = None
+        if s_idx_str.isdigit() and int(s_idx_str) < len(catalog):
+            matched_item = catalog[int(s_idx_str)]
+        else:
+            matched_item = next((i for i in catalog if str(i.get("_id")) == str(s_idx_str)), None)
+
+        if not matched_item:
+            try: await query.answer("Story not found in catalog.", show_alert=True)
+            except Exception: pass
+            return
+
+        story_id = str(matched_item.get("_id"))
+        story_name = matched_item.get("primary_name", "Story")
 
         m_stories = c_data.get("matched_stories") or []
         # Check duplicate
