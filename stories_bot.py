@@ -4241,6 +4241,25 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
                             left = (w - min_s) // 2
                             top = (h - min_s) // 2
                             im = im.crop((left, top, left + min_s, top + min_s))
+
+                        # If story fetched from MongoDB, apply storyfiwatermark.png
+                        if result.get("from_mongo"):
+                            try:
+                                from plugins.poster_bot import apply_watermark_to_image
+                                wm_candidates = [
+                                    "storyfiwatermark.png",
+                                    _os.path.join(_os.path.dirname(__file__), "storyfiwatermark.png"),
+                                    r"C:\Users\User\Downloads\new\storyfiwatermark.png",
+                                ]
+                                wm_path = next((p for p in wm_candidates if _os.path.exists(p)), None)
+                                if wm_path:
+                                    buf = apply_watermark_to_image(im.convert("RGBA"), wm_path=wm_path, position="bottom_right", opacity=0.85)
+                                    buf.name = "cover.jpg"
+                                    buf.seek(0)
+                                    return buf
+                            except Exception as _wm_e:
+                                logger.warning(f"[StoryCard Watermark Error] {_wm_e}")
+
                         buf = io.BytesIO()
                         im.save(buf, format="JPEG", quality=95)
                         buf.name = "cover.jpg"
@@ -4281,11 +4300,30 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
         if _os.path.exists(_cp):
             try:
                 logger.info(f"[StoryCard] Fallback: Sending Tier 2 default_cover.png...")
-                with open(_cp, "rb") as _cf:
-                    sent_msg = await context.bot.send_photo(
-                        chat_id=chat_id, photo=_cf, caption=caption,
-                        parse_mode="HTML", reply_markup=_reply_markup)
-                logger.info(f"[StoryCard] Tier 2 default_cover sent. msg_id={sent_msg.message_id}")
+                if result.get("from_mongo"):
+                    try:
+                        from plugins.poster_bot import apply_watermark_to_image
+                        wm_candidates = [
+                            "storyfiwatermark.png",
+                            _os.path.join(_os.path.dirname(__file__), "storyfiwatermark.png"),
+                            r"C:\Users\User\Downloads\new\storyfiwatermark.png",
+                        ]
+                        wm_path = next((p for p in wm_candidates if _os.path.exists(p)), None)
+                        if wm_path:
+                            with open(_cp, "rb") as _cf_raw:
+                                _watermarked_buf = apply_watermark_to_image(_cf_raw.read(), wm_path=wm_path, position="bottom_right", opacity=0.85)
+                                _watermarked_buf.seek(0)
+                                sent_msg = await context.bot.send_photo(
+                                    chat_id=chat_id, photo=_watermarked_buf, caption=caption,
+                                    parse_mode="HTML", reply_markup=_reply_markup)
+                    except Exception as _w2_e:
+                        logger.warning(f"[Tier 2 Watermark Error] {_w2_e}")
+                if not sent_msg:
+                    with open(_cp, "rb") as _cf:
+                        sent_msg = await context.bot.send_photo(
+                            chat_id=chat_id, photo=_cf, caption=caption,
+                            parse_mode="HTML", reply_markup=_reply_markup)
+                logger.info(f"[StoryCard] Tier 2 default_cover sent. msg_id={sent_msg.message_id if sent_msg else 'None'}")
             except Exception as _e2:
                 logger.error(f"[StoryCard SEARCH T2 failed] {_e2}")
 

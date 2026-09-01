@@ -537,9 +537,9 @@ async def publish_next_story(app) -> Tuple[bool, str]:
     tutorial_url = "https://t.me/StoriesFinderBot?start=guide"
 
     markup = InlineKeyboardMarkup([
-        [InlineKeyboardButton("Buy Via App", url=buy_app_url, api_kwargs={"icon_custom_emoji_id": "5456343263340405032"})],
-        [InlineKeyboardButton("Buy Via Bot", url=buy_bot_url, api_kwargs={"icon_custom_emoji_id": "5456343263340405032"})],
-        [InlineKeyboardButton("Tutorial", url=tutorial_url, api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})]
+        [InlineKeyboardButton("🛍️ Buy Via App", url=buy_app_url, api_kwargs={"icon_custom_emoji_id": "5456343263340405032"})],
+        [InlineKeyboardButton("🛍️ Buy Via Bot", url=buy_bot_url, api_kwargs={"icon_custom_emoji_id": "5456343263340405032"})],
+        [InlineKeyboardButton("📖 Tutorial", url=tutorial_url, api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})]
     ])
 
     # Handle Photo & Watermark
@@ -671,9 +671,9 @@ async def publish_story_doc(app, story: Dict[str, Any], target_channel: str) -> 
     tutorial_url = "https://t.me/StoriesFinderBot?start=guide"
 
     markup = InlineKeyboardMarkup([
-        [InlineKeyboardButton("Buy Via App", url=buy_app_url, api_kwargs={"icon_custom_emoji_id": "5456343263340405032"})],
-        [InlineKeyboardButton("Buy Via Bot", url=buy_bot_url, api_kwargs={"icon_custom_emoji_id": "5456343263340405032"})],
-        [InlineKeyboardButton("Tutorial", url=tutorial_url, api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})]
+        [InlineKeyboardButton("🛍️ Buy Via App", url=buy_app_url, api_kwargs={"icon_custom_emoji_id": "5456343263340405032"})],
+        [InlineKeyboardButton("🛍️ Buy Via Bot", url=buy_bot_url, api_kwargs={"icon_custom_emoji_id": "5456343263340405032"})],
+        [InlineKeyboardButton("📖 Tutorial", url=tutorial_url, api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})]
     ])
 
     wm_settings = settings.get("watermark", {})
