@@ -336,6 +336,13 @@ IS_SCANNING = False
 MAINTENANCE_MODE = False          # True while bot is in maintenance
 MAINTENANCE_UNTIL: float = 0.0   # epoch timestamp when maintenance ends (0 = indefinite)
 cooldowns_db = load_cooldowns()  # user_id(str) -> {'until': ts, 'reason': str}
+for _aid in [OWNER_ID, ADMIN_ID]:
+    if _aid and str(_aid) in cooldowns_db:
+        cooldowns_db.pop(str(_aid), None)
+        try:
+            save_cooldowns(cooldowns_db)
+        except Exception:
+            pass
 COPYRIGHT_DEFAULT_COOLDOWN_MIN = 1440  # 24h
 chat_languages = load_languages()  # chat_id(str) -> 'en'/'hi'
 link_flags = load_link_flags()  # story_key -> {'broken': bool, 'link': str, 'voters': [{'id','name'}], 'chats': [int]}
@@ -535,6 +542,8 @@ def _looks_like_existing_story_query(text: str) -> bool:
 
 
 def _get_cooldown(user_id: int):
+    if is_admin(user_id):
+        return None
     entry = cooldowns_db.get(str(user_id))
     if not isinstance(entry, dict):
         return None
@@ -548,6 +557,8 @@ def _get_cooldown(user_id: int):
 
 
 def _set_cooldown(user_id: int, minutes: int, reason: str):
+    if is_admin(user_id):
+        return
     until = time.time() + max(int(minutes), 1) * 60
     cooldowns_db[str(user_id)] = {"until": until, "reason": reason}
     save_cooldowns(cooldowns_db)
@@ -573,10 +584,10 @@ async def _fake_report_live_timer(target_msg, context, user, reason, until):
     timer_str = f"{h:02d}:{m:02d}:{s:02d}"
     
     text_template = (
-        f"<b>⛔ Error: Interaction Blocked</b>\n\n"
+        f'<tg-emoji emoji-id="5893192487324880883">⛔</tg-emoji> <b>Error: Interaction Blocked</b>\n\n'
         f"{user.mention_html()}\n"
-        f"✧ <i>Reason / कारण:</i> <b>{reason}</b>\n"
-        f"✧ <i>Access will be restored in:</i> <b>[TIMER]</b>"
+        f'<tg-emoji emoji-id="5805406692984232989">📌</tg-emoji> <b>Reason / कारण:</b> <b>{reason}</b>\n'
+        f'<tg-emoji emoji-id="5807879906951960923">⏳</tg-emoji> <b>Access will be restored in:</b> <b>[TIMER]</b>'
     )
         
     try:
@@ -4947,11 +4958,15 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.answer("Invalid user ID.", show_alert=True)
                 return
 
+            if is_admin(target_uid):
+                await query.answer("⛔ Owner and Admins cannot be punished.", show_alert=True)
+                return
+
             _set_cooldown(target_uid, 2880, "Fake report")  # 2 days = 2880 mins
             await query.answer(f"🔨 {target_nick} punished for 2 days.", show_alert=True)
 
             msg_text = (
-                f"<b>⚠ WARNING / चेतावनी</b>\n\n"
+                f'<tg-emoji emoji-id="5014950810065307273">🔨</tg-emoji> <b>Punish User / चेतावनी</b>\n\n'
                 f"<a href='tg://user?id={target_uid}'>{target_nick}</a> you have been placed on a 2-day timeout by administrators for submitting a fake report.\n\n"
                 f"<blockquote expandable>If you are not able to access episodes of any story from the bot, then check:\n\n"
                 f"1. Click the link given in the channel — it will take you to a bot.\n\n"
@@ -5401,31 +5416,27 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lang = get_chat_lang(chat_id)
         if lang == "hi":
             text = (
-                f"<b>★ लिंक रिपोर्ट</b>\n\n"
-                f"<i>{story_name}</i>\n\n"
-                "अगर यह स्टोरी लिंक सच में काम नहीं कर रहा है, तो नीचे कन्फर्म करें।"
+                '<tg-emoji emoji-id="5438630285635757876">⚠️</tg-emoji> <b>Report Broken Link</b> <tg-emoji emoji-id="5773626993010546707">▶️</tg-emoji> :- '
+                f"{story_name}\n\n"
+                "अगर यह स्टोरी लिंक सच में काम नहीं कर रहा है, तो कृपया नीचे <b>confirm</b> या <b>cancel</b> करें।"
             )
-            confirm_label = "✅ कन्फर्म रिपोर्ट"
-            cancel_label = "❌ कैंसल"
         else:
             text = (
-                f"<b>★ Report Broken Link</b>\n\n"
-                f"<i>{story_name}</i>\n\n"
-                "If this story link is really broken, please confirm below."
+                '<tg-emoji emoji-id="5438630285635757876">⚠️</tg-emoji> <b>Report Broken Link</b> <tg-emoji emoji-id="5773626993010546707">▶️</tg-emoji> :- '
+                f"{story_name}\n\n"
+                "If this story link is really broken, please <b>confirm</b> or <b>cancel</b> below."
             )
-            confirm_label = "✅ Confirm"
-            cancel_label = "❌ Cancel"
 
         reporter_id = user.id
 
         kb = InlineKeyboardMarkup(
             [
                 [
-                    InlineKeyboardButton(confirm_label, callback_data=f"lnw_confirm|{story_key}|{reporter_id}"),
-                    InlineKeyboardButton(cancel_label, callback_data=f"lnw_cancel|{reporter_id}"),
+                    InlineKeyboardButton("Confirm", callback_data=f"lnw_confirm|{story_key}|{reporter_id}", api_kwargs={"icon_custom_emoji_id": "6123181698193559460"}),
+                    InlineKeyboardButton(" ", callback_data=f"lnw_cancel|{reporter_id}", api_kwargs={"icon_custom_emoji_id": "5774077015388852135"}),
                 ],
                 [
-                    InlineKeyboardButton("🔨 Punish User", callback_data=f"punish|fake|{reporter_id}")
+                    InlineKeyboardButton("Punish User", callback_data=f"punish|fake|{reporter_id}", api_kwargs={"icon_custom_emoji_id": "5014950810065307273"})
                 ]
             ]
         )
@@ -5560,14 +5571,14 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         lang = get_chat_lang(chat_id)
         if lang == "hi":
-            title = "<b>★ लिंक वेरीफिकेशन वोट</b>"
+            title = '<tg-emoji emoji-id="6123181698193559460">✅</tg-emoji> <b>लिंक वेरीफिकेशन वोट</b>'
             body = f"<i>{story_name}</i>\n\n"
             body += f"✧ <b>उद्देश्य:</b> यह जांचना के लिए कि स्टोरी लिंक काम कर रहा है या टूटा हुआ है\n\n"
             votes_line = f"• <b>वोट:</b> {current} / {required} (कुल {required - current} और वोट चाहिए)"
             broken_label = "❌ लिंक नहीं चल रहा"
             ok_label = "🔗 चल रहा है"
         else:
-            title = "<b>★ Link Verification Vote</b>"
+            title = '<tg-emoji emoji-id="6123181698193559460">✅</tg-emoji> <b>Link Verification Vote</b>'
             body = f"<i>{story_name}</i>\n\n"
             body += f"✧ <b>Purpose:</b> To verify if the story link is working or broken\n\n"
             votes_line = f"• <b>Votes:</b> {current} / {required} ({required - current} more votes needed)"
@@ -5584,7 +5595,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ],
                 [
                     InlineKeyboardButton("🚫 Dismiss", callback_data=f"lnwv_dismiss|{vote_id}"),
-                    InlineKeyboardButton("🔨 Punish User", callback_data=f"punish|fake|{vote['reporter_id']}")
+                    InlineKeyboardButton("Punish User", callback_data=f"punish|fake|{vote['reporter_id']}", api_kwargs={"icon_custom_emoji_id": "5014950810065307273"})
                 ]
             ]
         )
@@ -5731,14 +5742,14 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         lang = get_chat_lang(chat_id)
         if lang == "hi":
-            title = "<b>★ लिंक वेरीफिकेशन वोट</b>"
+            title = '<tg-emoji emoji-id="6123181698193559460">✅</tg-emoji> <b>लिंक वेरीफिकेशन वोट</b>'
             body = f"<i>{story_name}</i>\n\n"
             body += f"✧ <b>उद्देश्य:</b> यह जांचना के लिए कि स्टोरी लिंक काम कर रहा है या टूटा हुआ है\n\n"
             votes_line = f"• <b>वोट:</b> {current} / {required} (कुल {required - current} और वोट चाहिए)"
             broken_label = "❌ लिंक नहीं चल रहा"
             ok_label = "🔗 चल रहा है"
         else:
-            title = "<b>★ Link Verification Vote</b>"
+            title = '<tg-emoji emoji-id="6123181698193559460">✅</tg-emoji> <b>Link Verification Vote</b>'
             body = f"<i>{story_name}</i>\n\n"
             body += f"✧ <b>Purpose:</b> To verify if the story link is working or broken\n\n"
             votes_line = f"• <b>Votes:</b> {current} / {required} ({required - current} more votes needed)"
@@ -5754,7 +5765,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ],
                 [
                     InlineKeyboardButton("🚫 Dismiss", callback_data=f"lnwv_dismiss|{vote_id}"),
-                    InlineKeyboardButton("🔨 Punish User", callback_data=f"punish|fake|{vote['reporter_id']}")
+                    InlineKeyboardButton("Punish User", callback_data=f"punish|fake|{vote['reporter_id']}", api_kwargs={"icon_custom_emoji_id": "5014950810065307273"})
                 ]
             ]
         )
@@ -8684,7 +8695,7 @@ async def _try_react(bot, chat_id: int, message_id: int, emoji: str, big: bool =
 ADULT_NSFW_EMOJIS = {'🍆', '🍑', '👙', '🍌', '🔞', '💦', '💋', '🖕'}
 
 # Default 90 Pre-populated Premium Custom Emojis
-DEFAULT_CUSTOM_EMOJIS = {'👎': '5348132683304156113', '🔥': '5348429250795945732', '⭐': '5348254248058503242', '💬': '5348471079482441278', '💜': '5348359010900789108', '⚪': '5348451945403137943', '⚡': '5348085958354943913', '⛔': '5348221988559143096', '🕊': '5348378913779236881', '💤': '5348110903525000368', '🔇': '5350490916702404671', '🎮': '5348214678524805365', '❓': '5348551425435646741', '📶': '5348062301675078252', '👤': '5350763436672305153', '🎸': '5350659343844916913', '♥️': '5348232622898167572', '🥸': '5348322993305044654', '📍': '5350606545811949976', '💪': '5350542134187409556', '🆓': '5348440533675031854', '🫡': '5350294155660639210', '🚨': '5348507062718445792', '✨': '5350475991691052862', '⏫': '5350305520144106741', '⏬': '5350700390847365132', '🫀': '5348455299772596273', '🌙': '5348164354392997702', '🛸': '5350837773966261947', '🔘': '5348084369217052513', '🧠': '5350445475948414299', '❤️': '5350831267090809192', '😐': '5348073936741481983', '🏴\u200d☠️': '5350448718648721280', '🐍': '5348505039788852018', '🐐': '5348308179962840272', '🎥': '5350779710303387563', '🐈': '5350734411283317897', '💉': '5350724330995074640', '👁': '5350569213956210746', '💣': '5350608263798865348', '☢️': '5348195299632364355', '⏹': '5350830335082905598', '👣': '5350480278068412818', '💱': '5350729313157135529', '🫱': '5348083845231033279', '🪱': '5350409471237570490', '🌿': '5350464257840399147', '🫗': '5348148673467398930', '🧪': '5350559275401887719', '🕷': '5350463832638643765', '🪐': '5348487726775678967', '0️⃣': '5348407054404958928', '🌱': '5348168224158530153', '☀️': '5348403541121713090', '❄️': '5348336655596016298', '🥃': '5348586287685189943', '🕺': '5348103735224581633', '🦎': '5348377994656234507', '🎵': '5350518915594209897', '🩵': '5348142170886914854', '🥺': '5348459641984530528', '☹️': '5350350527106399998', '🎼': '5348390454356359473', '🌈': '5348037786001750791', '🫶': '5350659885010797372', '👾': '5348455218168218503', '🖱️': '5350814400754236833', '👋': '5850698420200675761', '👻': '5348523151665937930', '🌴': '5348204950423880839', '🦶': '5348106952155087364', '🍴': '5350821873997332409', '🚁': '5350832400962176205', '💙': '5348466097320378895', '🤟': '5350768792496521441', '📞': '5348125437694327548', '1️⃣': '5348324054161967894', '2️⃣': '5350559846632537457', '3️⃣': '5350719542106540014', '4️⃣': '5350505304842846481', '5️⃣': '5348566874433011485', '6️⃣': '5348527025726439836', '7️⃣': '5348233322977838019', '8️⃣': '5348198830095483738', '9️⃣': '5350836180533393550', '🛍': '5456343263340405032', '🛍️': '5456343263340405032', '♨️': '5465432711218863135', '♨': '5465432711218863135', '🔰': '6019118553326689234', '🖥': '6019455905827920171', '🖥️': '6019455905827920171', '🧩': '6024065724291488135', '🎬': '5937999673510858217', '💓': '6217662152547766453', '💗': '6217662152547766453', '🗑️': '6021413766669801212', '🗑': '6021413766669801212', 'Tutorial': '6266794310671275367', 'tutorial': '6266794310671275367', '📝': '6021487472603568286', '🫠': '5850698420200675761', '🦊': '5350475991691052862', '⚙️': '5904258298764334001', '⚙': '5904258298764334001', 'ℹ️': '6021683099773966917', 'ℹ': '6021683099773966917', '▶️': '5773626993010546707', '▶': '5773626993010546707'}
+DEFAULT_CUSTOM_EMOJIS = {'👎': '5348132683304156113', '🔥': '5348429250795945732', '⭐': '5348254248058503242', '💬': '5348471079482441278', '💜': '5348359010900789108', '⚪': '5348451945403137943', '⚡': '5348085958354943913', '⛔': '5348221988559143096', '🕊': '5348378913779236881', '💤': '5348110903525000368', '🔇': '5350490916702404671', '🎮': '5348214678524805365', '❓': '5348551425435646741', '📶': '5348062301675078252', '👤': '5350763436672305153', '🎸': '5350659343844916913', '♥️': '5348232622898167572', '🥸': '5348322993305044654', '📍': '5350606545811949976', '💪': '5350542134187409556', '🆓': '5348440533675031854', '🫡': '5350294155660639210', '🚨': '5348507062718445792', '✨': '5350475991691052862', '⏫': '5350305520144106741', '⏬': '5350700390847365132', '🫀': '5348455299772596273', '🌙': '5348164354392997702', '🛸': '5350837773966261947', '🔘': '5348084369217052513', '🧠': '5350445475948414299', '❤️': '5350831267090809192', '😐': '5348073936741481983', '🏴\u200d☠️': '5350448718648721280', '🐍': '5348505039788852018', '🐐': '5348308179962840272', '🎥': '5350779710303387563', '🐈': '5350734411283317897', '💉': '5350724330995074640', '👁': '5350569213956210746', '💣': '5350608263798865348', '☢️': '5348195299632364355', '⏹': '5350830335082905598', '👣': '5350480278068412818', '💱': '5350729313157135529', '🫱': '5348083845231033279', '🪱': '5350409471237570490', '🌿': '5350464257840399147', '🫗': '5348148673467398930', '🧪': '5350559275401887719', '🕷': '5350463832638643765', '🪐': '5348487726775678967', '0️⃣': '5348407054404958928', '🌱': '5348168224158530153', '☀️': '5348403541121713090', '❄️': '5348336655596016298', '🥃': '5348586287685189943', '🕺': '5348103735224581633', '🦎': '5348377994656234507', '🎵': '5350518915594209897', '🩵': '5348142170886914854', '🥺': '5348459641984530528', '☹️': '5350350527106399998', '🎼': '5348390454356359473', '🌈': '5348037786001750791', '🫶': '5350659885010797372', '👾': '5348455218168218503', '🖱️': '5350814400754236833', '👋': '5850698420200675761', '👻': '5348523151665937930', '🌴': '5348204950423880839', '🦶': '5348106952155087364', '🍴': '5350821873997332409', '🚁': '5350832400962176205', '💙': '5348466097320378895', '🤟': '5350768792496521441', '📞': '5348125437694327548', '1️⃣': '5348324054161967894', '2️⃣': '5350559846632537457', '3️⃣': '5350719542106540014', '4️⃣': '5350505304842846481', '5️⃣': '5348566874433011485', '6️⃣': '5348527025726439836', '7️⃣': '5348233322977838019', '8️⃣': '5348198830095483738', '9️⃣': '5350836180533393550', '🛍': '5456343263340405032', '🛍️': '5456343263340405032', '♨️': '5465432711218863135', '♨': '5465432711218863135', '🔰': '6019118553326689234', '🖥': '6019455905827920171', '🖥️': '6019455905827920171', '🧩': '6024065724291488135', '🎬': '5937999673510858217', '💓': '6217662152547766453', '💗': '6217662152547766453', '🗑️': '6021413766669801212', '🗑': '6021413766669801212', 'Tutorial': '6266794310671275367', 'tutorial': '6266794310671275367', '📝': '6021487472603568286', '🫠': '5850698420200675761', '🦊': '5350475991691052862', '⚙️': '5904258298764334001', '⚙': '5904258298764334001', 'ℹ️': '6021683099773966917', 'ℹ': '6021683099773966917', '▶️': '5773626993010546707', '▶': '5773626993010546707', '⚠️': '5438630285635757876', 'Confirm': '6123181698193559460', 'confirm': '6123181698193559460', '✅': '6123181698193559460', 'Punish': '5014950810065307273', 'punish': '5014950810065307273', '🔨': '5014950810065307273'}
 
 def load_custom_premium_emojis() -> dict:
     """Load custom emoji ID map from config_db. Initializes defaults if missing."""
