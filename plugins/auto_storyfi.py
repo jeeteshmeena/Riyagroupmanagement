@@ -179,10 +179,10 @@ _TITLE_CATALOG: Optional[List[Dict[str, Any]]] = None
 _TITLE_CATALOG_TIME: float = 0.0
 
 
-def _get_cached_story_catalog() -> List[Dict[str, Any]]:
+def _get_cached_story_catalog(force_refresh: bool = False) -> List[Dict[str, Any]]:
     global _TITLE_CATALOG, _TITLE_CATALOG_TIME
     now = time.time()
-    if _TITLE_CATALOG is not None and (now - _TITLE_CATALOG_TIME) < 600:
+    if not force_refresh and _TITLE_CATALOG is not None and (now - _TITLE_CATALOG_TIME) < 60:
         return _TITLE_CATALOG
 
     catalog: List[Dict[str, Any]] = []
@@ -488,7 +488,7 @@ async def publish_story_to_channel(bot, chat_id: int, channel_info: Dict[str, An
                     f"⚠️ <b>[Auto Storyfi Alert]</b>\n\n"
                     f"Channel: <b>{channel_info.get('title')}</b> (<code>{chat_id}</code>)\n"
                     f"Extracted Title: <code>{clean_title}</code>\n"
-                    f"❌ <i>No matching story found in MongoDB or Local Database. Skipping post.</i>"
+                    f"❌ No matching story found in MongoDB or Local Database. Skipping post."
                 )
                 for admin in [OWNER_ID, ADMIN_ID]:
                     if admin:
@@ -766,12 +766,23 @@ async def auto_storyfi_worker_loop(application):
     logger.info("[AutoStoryfi] Worker loop initialized & active ✅")
     await asyncio.sleep(15)  # initial startup delay
 
+    last_auto_sync_time = 0.0
     while True:
         try:
+            now = time.time()
             config = load_storyfi_config()
             if not config.get("enabled", False):
                 await asyncio.sleep(60)
                 continue
+
+            # Auto-sync admin channels and newly added stories every 30 minutes in background
+            if (now - last_auto_sync_time) > 1800:
+                try:
+                    logger.info("[AutoStoryfi] Running automatic background channel & new story sync...")
+                    await scan_and_sync_admin_channels(application.bot, None)
+                    last_auto_sync_time = now
+                except Exception as _e_sc_bg:
+                    logger.debug(f"[AutoStoryfi Auto-Sync] note: {_e_sc_bg}")
 
             interval_seconds = float(config.get("interval_hours", 12.0)) * 3600
             channels = config.get("channels", {})
@@ -890,7 +901,7 @@ async def handle_storyfi_search_input(update: Update, context: ContextTypes.DEFA
             [InlineKeyboardButton("➦ Back to Channel Settings", callback_data=f"cfg|storyfi|chdetail|{cid_str}|0|{caller_id}")]
         ]
         await update.message.reply_text(
-            f"❌ <b>No stories found for '<code>{text}</code>'</b>\n\nTarget Channel: <b>{c_title}</b>\n<i>Try a different keyword or browse all stories:</i>",
+            f"❌ <b>No stories found for '<code>{text}</code>'</b>\n\nTarget Channel: <b>{c_title}</b>\nTry a different keyword or browse all stories:",
             parse_mode="HTML",
             reply_markup=ReplyKeyboardRemove()
         )
@@ -916,13 +927,13 @@ async def handle_storyfi_search_input(update: Update, context: ContextTypes.DEFA
         f"✅ <b>Search Results for '<code>{text}</code>'</b> ({len(top_matches)} stories found)\n"
         f"Target Channel: <b>{c_title}</b>\n"
         f"──────────────────────\n"
-        f"<i>Tap any story below to add it to this channel:</i>",
+        f"Tap any story below to add it to this channel:",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(btn_rows)
     )
     # Clean remove reply keyboard silently
     try:
-        dummy_msg = await update.message.reply_text("🔎 <i>Select from the list above.</i>", parse_mode="HTML", reply_markup=ReplyKeyboardRemove())
+        dummy_msg = await update.message.reply_text("🔎 Select from the list above.", parse_mode="HTML", reply_markup=ReplyKeyboardRemove())
         await asyncio.sleep(2)
         await dummy_msg.delete()
     except Exception:
@@ -957,7 +968,7 @@ def get_storyfi_main_panel(caller_id: int) -> Tuple[str, InlineKeyboardMarkup]:
         f"• <b>Connected Channels:</b> <code>{active_ch}/{total_ch} Active</code>\n"
         f"• <b>Matched Stories:</b> <code>{matched_ch}/{total_ch} Ready</code>\n"
         "──────────────────────\n"
-        "<i>Auto Storyfi automatically posts HD story cards + replies into channel-specific story channels, replacing old posts.</i>"
+        "Auto Storyfi automatically posts HD story cards + replies into channel-specific story channels, replacing old posts."
     )
 
     toggle_btn_text = "🔴 Stop Engine" if is_on else "🟢 Start Engine"
@@ -1067,11 +1078,11 @@ async def handle_storyfi_callbacks(query, context: ContextTypes.DEFAULT_TYPE, pa
 
         chunk = channels[page * per_page : (page + 1) * per_page]
 
-        lines = [f"<b>📋 Connected Channels (Page {page + 1}/{total_pages})</b>\n──────────────────────\n<i>Tap any channel below to manage its assigned stories & settings:</i>\n"]
+        lines = [f"<b>📋 Connected Channels (Page {page + 1}/{total_pages})</b>\n──────────────────────\nTap any channel below to manage its assigned stories & settings:\n"]
         btn_rows = []
 
         if not chunk:
-            lines.append("<i>No channels found. Tap 'Auto-Scan Channels' first.</i>")
+            lines.append("No channels found. Tap 'Auto-Scan Channels' first.")
         else:
             for idx, ch in enumerate(chunk, page * per_page + 1):
                 c_title = ch.get("title", "Unknown")[:24]
@@ -1091,7 +1102,7 @@ async def handle_storyfi_callbacks(query, context: ContextTypes.DEFAULT_TYPE, pa
 
                 is_en = "🟢" if ch.get("enabled", True) else "🔴"
                 cid = ch.get("id")
-                lines.append(f"<b>{idx}.</b> {c_title} [{is_en}]\n   ↳ <i>Stories ({len(story_names)}):</i> <b>{s_summary}</b>")
+                lines.append(f"<b>{idx}.</b> {c_title} [{is_en}]\n   ↳ Stories ({len(story_names)}): <b>{s_summary}</b>")
 
                 # Channel Detail button (2 per row if short or 1 per row)
                 toggle_cb = f"cfg|storyfi|chdetail|{cid}|{page}|{caller_id}"
@@ -1137,26 +1148,6 @@ async def handle_storyfi_callbacks(query, context: ContextTypes.DEFAULT_TYPE, pa
         m_stories = c_data.get("matched_stories")
         if not m_stories:
             s_name = c_data.get("matched_story_name")
-    if action == "chdetail":
-        cid_str = str(param)
-        return_page = parts[4] if len(parts) > 4 and parts[4].isdigit() else "0"
-        channels = config.get("channels", {})
-        c_data = channels.get(cid_str)
-        if not c_data:
-            try: await query.answer("Channel not found.", show_alert=True)
-            except Exception: pass
-            parts[2] = "channels"
-            parts[3] = return_page
-            await handle_storyfi_callbacks(query, context, parts, caller_id)
-            return
-
-        c_title = c_data.get("title", "Unknown")
-        is_en = c_data.get("enabled", True)
-        st_txt = "🟢 Active (Enabled)" if is_en else "🔴 Inactive (Disabled)"
-
-        m_stories = c_data.get("matched_stories")
-        if not m_stories:
-            s_name = c_data.get("matched_story_name")
             s_id = c_data.get("matched_story_id")
             if s_name and s_name != "None":
                 m_stories = [{"id": str(s_id or ""), "name": s_name}]
@@ -1177,7 +1168,7 @@ async def handle_storyfi_callbacks(query, context: ContextTypes.DEFAULT_TYPE, pa
         ]
 
         if not m_stories:
-            lines.append("<i>❌ No stories assigned yet.</i>\n")
+            lines.append("❌ No stories assigned yet.\n")
             suggestions = suggest_stories_for_channel(c_title, limit=3)
             if suggestions:
                 lines.append("<b>💡 Top Database Suggestions:</b>")
@@ -1249,9 +1240,9 @@ async def handle_storyfi_callbacks(query, context: ContextTypes.DEFAULT_TYPE, pa
             f"🔍 <b>Search & Add Story to Channel</b>\n"
             f"<b>Target:</b> <code>{c_title}</code>\n"
             f"──────────────────────\n"
-            f"<i>Please type the name or keyword of the story you want to add:</i>\n\n"
-            f"💡 <i>Examples:</i> <code>Detective Ajay</code>, <code>Hukum Ka Ikka</code>, <code>Malang</code>, <code>Rishta</code>\n\n"
-            f"<i>(Type name directly in chat, or tap '❌ Cancel' below)</i>"
+            f"Please type the name or keyword of the story you want to add:\n\n"
+            f"💡 Examples: <code>Detective Ajay</code>, <code>Hukum Ka Ikka</code>, <code>Malang</code>, <code>Rishta</code>\n\n"
+            f"(Type name directly in chat, or tap '❌ Cancel' below)"
         )
         try:
             await query.message.reply_text(prompt_text, parse_mode="HTML", reply_markup=reply_kb)
@@ -1277,7 +1268,7 @@ async def handle_storyfi_callbacks(query, context: ContextTypes.DEFAULT_TYPE, pa
             f"<b>📚 Browse MongoDB Stories</b>\n"
             f"<b>Target:</b> <code>{c_title}</code>\n"
             f"──────────────────────\n"
-            f"<i>Tap any story below to add it (Page {st_page + 1}/{total_pages}):</i>"
+            f"Tap any story below to add it (Page {st_page + 1}/{total_pages}):"
         )
 
         btn_rows = []
@@ -1388,3 +1379,123 @@ async def handle_storyfi_callbacks(query, context: ContextTypes.DEFAULT_TYPE, pa
             st = "Enabled" if channels[cid_str]["enabled"] else "Disabled"
             try: await query.answer(f"Channel {channels[cid_str].get('title')} {st}!", show_alert=True)
             except Exception: pass
+        # return to channel detail or list
+        parts[2] = "chdetail"
+        parts[3] = cid_str
+        parts[4] = return_page
+        await handle_storyfi_callbacks(query, context, parts, caller_id)
+        return
+
+    if action == "freq":
+        # Cycle through 24h (1x), 12h (2x), 8h (3x), 6h (4x)
+        current = config.get("interval_hours", 12.0)
+        options = [24.0, 12.0, 8.0, 6.0]
+        next_val = options[(options.index(current) + 1) % len(options)] if current in options else 12.0
+        config["interval_hours"] = next_val
+        save_storyfi_config(config)
+        p_day = round(24.0 / next_val, 1)
+        try: await query.answer(f"Frequency set to: {next_val} hours (~{p_day} posts/day)", show_alert=True)
+        except Exception: pass
+        text, markup = get_storyfi_main_panel(caller_id)
+        try:
+            await query.message.edit_text(text, parse_mode="HTML", reply_markup=markup)
+        except Exception:
+            pass
+        return
+
+    if action == "stagger":
+        # Cycle stagger minutes: 1-3 min -> 2-5 min -> 3-8 min -> 5-10 min
+        current_pair = (config.get("stagger_min_minutes", 2), config.get("stagger_max_minutes", 5))
+        presets = [(1, 3), (2, 5), (3, 8), (5, 10)]
+        next_pair = presets[(presets.index(current_pair) + 1) % len(presets)] if current_pair in presets else (2, 5)
+        config["stagger_min_minutes"], config["stagger_max_minutes"] = next_pair
+        save_storyfi_config(config)
+        try: await query.answer(f"Stagger gap set to: {next_pair[0]}–{next_pair[1]} Minutes between channels", show_alert=True)
+        except Exception: pass
+        text, markup = get_storyfi_main_panel(caller_id)
+        try:
+            await query.message.edit_text(text, parse_mode="HTML", reply_markup=markup)
+        except Exception:
+            pass
+        return
+
+    if action == "tone":
+        current_tone = config.get("reply_tone", "mixed")
+        tones = ["mixed", "savage", "humour", "marketing", "mysterious"]
+        next_tone = tones[(tones.index(current_tone) + 1) % len(tones)] if current_tone in tones else "mixed"
+        config["reply_tone"] = next_tone
+        save_storyfi_config(config)
+        try: await query.answer(f"Reply Tone set to: {next_tone.capitalize()}", show_alert=True)
+        except Exception: pass
+        text, markup = get_storyfi_main_panel(caller_id)
+        try:
+            await query.message.edit_text(text, parse_mode="HTML", reply_markup=markup)
+        except Exception:
+            pass
+        return
+
+    if action == "test_select":
+        page = int(param) if param.isdigit() else 0
+        channels = list(config.get("channels", {}).values())
+        matched = [c for c in channels if (c.get("matched_stories") or c.get("matched_story_name"))]
+        if not matched:
+            try: await query.answer("No matched channels available. Run Auto-Scan first.", show_alert=True)
+            except Exception: pass
+            return
+
+        per_page = 15
+        total_pages = max(1, (len(matched) + per_page - 1) // per_page)
+        page = max(0, min(page, total_pages - 1))
+        chunk = matched[page * per_page : (page + 1) * per_page]
+
+        text = f"<b>🚀 Select a Channel for Instant Test Post (Page {page + 1}/{total_pages}):</b>\n──────────────────────\nTap a channel below to immediately send a test post + auto-reply."
+        btn_rows = []
+        for c in chunk:
+            m_sts = c.get("matched_stories") or []
+            cnt_str = f" ({len(m_sts)} 📚)" if m_sts else ""
+            btn_rows.append([
+                InlineKeyboardButton(f"🚀 {c.get('title')[:26]}{cnt_str}", callback_data=f"cfg|storyfi|test_do|{c.get('id')}||{caller_id}")
+            ])
+
+        nav_row = []
+        if page > 0:
+            nav_row.append(InlineKeyboardButton("◄ Prev", callback_data=f"cfg|storyfi|test_select|{page - 1}||{caller_id}"))
+        nav_row.append(InlineKeyboardButton(f"{page + 1}/{total_pages}", callback_data=f"cfg|storyfi|noop||{caller_id}"))
+        if page < total_pages - 1:
+            nav_row.append(InlineKeyboardButton("Next ►", callback_data=f"cfg|storyfi|test_select|{page + 1}||{caller_id}"))
+
+        if nav_row:
+            btn_rows.append(nav_row)
+        btn_rows.append([InlineKeyboardButton("➦ Back to Control Panel", callback_data=f"cfg|storyfi|main||{caller_id}")])
+
+        try:
+            await query.message.edit_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btn_rows))
+        except Exception:
+            pass
+        return
+
+    if action == "test_do":
+        cid = int(param) if param.lstrip("-").isdigit() else 0
+        c_data = config.get("channels", {}).get(str(cid))
+        if not c_data:
+            try: await query.answer("Channel not found in database.", show_alert=True)
+            except Exception: pass
+            return
+
+        try: await query.answer(f"Sending test post to {c_data.get('title')}...", show_alert=True)
+        except Exception: pass
+
+        success, msg = await publish_story_to_channel(context.bot, cid, c_data, config)
+        if success:
+            try: await query.answer(f"✅ Test Post Sent Successfully!\n{msg}", show_alert=True)
+            except Exception: pass
+        else:
+            try: await query.answer(f"❌ Failed: {msg}", show_alert=True)
+            except Exception: pass
+
+        text, markup = get_storyfi_main_panel(caller_id)
+        try:
+            await query.message.edit_text(text, parse_mode="HTML", reply_markup=markup)
+        except Exception:
+            pass
+        return
