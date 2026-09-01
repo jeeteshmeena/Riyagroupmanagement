@@ -4096,13 +4096,14 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
     if len(lnw_data) > 64: lnw_data = "lnw|toolong"
     
     is_paid = result.get("is_paid", False)
-    tut_url = get_tutorial_url() if is_paid else "https://t.me/StoriesLinkopningguide/5"
+    guide_url = "https://t.me/StoriesLinkopningguide/19" if is_paid else "https://t.me/StoriesLinkopningguide/5"
+    guide_title = "Buying Guide" if is_paid else "Tutorial"
     
     if is_paid:
         keyboard.append([
             InlineKeyboardButton("Add2", callback_data=fav_data, api_kwargs={"icon_custom_emoji_id": "6217662152547766453"}),
             InlineKeyboardButton("Delete", callback_data="delete", api_kwargs={"icon_custom_emoji_id": "6021413766669801212"}),
-            InlineKeyboardButton("Tutorial", url=tut_url, api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})
+            InlineKeyboardButton(guide_title, url=guide_url, api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})
         ])
     else:
         keyboard.append([
@@ -4111,7 +4112,7 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
         ])
         keyboard.append([
             InlineKeyboardButton("Delete", callback_data="delete", api_kwargs={"icon_custom_emoji_id": "6021413766669801212"}),
-            InlineKeyboardButton("Tutorial", url=tut_url, api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})
+            InlineKeyboardButton(guide_title, url=guide_url, api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})
         ])
 
     photo = result.get("photo") or result.get("image")
@@ -5156,7 +5157,8 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if len(lnw_data) > 64: lnw_data = "lnw|toolong"
 
         is_paid = result.get("is_paid", False)
-        tut_url = get_tutorial_url() if is_paid else "https://t.me/StoriesLinkopningguide/5"
+        guide_url = "https://t.me/StoriesLinkopningguide/19" if is_paid else "https://t.me/StoriesLinkopningguide/5"
+        guide_title = "Buying Guide" if is_paid else "Tutorial"
 
         if is_paid:
             keyboard = [
@@ -5170,7 +5172,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             keyboard.append([
                 InlineKeyboardButton("Add2", callback_data=fav_data, api_kwargs={"icon_custom_emoji_id": "6217662152547766453"}),
                 InlineKeyboardButton("Delete", callback_data="delete", api_kwargs={"icon_custom_emoji_id": "6021413766669801212"}),
-                InlineKeyboardButton("Tutorial", url=tut_url, api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})
+                InlineKeyboardButton(guide_title, url=guide_url, api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})
             ])
         else:
             keyboard.append([
@@ -5179,7 +5181,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ])
             keyboard.append([
                 InlineKeyboardButton("Delete", callback_data="delete", api_kwargs={"icon_custom_emoji_id": "6021413766669801212"}),
-                InlineKeyboardButton("Tutorial", url=tut_url, api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})
+                InlineKeyboardButton(guide_title, url=guide_url, api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})
             ])
 
 
