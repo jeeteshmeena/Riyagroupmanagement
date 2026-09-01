@@ -1051,8 +1051,8 @@ def _menu_main(caller_id: int, lang: str = "en", mention: str = "") -> tuple:
 
     text = (
         f"<blockquote>Hey, {user_disp} 👋\n"
-        f"Welcome To {bot_name}</blockquote>"
-        f"<blockquote>ᴅɪꜱᴄᴏᴠᴇʀ ʏᴏᴜʀ ꜰᴀᴠᴏʀɪᴛᴇ ꜱᴛᴏʀɪᴇꜱ, ᴏʀ ʀᴇQᴜᴇꜱᴛ ᴏɴᴇ ɪꜰ ɪᴛ'ꜱ ɴᴏᴛ ᴀᴠᴀɪʟᴀʙʟᴇ. ɪ'ᴍ ʏᴏᴜʀ 𝑨𝒍𝒍-𝒊𝒏-𝑶𝒏𝒆 ʙᴇꜱᴛɪᴇ, ʀᴇᴀᴅʏ ᴛᴏ ʜᴇʟᴘ ᴀɴʏᴛɪᴍᴇ.</blockquote>"
+        f"Welcome To {bot_name}</blockquote>\n"
+        f"<blockquote>ᴅɪꜱᴄᴏᴠᴇʀ ʏᴏᴜʀ ꜰᴀᴠᴏʀɪᴛᴇ ꜱᴛᴏʀɪᴇꜱ, ᴏʀ ʀᴇQᴜᴇꜱᴛ ᴏɴᴇ ɪꜰ ɪᴛ'ꜱ ɴᴏᴛ ᴀᴠᴀɪʟᴀʙʟᴇ. ɪ'ᴍ ʏᴏᴜʀ 𝑨𝒍𝒍-𝒊𝒏-𝑶𝒏𝒆 ʙᴇꜱᴛɪᴇ, ʀᴇᴀᴅʏ ᴛᴏ ʜᴇʟᴘ ᴀɴʏᴛɪᴍᴇ.</blockquote>\n"
         f"<blockquote>𝖲𝖾𝖺𝗋𝖼𝗁 𝖲𝗍𝗈𝗋𝗂𝖾𝗌 • ᴇxᴘʟᴏʀᴇ ᴍᴇ • 𝑹𝒆𝒒𝒖𝒆𝒔𝒕 𝑺𝒕𝒐𝒓𝒚 • ᴍᴏʀᴇ</blockquote>"
     )
     btn_rows = [
