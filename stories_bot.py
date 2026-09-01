@@ -1046,28 +1046,19 @@ def _nav_row(caller_id: int, back: str | None = None) -> list:
 
 def _menu_main(caller_id: int, lang: str = "en", mention: str = "") -> tuple:
     """Main / Home menu."""
-    from database import load_db
-    try:
-        db = load_db()
-        count = len(db)
-    except Exception:
-        count = 0
-
     user_disp = mention if mention else "User"
+    bot_name = "Riya"
 
     text = (
-        f"❈ 𝐇𝐞𝐲, {user_disp}\n\n"
-        f"⟡ ʷᵉˡᶜᵒᵐᵉ ᴛᴏ 𝑹𝒊𝒚𝒂\n\n"
-        f"◈ ᴅɪꜱᴄᴏᴠᴇʀ ʏᴏᴜʀ ꜰᴀᴠᴏʀɪᴛᴇ ꜱᴛᴏʀɪᴇꜱ, ᴏʀ ʀᴇQᴜᴇꜱᴛ ᴏɴᴇ ɪꜰ ɪᴛ'ꜱ ɴᴏᴛ ᴀᴠᴀɪʟᴀʙʟᴇ.\n\n"
-        f"❊ 𝑨𝒗𝒂𝒊𝒍𝒂𝒃𝒍𝒆 𝑺𝒕𝒐𝒓𝒊𝒆𝒔\n"
-        f"⟢ {count} 𝑺𝒕𝒐𝒓𝒊𝒆𝒔 𝑹𝒆𝒂𝒅𝒚\n\n"
-        f"✧ ɪ'ᴍ ʏᴏᴜʀ 𝑨𝒍𝒍-𝒊𝒏-𝑶𝒏𝒆 ʙᴇꜱᴛɪᴇ, ʀᴇᴀᴅʏ ᴛᴏ ʜᴇʟᴘ ᴀɴʏᴛɪᴍᴇ.\n\n"
-        f"✺ 𝖲𝖾𝖺𝗋𝖼𝗁 𝖲𝗍𝗈𝗋𝗂𝖾𝗌 • ᴇxᴘʟᴏʀᴇ ᴍᴇ • 𝑹𝒆𝒒𝒖𝒆𝒔𝒕 𝑺𝒕𝒐𝒓𝒚 • ᴍᴏʀᴇ"
+        f"<blockquote>Hey, {user_disp} 👋\n"
+        f"Welcome To {bot_name}</blockquote>\n\n"
+        f"<blockquote>ᴅɪꜱᴄᴏᴠᴇʀ ʏᴏᴜʀ ꜰᴀᴠᴏʀɪᴛᴇ ꜱᴛᴏʀɪᴇꜱ, ᴏʀ ʀᴇQᴜᴇꜱᴛ ᴏɴᴇ ɪꜰ ɪᴛ'ꜱ ɴᴏᴛ ᴀᴠᴀɪʟᴀʙʟᴇ. ɪ'ᴍ ʏᴏᴜʀ 𝑨𝒍𝒍-𝒊𝒏-𝑶𝒏𝒆 ʙᴇꜱᴛɪᴇ, ʀᴇᴀᴅʏ ᴛᴏ ʜᴇʟᴘ ᴀɴʏᴛɪᴍᴇ.</blockquote>\n\n"
+        f"<blockquote>𝖲𝖾𝖺𝗋𝖼𝗁 𝖲𝗍𝗈𝗋𝗂𝖾𝗌 • ᴇxᴘʟᴏʀᴇ ᴍᴇ • 𝑹𝒆𝒒𝒖𝒆𝒔𝒕 𝑺𝒕𝒐𝒓𝒚 • ᴍᴏʀᴇ</blockquote>"
     )
     btn_rows = [
         [
-            InlineKeyboardButton("FvTs", callback_data=f"menu|saved|{caller_id}", api_kwargs={"icon_custom_emoji_id": "6023852792697854544"}),
-            InlineKeyboardButton("Smtg New", callback_data=f"menu|new|{caller_id}", api_kwargs={"icon_custom_emoji_id": "5294524383279198295"}),
+            InlineKeyboardButton("Wishlist", callback_data=f"menu|saved|{caller_id}", api_kwargs={"icon_custom_emoji_id": "6023852792697854544"}),
+            InlineKeyboardButton("New", callback_data=f"menu|new|{caller_id}", api_kwargs={"icon_custom_emoji_id": "6285088169817805553"}),
         ],
         [
             InlineKeyboardButton("Search Now", switch_inline_query_current_chat="", api_kwargs={"icon_custom_emoji_id": "6105086781932183475"}),
