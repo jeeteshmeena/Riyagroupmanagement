@@ -107,7 +107,7 @@ def format_mongo_story_to_result(doc: Dict[str, Any], settings: Optional[Dict[st
 
     # Photo / Cover - Priority resolution for SQUARE Poster (1:1):
     image_url = ""
-    for field in ["poster_url", "poster", "image_url", "cover", "image", "cover_url", "photo_url", "photo", "banner_url", "banner"]:
+    for field in ["poster_url", "poster", "image_url", "cover", "image", "cover_url", "photo_url", "photo"]:
         val = doc.get(field)
         if isinstance(val, str) and val.strip().startswith(("http://", "https://")):
             image_url = val.strip()

@@ -4129,7 +4129,9 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
     
     if is_paid:
         keyboard.append([
-            InlineKeyboardButton(" ", callback_data=fav_data, api_kwargs={"icon_custom_emoji_id": "6217662152547766453"}),
+            InlineKeyboardButton(" ", callback_data=fav_data, api_kwargs={"icon_custom_emoji_id": "6217662152547766453"})
+        ])
+        keyboard.append([
             InlineKeyboardButton(" ", callback_data="delete", api_kwargs={"icon_custom_emoji_id": "6021413766669801212"}),
             InlineKeyboardButton(guide_title, url=guide_url, api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})
         ])
@@ -4194,11 +4196,25 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
         if photo_str.startswith(("http://", "https://")):
             try:
                 import requests
+                from PIL import Image as _PILImage
                 headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
                 resp = await asyncio.to_thread(requests.get, photo_str, headers=headers, timeout=8)
                 if resp.status_code == 200 and len(resp.content) > 100:
-                    photo_payload = io.BytesIO(resp.content)
-                    photo_payload.name = "cover.jpg"
+                    def _crop_square_bytes(raw_b: bytes) -> io.BytesIO:
+                        im = _PILImage.open(io.BytesIO(raw_b)).convert("RGB")
+                        w, h = im.size
+                        if w != h:
+                            min_s = min(w, h)
+                            left = (w - min_s) // 2
+                            top = (h - min_s) // 2
+                            im = im.crop((left, top, left + min_s, top + min_s))
+                        buf = io.BytesIO()
+                        im.save(buf, format="JPEG", quality=95)
+                        buf.name = "cover.jpg"
+                        buf.seek(0)
+                        return buf
+
+                    photo_payload = await asyncio.to_thread(_crop_square_bytes, resp.content)
             except Exception as _dl_err:
                 logger.warning(f"[Cover DL failed] {_dl_err}")
                 photo_payload = None
@@ -5258,7 +5274,9 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]
         if is_paid:
             keyboard.append([
-                InlineKeyboardButton(" ", callback_data=fav_data, api_kwargs={"icon_custom_emoji_id": "6217662152547766453"}),
+                InlineKeyboardButton(" ", callback_data=fav_data, api_kwargs={"icon_custom_emoji_id": "6217662152547766453"})
+            ])
+            keyboard.append([
                 InlineKeyboardButton(" ", callback_data="delete", api_kwargs={"icon_custom_emoji_id": "6021413766669801212"}),
                 InlineKeyboardButton(guide_title, url=guide_url, api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})
             ])
@@ -5285,11 +5303,25 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if photo_str.startswith(("http://", "https://")):
                 try:
                     import requests
+                    from PIL import Image as _PILImage
                     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
                     resp = await asyncio.to_thread(requests.get, photo_str, headers=headers, timeout=8)
                     if resp.status_code == 200 and len(resp.content) > 100:
-                        photo_payload = io.BytesIO(resp.content)
-                        photo_payload.name = "cover.jpg"
+                        def _crop_square_bytes_srch(raw_b: bytes) -> io.BytesIO:
+                            im = _PILImage.open(io.BytesIO(raw_b)).convert("RGB")
+                            w, h = im.size
+                            if w != h:
+                                min_s = min(w, h)
+                                left = (w - min_s) // 2
+                                top = (h - min_s) // 2
+                                im = im.crop((left, top, left + min_s, top + min_s))
+                            buf = io.BytesIO()
+                            im.save(buf, format="JPEG", quality=95)
+                            buf.name = "cover.jpg"
+                            buf.seek(0)
+                            return buf
+
+                        photo_payload = await asyncio.to_thread(_crop_square_bytes_srch, resp.content)
                 except Exception as _dl_err:
                     logger.warning(f"[Cover DL srch failed] {_dl_err}")
                     photo_payload = None
