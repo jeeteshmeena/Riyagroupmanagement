@@ -4221,6 +4221,7 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
     photo_payload = None
     if photo and isinstance(photo, str):
         photo_str = photo.strip()
+        logger.info(f"[StoryCard] Processing photo field: {photo_str[:120]}")
         if photo_str.startswith(("http://", "https://")):
             try:
                 import io
@@ -4228,6 +4229,7 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
                 from PIL import Image as _PILImage
                 headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
                 resp = await asyncio.to_thread(requests.get, photo_str, headers=headers, timeout=8)
+                logger.info(f"[StoryCard] Image download status: {resp.status_code}, bytes: {len(resp.content)}")
                 if resp.status_code == 200 and len(resp.content) > 100:
                     def _crop_square_bytes(raw_b: bytes) -> io.BytesIO:
                         im = _PILImage.open(io.BytesIO(raw_b)).convert("RGB")
@@ -4244,36 +4246,44 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
                         return buf
 
                     photo_payload = await asyncio.to_thread(_crop_square_bytes, resp.content)
+                    logger.info(f"[StoryCard] Photo converted to JPEG BytesIO successfully ({len(photo_payload.getvalue())} bytes)")
+                else:
+                    logger.warning(f"[StoryCard] Image download returned non-200 or empty content ({resp.status_code})")
             except Exception as _dl_err:
-                logger.warning(f"[Cover DL failed] {_dl_err}")
+                logger.error(f"[StoryCard Cover DL Error] {_dl_err}")
                 photo_payload = None
         elif _os.path.exists(photo_str):
             try:
                 photo_payload = open(photo_str, "rb")
-            except Exception:
+            except Exception as _fe:
+                logger.error(f"[StoryCard File Open Error] {_fe}")
                 photo_payload = None
         elif not result.get("from_mongo") and re.match(r"^[A-Za-z0-9_-]{20,}$", photo_str):
             photo_payload = photo_str
 
     if photo_payload and not sent_msg:
         try:
+            logger.info(f"[StoryCard] Sending Tier 1 photo to chat {chat_id}...")
             sent_msg = await context.bot.send_photo(
                 chat_id=chat_id, photo=photo_payload, caption=caption,
                 parse_mode="HTML", reply_markup=_reply_markup)
+            logger.info(f"[StoryCard] ✅ Tier 1 photo sent successfully! msg_id={sent_msg.message_id}")
         except Exception as _e1:
-            logger.warning(f"[SEARCH T1 failed] {_e1}")
+            logger.error(f"[StoryCard SEARCH T1 failed] {_e1}")
 
     # Tier 2: local default_cover.png opened as raw bytes + HTML caption
     if not sent_msg:
         _cp = _os.path.join(_os.path.dirname(__file__), "default_cover.png")
         if _os.path.exists(_cp):
             try:
+                logger.info(f"[StoryCard] Fallback: Sending Tier 2 default_cover.png...")
                 with open(_cp, "rb") as _cf:
                     sent_msg = await context.bot.send_photo(
                         chat_id=chat_id, photo=_cf, caption=caption,
                         parse_mode="HTML", reply_markup=_reply_markup)
+                logger.info(f"[StoryCard] Tier 2 default_cover sent. msg_id={sent_msg.message_id}")
             except Exception as _e2:
-                logger.warning(f"[SEARCH T2 failed] {_e2}")
+                logger.error(f"[StoryCard SEARCH T2 failed] {_e2}")
 
     # Tier 3: text message + HTML caption (no image at all)
     if not sent_msg:
