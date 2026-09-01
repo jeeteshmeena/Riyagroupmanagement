@@ -48,13 +48,51 @@ def _get_mongo_client():
 
     mongo_uri = settings.get("mongo_uri") or os.getenv("MONGO_URI", "")
     if not mongo_uri:
-        return None, None, None
+        try:
+            import json
+            for p in ["poster_settings.json", os.path.join(os.getenv("DATA_DIR", "."), "poster_settings.json")]:
+                if os.path.exists(p):
+                    with open(p, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        if isinstance(data, dict):
+                            settings = data
+                            mongo_uri = data.get("mongo_uri") or mongo_uri
+                            break
+        except Exception:
+            pass
 
-    db_name = settings.get("database_name") or os.getenv("DATABASE_NAME", "arya_premium")
-    col_name = settings.get("collection_name", "premium_stories")
+    if not mongo_uri:
+        return None, None, None
 
     try:
         client = pymongo.MongoClient(mongo_uri, serverSelectionTimeoutMS=4000)
+        
+        # Auto-discover database name from settings -> default DB -> cluster DB list
+        db_name = settings.get("database_name") or os.getenv("DATABASE_NAME")
+        if not db_name or db_name == "arya_premium":
+            try:
+                db_name = client.get_default_database().name
+            except Exception:
+                pass
+        
+        if not db_name or db_name == "arya_premium":
+            try:
+                dbs = client.list_database_names()
+                if "forward-bot" in dbs:
+                    db_name = "forward-bot"
+                elif "arya_premium" in dbs:
+                    db_name = "arya_premium"
+                elif dbs:
+                    non_sys = [d for d in dbs if d not in ("admin", "local", "config")]
+                    if non_sys:
+                        db_name = non_sys[0]
+            except Exception:
+                db_name = "forward-bot"
+
+        if not db_name:
+            db_name = "forward-bot"
+
+        col_name = settings.get("collection_name") or "premium_stories"
         col = client[db_name][col_name]
         return col, client, settings
     except Exception as e:
@@ -269,6 +307,24 @@ def search_story_from_mongo_sync(query: str) -> Optional[Dict[str, Any]]:
                 ]
             }
             doc = col.find_one(sub_filter)
+            if doc:
+                return format_mongo_story_to_result(doc, settings)
+
+        # Pass 4: Multi-word AND lookahead match (e.g. 'hiss rebirth' matches 'Hiss - Rebirth of a Destroyer')
+        words = [w for w in re.split(r"\s+", base_q) if len(w) >= 2]
+        if len(words) > 1:
+            lookahead_pattern = "".join(rf"(?=.*{re.escape(w)})" for w in words)
+            multi_filter = {
+                "$or": [
+                    {"story_name_en": {"$regex": lookahead_pattern, "$options": "i"}},
+                    {"story_name_hi": {"$regex": lookahead_pattern, "$options": "i"}},
+                    {"story_name": {"$regex": lookahead_pattern, "$options": "i"}},
+                    {"title": {"$regex": lookahead_pattern, "$options": "i"}},
+                    {"name": {"$regex": lookahead_pattern, "$options": "i"}},
+                    {"aliases": {"$regex": lookahead_pattern, "$options": "i"}},
+                ]
+            }
+            doc = col.find_one(multi_filter)
             if doc:
                 return format_mongo_story_to_result(doc, settings)
 

@@ -4497,19 +4497,25 @@ async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
             from mongo_search import async_search_story_from_mongo
             mongo_result = await async_search_story_from_mongo(query_text)
             if mongo_result:
+                logger.info(f"[Search Mongo Fallback] ✅ FOUND story for '{query_text}': {mongo_result.get('text')}")
                 result = mongo_result
+            else:
+                logger.info(f"[Search Mongo Fallback] ❌ No direct mongo match for '{query_text}'")
         except Exception as _m_err:
-            logger.debug(f"[Search Mongo Fallback] {_m_err}")
+            logger.error(f"[Search Mongo Fallback Error] {_m_err}")
 
     # 4. If still no story found, try AI story name resolver (e.g. typos, Hinglish phonetics)
     if not result:
         try:
             ai_resolved = await gemini_chat.ai_resolve_story_name(query_text)
             if ai_resolved:
+                logger.info(f"[Search AI Resolve] Resolved '{query_text}' -> '{ai_resolved}'")
                 result = search_story_exact_or_alias(ai_resolved)
                 if not result:
                     from mongo_search import async_search_story_from_mongo
                     result = await async_search_story_from_mongo(ai_resolved)
+                    if result:
+                        logger.info(f"[Search AI + Mongo] ✅ FOUND story for AI resolved '{ai_resolved}': {result.get('text')}")
         except Exception as _ai_err:
             logger.debug(f"[Search AI Resolve] {_ai_err}")
 
