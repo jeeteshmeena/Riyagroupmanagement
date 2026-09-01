@@ -240,11 +240,18 @@ def extract_smart_field(story: Dict[str, Any], field_type: str, default: str = "
             flat[str(k).lower().replace("_", "").replace("-", "")] = v
 
     if field_type == "name":
-        # Check specific key aliases first
+        # 1. Check direct story title keys in priority order
+        for direct_key in ["story_name_en", "story_name_hi", "story_name", "title", "name", "story_title", "book_name", "audiobook_name"]:
+            if isinstance(story, dict):
+                v = story.get(direct_key)
+                if isinstance(v, str) and v.strip():
+                    return v.strip()
+
+        # 2. Check specific key aliases (excluding bot/user keys)
         name_keys = [
-            "name", "storyname", "title", "storytitle", "bookname", "audiobookname",
+            "storyname", "storytitle", "bookname", "audiobookname",
             "seriesname", "heading", "story", "sname", "maintitle", "novelname", "novel",
-            "namehi", "nameen", "hindiname", "englishname", "caption"
+            "namehi", "nameen", "hindiname", "englishname"
         ]
         for k in name_keys:
             if k in flat:
@@ -255,11 +262,12 @@ def extract_smart_field(story: Dict[str, Any], field_type: str, default: str = "
                     res = extract_smart_field(val, "name")
                     if res: return res
 
-        # Fuzzy search: find any key containing 'name', 'title', 'story', or 'book' (excluding description/synopsis/id/channel/link)
+        # 3. Fuzzy search: strictly exclude bot, username, user, desc, id, channel, link
         for k, v in flat.items():
-            if ("name" in k or "title" in k or "story" in k or "book" in k) and not any(x in k for x in ["desc", "synopsis", "about", "summary", "id", "channel", "link"]):
-                if isinstance(v, str) and v.strip():
-                    return v.strip()
+            if ("name" in k or "title" in k or "story" in k or "book" in k):
+                if not any(x in k for x in ["bot", "username", "user", "desc", "synopsis", "about", "summary", "id", "channel", "link"]):
+                    if isinstance(v, str) and v.strip():
+                        return v.strip()
 
     elif field_type in ("cover", "poster", "image"):
         cover_keys = [
@@ -270,7 +278,7 @@ def extract_smart_field(story: Dict[str, Any], field_type: str, default: str = "
             "photo_url", "photourl", "photoUrl", "thumbnail_url", "thumbnail", "thumb",
             "image", "cover", "photo"
         ]
-        # Pass 1: Look for valid HTTP(S) URLs (Cloudflare R2, CDN, etc.)
+        # Look for valid Square Poster HTTP(S) URLs only (Cloudflare R2, CDN, etc.)
         for k in cover_keys:
             if k in flat:
                 val = flat[k]
@@ -290,13 +298,6 @@ def extract_smart_field(story: Dict[str, Any], field_type: str, default: str = "
                         s = str(val.get(sub_k) or "").strip()
                         if s.startswith(("http://", "https://")):
                             return s
-
-        # Pass 2: Banner URLs as fallback
-        for bk in ["banner_url", "bannerurl", "bannerUrl", "banner", "banner_image"]:
-            if bk in flat:
-                val = flat[bk]
-                if isinstance(val, str) and val.strip().startswith(("http://", "https://")):
-                    return val.strip()
 
         # Pass 3: Local file paths or other non-URL identifiers
         for k in cover_keys:
@@ -515,7 +516,7 @@ async def publish_next_story(app) -> Tuple[bool, str]:
 
     # 2. Image URL Resolution Formula for SQUARE Poster (1:1):
     img_url = ""
-    for field in ["poster_url", "poster", "image_url", "cover", "image", "cover_url", "photo_url", "photo", "banner_url", "banner"]:
+    for field in ["poster_url", "poster", "square_poster", "image_url", "cover", "image", "cover_url", "photo_url", "photo"]:
         val = str(story.get(field) or "").strip()
         if val.startswith("http://") or val.startswith("https://"):
             img_url = val

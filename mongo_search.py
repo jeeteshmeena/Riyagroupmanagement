@@ -159,13 +159,6 @@ def extract_square_image_url(doc: Dict[str, Any], settings: Optional[Dict[str, A
             if url:
                 return url
 
-    # 3. Fallback: Banner keys
-    for bk in ["banner_url", "bannerurl", "bannerUrl", "banner", "banner_image"]:
-        if bk in doc:
-            url = _extract_url_from_val(doc[bk])
-            if url:
-                return url
-
     return ""
 
 
@@ -173,6 +166,14 @@ def extract_smart_field(doc: Dict[str, Any], field_type: str, default: str = "")
     """Extract a field intelligently from a MongoDB story document."""
     if not isinstance(doc, dict):
         return default
+
+    if field_type == "name":
+        # 1. Direct explicit title keys in MongoDB documents
+        for direct_key in ["story_name_en", "story_name_hi", "story_name", "title", "name", "story_title", "book_name", "audiobook_name"]:
+            val = doc.get(direct_key)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+
     try:
         from plugins.poster_bot import extract_smart_field as _psf
         res = _psf(doc, field_type, default=default)
