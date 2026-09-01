@@ -48,8 +48,15 @@ def _get_mongo_client():
     if pymongo is None:
         return None, None, None
 
+    # Check if cached client is alive
     if _CACHED_COLLECTION is not None and _CACHED_CLIENT is not None:
-        return _CACHED_COLLECTION, _CACHED_CLIENT, _CACHED_SETTINGS
+        try:
+            # ping server to verify connection is open
+            _CACHED_CLIENT.admin.command('ping')
+            return _CACHED_COLLECTION, _CACHED_CLIENT, _CACHED_SETTINGS
+        except Exception:
+            _CACHED_CLIENT = None
+            _CACHED_COLLECTION = None
 
     try:
         from plugins.poster_bot import load_poster_settings
@@ -78,12 +85,12 @@ def _get_mongo_client():
     try:
         client = pymongo.MongoClient(
             mongo_uri,
-            serverSelectionTimeoutMS=4000,
-            connectTimeoutMS=4000,
-            socketTimeoutMS=5000,
+            serverSelectionTimeoutMS=5000,
+            connectTimeoutMS=5000,
+            socketTimeoutMS=6000,
             readPreference='primaryPreferred',
             retryReads=True,
-            maxPoolSize=10
+            maxPoolSize=20
         )
         
         # Auto-discover database name from settings -> default DB -> cluster DB list
@@ -368,8 +375,6 @@ def search_story_from_mongo_sync(query: str) -> Optional[Dict[str, Any]]:
 
     clean_q = _clean_query(query).strip()
     if not clean_q or len(clean_q) < 2:
-        if client:
-            client.close()
         return None
 
     try:
@@ -458,9 +463,6 @@ def search_story_from_mongo_sync(query: str) -> Optional[Dict[str, Any]]:
     except Exception as e:
         logger.error(f"[MongoSearch] Error querying MongoDB for '{query}': {e}")
         return None
-    finally:
-        if client:
-            client.close()
 
 
 async def async_search_story_from_mongo(query: str) -> Optional[Dict[str, Any]]:
@@ -479,8 +481,6 @@ def search_mongo_stories_by_keyword_sync(query: str, limit: int = 10) -> List[Di
 
     clean_q = _clean_query(query).strip()
     if not clean_q or len(clean_q) < 3:
-        if client:
-            client.close()
         return []
 
     try:
@@ -502,9 +502,6 @@ def search_mongo_stories_by_keyword_sync(query: str, limit: int = 10) -> List[Di
     except Exception as e:
         logger.error(f"[MongoSearch] Error keyword query MongoDB for '{query}': {e}")
         return []
-    finally:
-        if client:
-            client.close()
 
 
 async def async_search_mongo_stories_by_keyword(query: str, limit: int = 10) -> List[Dict[str, Any]]:

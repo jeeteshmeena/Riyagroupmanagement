@@ -555,7 +555,7 @@ async def scan_and_sync_admin_channels(bot, context=None) -> Dict[str, Any]:
                         title = chat.title or str_cid
                         username = chat.username or ""
                         clean_title = clean_channel_title_for_story(title)
-                        matched_story = find_story_for_channel_sync(clean_title, config)
+                        matched_story = find_story_for_channel_sync(title, config)
 
                         existing = discovered.get(str_cid, {})
                         discovered[str_cid] = {
@@ -576,6 +576,18 @@ async def scan_and_sync_admin_channels(bot, context=None) -> Dict[str, Any]:
                         }
         except Exception as _e_chk:
             logger.debug(f"[AutoStoryfi Scan] Channel {cid} check error: {_e_chk}")
+
+    # Re-match any existing channel that was missing match
+    for str_cid, c_data in discovered.items():
+        if not c_data.get("matched_story_name") or c_data.get("matched_story_name") == "None":
+            m_story = find_story_for_channel_sync(c_data.get("title", ""), config)
+            if m_story:
+                c_data["matched_story_name"] = (
+                    m_story.get("story_name_en") or
+                    m_story.get("story_name") or
+                    m_story.get("title") or "None"
+                )
+                c_data["matched_story_id"] = str(m_story.get("_id", ""))
 
     config["channels"] = discovered
     save_storyfi_config(config)
