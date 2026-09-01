@@ -6538,6 +6538,9 @@ def _cfg_main_panel(caller_id: int, lang: str = "en") -> tuple:
             InlineKeyboardButton("Poster Bot",    callback_data=f"cfg|poster|main||{caller_id}"),
         ],
         [
+            InlineKeyboardButton("Auto Storyfi",   callback_data=f"cfg|storyfi|main||{caller_id}", api_kwargs={"icon_custom_emoji_id": "6021607757457660145"}),
+        ],
+        [
             InlineKeyboardButton("Tutorial",       callback_data=f"cfg|tutorial_guide||{caller_id}"),
             InlineKeyboardButton("Poll Settings",  callback_data=f"cfg|poll_settings||{caller_id}"),
         ],
@@ -7250,6 +7253,11 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
     if section == "poster":
         from plugins.poster_bot import handle_poster_callbacks
         await handle_poster_callbacks(query, context, parts, caller_id)
+        return
+
+    if section == "storyfi":
+        from plugins.auto_storyfi import handle_storyfi_callbacks
+        await handle_storyfi_callbacks(query, context, parts, caller_id)
         return
 
     if section == "broadcast":
@@ -10768,6 +10776,14 @@ def start_bot():
             logger.info("[PosterBot] Background worker task launched in _post_init ✅")
         except Exception as e:
             logger.error(f"[PosterBot] Failed to start worker loop: {e}")
+
+        # Launch Auto Storyfi channel-specific posting worker loop
+        try:
+            from plugins.auto_storyfi import auto_storyfi_worker_loop
+            asyncio.create_task(auto_storyfi_worker_loop(application))
+            logger.info("[AutoStoryfi] Background worker task launched in _post_init ✅")
+        except Exception as e:
+            logger.error(f"[AutoStoryfi] Failed to start auto-storyfi worker loop: {e}")
 
         # Launch Riya 24hr auto-reminder loop
         try:
