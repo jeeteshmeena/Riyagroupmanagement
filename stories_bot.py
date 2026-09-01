@@ -341,6 +341,14 @@ chat_languages = load_languages()  # chat_id(str) -> 'en'/'hi'
 link_flags = load_link_flags()  # story_key -> {'broken': bool, 'link': str, 'voters': [{'id','name'}], 'chats': [int]}
 active_link_votes = {}  # vote_id -> {'story_key', 'chat_id', 'message_id', 'voters': {user_id: name}, 'link', 'story_name'}
 bot_config = load_config()
+if "tutorial_guide" in bot_config and isinstance(bot_config["tutorial_guide"], dict):
+    btn_t = bot_config["tutorial_guide"].get("button_text", "")
+    if "Buy" in btn_t or "buy" in btn_t or "█" in btn_t:
+        bot_config["tutorial_guide"]["button_text"] = "Tutorial"
+        try:
+            save_config(bot_config)
+        except Exception:
+            pass
 stats_db = load_stats()  # {"searches": {}, "users": {}, "trending": {}}
 favorites_db = load_favorites()  # { user_id_str: [story_key1, ...] }
 story_channels_db = load_story_channels()  # { "ongoing": [...], "completed": [...] }
@@ -1293,11 +1301,10 @@ def get_tutorial_url(bot_username: str = "") -> str:
     return f"https://t.me/{uname}?start=guide"
 
 def get_tutorial_button_text() -> str:
-    tut_cfg = bot_config.get("tutorial_guide", {})
-    return tut_cfg.get("button_text") or "Tutorial"
+    return "Tutorial"
 
 def get_tutorial_inline_button(bot_username: str = "") -> InlineKeyboardButton:
-    return InlineKeyboardButton(get_tutorial_button_text(), url=get_tutorial_url(bot_username))
+    return InlineKeyboardButton("Tutorial", url=get_tutorial_url(bot_username), api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})
 
 async def send_tutorial_guide(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Render and send the custom tutorial guide to the user."""
