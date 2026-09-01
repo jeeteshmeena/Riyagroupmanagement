@@ -173,7 +173,11 @@ def build_format_1(data):
     t += f"<b>Story Type :-</b> {html.escape(genre)}\n\n"
     t += f"<b>Link :-</b> {link}\n\n"
     t += f"{DEFAULT_FORMAT_1_JOIN_EMOJI}<b>JOIN FOR ALL EPISODES.</b>\n\nJoin - {username}"
-    return t
+    try:
+        from stories_bot import inject_premium_emojis
+        return inject_premium_emojis(t)
+    except Exception:
+        return t
 
 def build_format_2(data):
     name     = data.get("name", "Unknown")
@@ -182,15 +186,19 @@ def build_format_2(data):
     episodes = data.get("episodes", "")
     status   = data.get("status", "Ongoing")
     link     = data.get("link", "")
-    avail    = "All Stories Available on Stories\U0001faf6\U0001f3fb."
+    avail    = "All Stories Available on Stories🫶."
     desc_block = f"<blockquote expandable><i>{html.escape(desc)}</i></blockquote>\n\n" if desc else ""
-    t  = f"<b>{html.escape(name)} \u2022 {html.escape(platform)}</b>\n\n"
+    t  = f"<b>{html.escape(name)} • {html.escape(platform)}</b>\n\n"
     t += desc_block
     if episodes:
         t += f"<b>Episodes -</b> <b>{episodes}</b>\n"
     t += f"<b>Status -</b> <b>{status}</b>\n\n"
     t += f"{html.escape(avail)}\n\n{link}\n{link}"
-    return t
+    try:
+        from stories_bot import inject_premium_emojis
+        return inject_premium_emojis(t)
+    except Exception:
+        return t
 
 def build_light_format(data):
     name        = data.get("name", "Unknown")
@@ -469,6 +477,11 @@ async def _bg_prefetch_img(context, name, platform):
 
 # ── Send helper (supports thread/topic) ───────────────────────────────────────
 async def _send_post(bot, chat_id, text, photo_ids, thread_id=None, reply_markup=None):
+    try:
+        from stories_bot import inject_premium_emojis
+        text = inject_premium_emojis(text)
+    except Exception:
+        pass
     kwargs = {"message_thread_id": thread_id} if thread_id else {}
     if reply_markup:
         kwargs["reply_markup"] = reply_markup
