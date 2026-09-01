@@ -265,9 +265,12 @@ def extract_story_type(text):
 
 def extract_light_pro_format(message):
     """Detect and parse Light Pro format (has 🎬 Episodes field)."""
-    text = get_text(message)
-    if not text:
+    raw_text = get_text(message)
+    if not raw_text:
         return None
+
+    # Strip HTML tags (including <tg-emoji>) for clean regex matching
+    text = re.sub(r"<[^>]+>", "", raw_text)
 
     # Bot-sent photos may arrive as document in Telethon — check both
     has_photo = bool(
@@ -275,23 +278,18 @@ def extract_light_pro_format(message):
         (getattr(message, "document", None) and
          getattr(getattr(message, "document", None), "thumbs", None))
     )
-    # Light Pro: need at minimum name (♨️) + status (🔰) + episodes (🎬)
-    # Platform (🖥) and genre (🧩/🗓) are optional — be lenient for partial formats
-    required = ["♨️", "🔰", "🎬"]
-    if not all(x in text for x in required):
-        return None
-    # Must have a photo (Light Pro always has cover image)
-    if not has_photo:
+    # Light Pro: need at minimum name (♨️/♨) + status (🔰) + episodes (🎬)
+    required_emojis = [["♨️", "♨"], ["🔰"], ["🎬"]]
+    if not (all(any(e in text for e in eq) for eq in required_emojis) and has_photo):
         return None
 
     # Match first ♨️ line that is NOT the Description line
-    # Bot format: "♨️Story : <b>Name</b>" → strip HTML → "♨️Story : Name"
-    name_match    = re.search(r"^♨️[^\n]*?:\s*(.+)", text, re.MULTILINE)
+    name_match    = re.search(r"^(?:♨️|♨)[^\n]*?:\s*(.+)", text, re.MULTILINE)
     # If the matched line is the Description header, try the next ♨️ line
     if name_match and "description" in name_match.group(1).lower():
         name_match = None
     status_match  = re.search(r"🔰.*?:\s*(.+)", text)
-    platform_match= re.search(r"🖥.*?:\s*(.+)", text)
+    platform_match= re.search(r"(?:🖥️|🖥).*?:\s*(.+)", text)
     genre_match   = re.search(r"(?:🧩|🗓).*?:\s*(.+)", text)
     episodes_match= re.search(r"🎬.*?:\s*(.+)", text)
 
@@ -340,14 +338,17 @@ def extract_light_pro_format(message):
         "is_paid": is_paid,
         "link_btn_text": link_btn_text,
         "message_id": getattr(message, "id", 0),
-        "caption": text, "story_type": genre
+        "caption": raw_text, "story_type": genre
     }
 
 
 def extract_light_format(message):
-    text = get_text(message)
-    if not text:
+    raw_text = get_text(message)
+    if not raw_text:
         return None
+
+    # Strip HTML tags (including <tg-emoji>) for clean regex matching
+    text = re.sub(r"<[^>]+>", "", raw_text)
 
     # Bot-sent photos may arrive as document in Telethon — check both
     has_photo = bool(
@@ -355,13 +356,14 @@ def extract_light_format(message):
         (getattr(message, "document", None) and
          getattr(getattr(message, "document", None), "thumbs", None))
     )
-    if not (all(x in text for x in ["♨️", "🔰", "🖥"]) and ("🧩" in text or "🗓" in text) and has_photo):
+    required_emojis = [["♨️", "♨"], ["🔰"], ["🖥️", "🖥"]]
+    if not (all(any(e in text for e in eq) for eq in required_emojis) and ("🧩" in text or "🗓" in text) and has_photo):
         return None
 
     # Name: first ♨️ line ONLY — must NOT be the "Story Description" line
-    name_match = re.search(r"^♨️(?!.*Description).*?:\s*(.+)", text, re.MULTILINE)
+    name_match = re.search(r"^(?:♨️|♨)(?!.*Description).*?:\s*(.+)", text, re.MULTILINE)
     status_match = re.search(r"🔰.*?:\s*(.+)", text)
-    platform_match = re.search(r"🖥.*?:\s*(.+)", text)
+    platform_match = re.search(r"(?:🖥️|🖥).*?:\s*(.+)", text)
     genre_match = re.search(r"(?:🧩|🗓).*?:\s*(.+)", text)
 
     if not name_match:
@@ -416,7 +418,7 @@ def extract_light_format(message):
         "is_paid": is_paid,
         "link_btn_text": link_btn_text,
         "message_id": getattr(message, "id", 0),
-        "caption": text,
+        "caption": raw_text,
         "story_type": genre
     }
 
