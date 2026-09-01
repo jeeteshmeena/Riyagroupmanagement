@@ -67,7 +67,7 @@ def _get_mongo_client():
         return None, None, None
 
     try:
-        client = pymongo.MongoClient(mongo_uri, serverSelectionTimeoutMS=4000)
+        client = pymongo.MongoClient(mongo_uri, serverSelectionTimeoutMS=5000, readPreference='primaryPreferred', retryReads=True)
         
         # Auto-discover database name from settings -> default DB -> cluster DB list
         db_name = settings.get("database_name") or os.getenv("DATABASE_NAME")

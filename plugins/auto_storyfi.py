@@ -198,7 +198,7 @@ def find_story_for_channel_sync(channel_title: str, config: Optional[Dict[str, A
     # 2. Direct MongoDB collection scan with candidate regex & fuzzy matching
     try:
         from mongo_search import _get_mongo_client
-        client, db, collection = _get_mongo_client()
+        collection, client, p_settings = _get_mongo_client()
         if collection is not None:
             for cand in candidates:
                 if not cand or len(cand) < 2:
