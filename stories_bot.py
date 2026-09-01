@@ -1051,8 +1051,8 @@ def _menu_main(caller_id: int, lang: str = "en", mention: str = "") -> tuple:
 
     text = (
         f"<blockquote>Hey, {user_disp} 👋\n"
-        f"Welcome To {bot_name}</blockquote>\n\n"
-        f"<blockquote>ᴅɪꜱᴄᴏᴠᴇʀ ʏᴏᴜʀ ꜰᴀᴠᴏʀɪᴛᴇ ꜱᴛᴏʀɪᴇꜱ, ᴏʀ ʀᴇQᴜᴇꜱᴛ ᴏɴᴇ ɪꜰ ɪᴛ'ꜱ ɴᴏᴛ ᴀᴠᴀɪʟᴀʙʟᴇ. ɪ'ᴍ ʏᴏᴜʀ 𝑨𝒍𝒍-𝒊𝒏-𝑶𝒏𝒆 ʙᴇꜱᴛɪᴇ, ʀᴇᴀᴅʏ ᴛᴏ ʜᴇʟᴘ ᴀɴʏᴛɪᴍᴇ.</blockquote>\n\n"
+        f"Welcome To {bot_name}</blockquote>"
+        f"<blockquote>ᴅɪꜱᴄᴏᴠᴇʀ ʏᴏᴜʀ ꜰᴀᴠᴏʀɪᴛᴇ ꜱᴛᴏʀɪᴇꜱ, ᴏʀ ʀᴇQᴜᴇꜱᴛ ᴏɴᴇ ɪꜰ ɪᴛ'ꜱ ɴᴏᴛ ᴀᴠᴀɪʟᴀʙʟᴇ. ɪ'ᴍ ʏᴏᴜʀ 𝑨𝒍𝒍-𝒊𝒏-𝑶𝒏𝒆 ʙᴇꜱᴛɪᴇ, ʀᴇᴀᴅʏ ᴛᴏ ʜᴇʟᴘ ᴀɴʏᴛɪᴍᴇ.</blockquote>"
         f"<blockquote>𝖲𝖾𝖺𝗋𝖼𝗁 𝖲𝗍𝗈𝗋𝗂𝖾𝗌 • ᴇxᴘʟᴏʀᴇ ᴍᴇ • 𝑹𝒆𝒒𝒖𝒆𝒔𝒕 𝑺𝒕𝒐𝒓𝒚 • ᴍᴏʀᴇ</blockquote>"
     )
     btn_rows = [
@@ -1082,7 +1082,7 @@ def _menu_trending(caller_id: int) -> tuple:
     trending = stats_db.get("trending", {})
     now = time.time()
     week_ago = now - (7 * 24 * 3600)
-    
+
     # Prune and compute
     trending_counts = {}
     for k, v in list(trending.items()):
@@ -1106,11 +1106,11 @@ def _menu_trending(caller_id: int) -> tuple:
         )
         body = lines
     else:
-        body = "<i>☆ No trending stories yet. Start searching! ✨</i>"
+        body = "<i>No trending stories yet. Start searching! ✨</i>"
     text = (
-        "<b>🔥 Trending Stories</b> ( ˶ˆᗜˆ˵ )\n"
-        "<i>✺ Top searched stories right now. ✨</i>\n"
-        f"{_DIVIDER}\n\n"
+        "<b>Trending Stories</b>\n"
+        f"{_DIVIDER}\n"
+        "Top searched stories right now.\n\n"
         f"{body}"
     )
     markup = InlineKeyboardMarkup([_nav_row(caller_id, back="home")])
@@ -1128,16 +1128,16 @@ def _menu_new(caller_id: int) -> tuple:
             name = clean_story(s.get("name") or s.get("text") or "Story")
             link = s.get("link", "")
             if link:
-                lines.append(f'✸ <a href="{link}">{name}</a>')
+                lines.append(f'<tg-emoji emoji-id="5773626993010546707">⚡</tg-emoji> <a href="{link}">{name}</a>')
             else:
-                lines.append(f"✸ {name}")
+                lines.append(f'<tg-emoji emoji-id="5773626993010546707">⚡</tg-emoji> {name}')
         body = "\n".join(lines)
     else:
-        body = "<i>☆ No new series in the database yet.</i>"
+        body = "<i>No new series in the database yet.</i>"
     text = (
-        "<b>✦ New Series</b>\n"
-        "<i>✺ The latest stories added to the database.</i>\n"
-        f"{_DIVIDER}\n\n"
+        "<b>New Series</b>\n"
+        f"{_DIVIDER}\n"
+        "The latest stories added to the database.\n\n"
         f"{body}"
     )
     markup = InlineKeyboardMarkup([_nav_row(caller_id, back="home")])
@@ -1173,45 +1173,34 @@ def _menu_saved(caller_id: int) -> tuple:
     return text, markup
 
 
-
-
 def _menu_how(caller_id: int, lang: str = "en") -> tuple:
-    # "How It Works" is now merged into Help
     return _menu_help(caller_id, lang)
 
 
 def _menu_about(caller_id: int, lang: str = "en") -> tuple:
-    if lang == "hi":
-        body = (
-            "<blockquote><i>Riya एक स्मार्ट Telegram स्टोरी खोज बॉट है। ✨</i></blockquote>\n\n"
-            "<u>❁ Features</u>\n"
-            "▪ AI फ़जी सर्च 🔎\n"
-            "▪ इनलाइन मेनू नेविगेशन 📂\n"
-            "▪ JSON डेटाबेस 💾\n"
-            "▪ एडमिन /scan ⚙️\n"
-            "▪ फेवरेट सिस्टम ♥️\n\n"
-            "<b>Developer:</b> @MeJeetX\n"
-            "<b>⚙ Version:</b> Riya v10"
-        )
-    else:
-        body = (
-            "<blockquote><i>Riya is an intelligent Telegram story finder bot. ✨</i></blockquote>\n\n"
-            "<u>❁ Features</u>\n"
-            "▪ AI fuzzy search 🔎\n"
-            "▪ Inline menu navigation 📂\n"
-            "▪ JSON database 💾\n"
-            "▪ Admin /scan command ⚙️\n"
-            "▪ Favourites system ♥️\n\n"
-            "<b>Developer:</b> @MeJeetX\n"
-            "<b>⚙ Version:</b> Riya v10"
-        )
+    features = [
+        '<tg-emoji emoji-id="6021319161425172520">🔎</tg-emoji> AI Fuzzy & Exact Story Search',
+        '<tg-emoji emoji-id="6021435576513730578">📚</tg-emoji> Multi-Channel Story Indexing',
+        '<tg-emoji emoji-id="6007983438294949171">💎</tg-emoji> Premium & Paid Stories Support',
+        '<tg-emoji emoji-id="6023852792697854544">⭐</tg-emoji> Personal Wishlist & Favourites',
+        '<tg-emoji emoji-id="6285088169817805553">🆕</tg-emoji> Instant New Story Alerts',
+        '<tg-emoji emoji-id="6105086781932183475">⚡</tg-emoji> Fast Inline Query Search',
+        '<tg-emoji emoji-id="5296790785981718487">🎙</tg-emoji> Natural Voice AI Interaction',
+        '<tg-emoji emoji-id="6019455905827920171">📱</tg-emoji> MiniApp & Bot Direct Access',
+        '<tg-emoji emoji-id="6021607757457660145">⚙️</tg-emoji> Real-Time Auto Link Checker',
+        '<tg-emoji emoji-id="6030768072296502910">🌐</tg-emoji> Multi-Language Support (EN/HI)',
+    ]
+    features_body = "\n".join(features)
+
     text = (
         '<tg-emoji emoji-id="6021683099773966917">ℹ️</tg-emoji> <b>About Riya Bot</b>\n'
         f"{_DIVIDER}\n"
-        "<i>Everything you need to know. ✨</i>\n\n"
-        f"{body}"
+        "<blockquote>Everything you need to know. ✨\nRiya is an intelligent Telegram story finder bot. ✨</blockquote>\n\n"
+        "<b>Features :</b>\n"
+        f"{features_body}\n\n"
+        "<b>Developer:</b> @MeJeetX\n"
+        "<b>Version:</b> Riya v10"
     )
-    text = inject_premium_emojis(text)
     markup = InlineKeyboardMarkup([_nav_row(caller_id, back="home")])
     return text, markup
 
@@ -1219,45 +1208,41 @@ def _menu_about(caller_id: int, lang: str = "en") -> tuple:
 def _menu_help(caller_id: int, lang: str = "en") -> tuple:
     if lang == "hi":
         body = (
-            "<u>❁ Bot कैसे काम करता है? ( ˶ˆᗜˆ˵ )</u>\n"
-            "▪️ स्टोरी का नाम भेजें... ✨\n"
-            "▪️ बॉट डेटाबेस में खोजता है 🔎\n"
-            "▪️ मिली ➜ लिंक मिलता है ✅\n"
-            "▪️ नहीं मिली ➜ /request करें ⚠️\n\n"
-            "<i>स्टोरी मिलने पर आपको नोटिफिकेशन मिलेगा।🔔</i>\n\n"
-            "<u>✦ Commands</u>\n"
-            "➔ /start — बॉट शुरू करें ✨\n"
-            "➔ /request — स्टोरी रिक्वेस्ट 📂\n"
-            "➔ /info — स्टोरी डिटेल्स 📑\n"
-            "➔ /saved — फेवरेट देखें ♥️\n"
-            "➔ /subscribe — नोटिफिकेशन 💬\n\n"
-            "<i>स्टोरी का नाम भेजकर सीधे खोजें। ✨</i>"
+            "<b>बॉट कैसे काम करता है?</b>\n"
+            f"{_DIVIDER}\n"
+            '<tg-emoji emoji-id="6021319161425172520">🔎</tg-emoji> <b>1. सर्च करें :</b> स्टोरी का नाम चैट में भेजें\n'
+            '<tg-emoji emoji-id="5454074580010295588">✅</tg-emoji> <b>2. लिंक प्राप्त करें :</b> तुरंत स्टोरी कार्ड मिलेगा\n'
+            '<tg-emoji emoji-id="6023852792697854544">⭐</tg-emoji> <b>3. विशलिस्ट :</b> पसंदीदा स्टोरी सेव करें\n'
+            '<tg-emoji emoji-id="6021487472603568286">📝</tg-emoji> <b>4. रिक्वेस्ट :</b> ना मिलने पर /request करें\n\n'
+            "<b>मुख्य कमांड्स :</b>\n"
+            "➔ /start — मेन मेन्यू खोलें\n"
+            "➔ /stories — सभी स्टोरीज़ लिस्ट\n"
+            "➔ /wishlist — सेव की गई स्टोरीज़\n"
+            "➔ /request — स्टोरी रिक्वेस्ट करें\n"
+            "➔ /genre — जॉनर अनुसार खोजें"
         )
     else:
         body = (
-            "<u>✦ How It Works ( ˶ˆᗜˆ˵ )</u>\n"
-            "▪️ Send a story name... ✨\n"
-            "▪️ Bot searches the database 🔎\n"
-            "▪️ Found ➜ you get the link ✅\n"
-            "▪️ Not found ➜ use /request ⚠️\n\n"
-            "<i>When the story is uploaded, you will be notified automatically.🔔</i>\n\n"
-            "<u>✦ Commands</u>\n"
-            "➔ /start — Open the menu ✨\n"
-            "➔ /request — Request a story 📂\n"
-            "➔ /info — Story details 📑\n"
-            "➔ /saved — Your favourites ♥️\n"
-            "➔ /subscribe — Get notifications 💬\n\n"
-            "<i>You can also just send a story name to search. ✨</i>"
+            "<b>How This Bot Works</b>\n"
+            f"{_DIVIDER}\n"
+            '<tg-emoji emoji-id="6021319161425172520">🔎</tg-emoji> <b>1. Search :</b> Send any story name in chat\n'
+            '<tg-emoji emoji-id="5454074580010295588">✅</tg-emoji> <b>2. Instant Link :</b> Get direct listening card\n'
+            '<tg-emoji emoji-id="6023852792697854544">⭐</tg-emoji> <b>3. Wishlist :</b> Save stories to your list\n'
+            '<tg-emoji emoji-id="6021487472603568286">📝</tg-emoji> <b>4. Request :</b> Use /request if missing\n\n'
+            "<b>Key Commands :</b>\n"
+            "➔ /start — Open main menu\n"
+            "➔ /stories — Browse story catalogue\n"
+            "➔ /wishlist — View saved stories\n"
+            "➔ /request — Request a missing story\n"
+            "➔ /genre — Explore by genres"
         )
     text = (
-        "<b>🚧 Help &amp; How It Works</b> ( ˶ˆᗜˆ˵ )\n"
-        "<i>✧ Everything you need to use this bot. ✨</i>\n"
-        f"{_DIVIDER}\n\n"
+        f'<tg-emoji emoji-id="6021607757457660145">⚙️</tg-emoji> <b>Help &amp; Guide</b>\n\n'
         f"{body}"
     )
     markup = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("🌐 Language",  callback_data=f"menu|lang|{caller_id}"),
+            InlineKeyboardButton("Language", callback_data=f"menu|lang|{caller_id}", api_kwargs={"icon_custom_emoji_id": "6030768072296502910"}),
         ],
         _nav_row(caller_id, back="home"),
     ])
@@ -1266,15 +1251,14 @@ def _menu_help(caller_id: int, lang: str = "en") -> tuple:
 
 def _menu_lang(caller_id: int) -> tuple:
     text = (
-        "<b>🌐 Language / भाषा</b> ( ˶ˆᗜˆ˵ )\n"
-        "<i>Select your preferred language for this chat. ✨</i>\n"
-        f"{_DIVIDER}\n\n"
-        "Choose a language below 👇"
+        '<tg-emoji emoji-id="6030768072296502910">🌐</tg-emoji> <b>Language / भाषा</b>\n'
+        f"{_DIVIDER}\n"
+        "Select your preferred language for this chat 👇"
     )
     markup = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("🇺🇸 English", callback_data="lang|en"),
-            InlineKeyboardButton("🇮🇳 हिन्दी",  callback_data="lang|hi"),
+            InlineKeyboardButton("English", callback_data="lang|en", api_kwargs={"icon_custom_emoji_id": "5293993521026453119"}),
+            InlineKeyboardButton("Hindi",   callback_data="lang|hi", api_kwargs={"icon_custom_emoji_id": "5291933173674957761"}),
         ],
         _nav_row(caller_id, back="home"),
     ])
