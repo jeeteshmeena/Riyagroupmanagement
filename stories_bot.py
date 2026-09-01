@@ -9205,6 +9205,12 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if await poster_input_handler(update, context):
             return
 
+    # ── Auto Storyfi Story Search Input Hook ───────────────────────────────────
+    if context.user_data and context.user_data.get("storyfi_search_waiting"):
+        from plugins.auto_storyfi import handle_storyfi_search_input
+        if await handle_storyfi_search_input(update, context):
+            return
+
     if (context.chat_data and context.chat_data.get("config_state")) or \
        (context.user_data and context.user_data.get("bc_add_waiting")):
         return await handle_config_input(update, context)
