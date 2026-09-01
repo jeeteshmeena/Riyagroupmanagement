@@ -207,15 +207,15 @@ def build_light_format(data):
     genre       = data.get("genre", "Unknown")
     desc        = data.get("desc", "")
 
-    t  = f"♨️<b>Story</b> : <b>{html.escape(name)}</b>\n"
-    t += f"🔰<b>Status</b> : <b>{html.escape(status)}</b>\n"
-    t += f"🖥<b>Platform</b> : <b>{html.escape(platform)}</b>\n"
-    t += f"🧩<b>Genre</b> : <b>{html.escape(genre)}</b>"
+    t  = f'<tg-emoji emoji-id="5465432711218863135">♨️</tg-emoji><b>Story</b> : <b>{html.escape(name)}</b>\n'
+    t += f'<tg-emoji emoji-id="6019118553326689234">🔰</tg-emoji><b>Status</b> : <b>{html.escape(status)}</b>\n'
+    t += f'<tg-emoji emoji-id="6019455905827920171">🖥</tg-emoji><b>Platform</b> : <b>{html.escape(platform)}</b>\n'
+    t += f'<tg-emoji emoji-id="6024065724291488135">🧩</tg-emoji><b>Genre</b> : <b>{html.escape(genre)}</b>'
 
     if desc:
         bold_desc = to_bold_unicode(desc)
         # No blank line between genre and description header
-        t += f"\n<b>📝 Story Description :-</b>\n<blockquote expandable>{html.escape(bold_desc)}</blockquote>"
+        t += f'\n<tg-emoji emoji-id="6021487472603568286">📝</tg-emoji><b>Story Description :-</b>\n<blockquote expandable>{html.escape(bold_desc)}</blockquote>'
 
     try:
         from stories_bot import inject_premium_emojis
@@ -362,11 +362,11 @@ def build_light_pro_format(data):
     episode_line = build_episode_line(episodes_raw, status)
 
     # ── Fixed story-info block ─────────────────────────────────────────────────
-    fixed  = f"♨️<b>Story</b> : <b>{html.escape(name)}</b>\n"
-    fixed += f"🔰<b>Status</b> : <b>{html.escape(status)}</b>\n"
-    fixed += f"🖥<b>Platform</b> : <b>{html.escape(platform)}</b>\n"
-    fixed += f"🧩<b>Genre</b> : <b>{html.escape(genre)}</b>\n"
-    fixed += f"🎬<b>Episodes</b> : <b>{html.escape(episode_line)}</b>"
+    fixed  = f'<tg-emoji emoji-id="5465432711218863135">♨️</tg-emoji><b>Story</b> : <b>{html.escape(name)}</b>\n'
+    fixed += f'<tg-emoji emoji-id="6019118553326689234">🔰</tg-emoji><b>Status</b> : <b>{html.escape(status)}</b>\n'
+    fixed += f'<tg-emoji emoji-id="6019455905827920171">🖥</tg-emoji><b>Platform</b> : <b>{html.escape(platform)}</b>\n'
+    fixed += f'<tg-emoji emoji-id="6024065724291488135">🧩</tg-emoji><b>Genre</b> : <b>{html.escape(genre)}</b>\n'
+    fixed += f'<tg-emoji emoji-id="5937999673510858217">🎬</tg-emoji><b>Episodes</b> : <b>{html.escape(episode_line)}</b>'
 
     # ── Paid note block (only for paid posts) ──────────────────────────────────
     paid_block = _PAID_NOTE_BLOCK if is_paid else ""

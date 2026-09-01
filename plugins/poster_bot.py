@@ -368,13 +368,13 @@ def build_post_caption(story: Dict[str, Any]) -> str:
     desc_monospace = format_description(raw_desc)
 
     caption = (
-        f"♨️ <b>Story :</b> <b>{story_name}</b>\n"
-        f"🔰 <b>Status :</b> <b>{status}</b>\n"
-        f"🖥 <b>Platform :</b> <b>{platform}</b>\n"
-        f"🧩 <b>Genre :</b> <b>{first_genre}</b>\n"
-        f"🎬 <b>Episodes :</b> <b>{episodes_str}</b>\n\n"
+        f'<tg-emoji emoji-id="5465432711218863135">♨️</tg-emoji> <b>Story :</b> <b>{story_name}</b>\n'
+        f'<tg-emoji emoji-id="6019118553326689234">🔰</tg-emoji> <b>Status :</b> <b>{status}</b>\n'
+        f'<tg-emoji emoji-id="6019455905827920171">🖥</tg-emoji> <b>Platform :</b> <b>{platform}</b>\n'
+        f'<tg-emoji emoji-id="6024065724291488135">🧩</tg-emoji> <b>Genre :</b> <b>{first_genre}</b>\n'
+        f'<tg-emoji emoji-id="5937999673510858217">🎬</tg-emoji> <b>Episodes :</b> <b>{episodes_str}</b>\n\n'
         f"   █▓▒▒░░░ᑭᖇIᑕE - ₹<b>{price}</b> ░░░▒▒▓█\n\n"
-        f"<b>Story Description :</b>\n"
+        f'<tg-emoji emoji-id="6021487472603568286">📝</tg-emoji> <b>Story Description :</b>\n'
         f"<blockquote>{desc_monospace}</blockquote>"
     )
     try:
