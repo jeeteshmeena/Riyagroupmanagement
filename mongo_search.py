@@ -95,19 +95,18 @@ def format_mongo_story_to_result(doc: Dict[str, Any], settings: Optional[Dict[st
         genre = "Drama"
 
     episodes = extract_smart_field(doc, "episodes", default="Full Story")
-    price = extract_smart_field(doc, "price", default="")
-    if str(price).strip().lower() in ("0", "none", "null", "free"):
-        price = ""
-
     description = extract_smart_field(doc, "description", default="")
 
     # Link: prefer doc link, or fallback to StoryfiBot / Arya MiniApp deep link
-    story_link = doc.get("link") or doc.get("url") or ""
-    if not story_link and story_id:
-        story_link = f"https://t.me/StoryfiBot?start=buy_{story_id}"
+    story_link = str(doc.get("link") or doc.get("url") or "").strip()
+    if not story_link.startswith(("http://", "https://", "tg://")):
+        if story_id:
+            story_link = f"https://t.me/StoryfiBot?start=buy_{story_id}"
+        else:
+            story_link = "https://t.me/StoryfiBot"
 
-    # Photo / Cover
-    image_url = (
+    # Photo / Cover - ensure only valid HTTP/HTTPS URL is returned
+    raw_img = (
         extract_smart_field(doc, "cover", default="") or
         doc.get("image_url") or
         doc.get("image") or
@@ -116,6 +115,11 @@ def format_mongo_story_to_result(doc: Dict[str, Any], settings: Optional[Dict[st
         doc.get("photo") or
         ""
     )
+    raw_img = str(raw_img).strip()
+    if raw_img.startswith(("http://", "https://")):
+        image_url = raw_img
+    else:
+        image_url = ""
 
     clean_key = _clean_query(story_name).lower()
 
@@ -127,7 +131,7 @@ def format_mongo_story_to_result(doc: Dict[str, Any], settings: Optional[Dict[st
         "platform": platform,
         "genre": genre,
         "episodes": episodes,
-        "price": price,
+        "price": "",
         "description": description,
         "is_paid": True,
         "format": "LIGHT_PRO",
@@ -141,9 +145,9 @@ def format_mongo_story_to_result(doc: Dict[str, Any], settings: Optional[Dict[st
 
 def search_story_from_mongo_sync(query: str) -> Optional[Dict[str, Any]]:
     """
-    Synchronously search MongoDB for a matching story title.
-    1. Exact regex match across name, title, story_name, aliases.
-    2. Normalized title match.
+    Synchronously search MongoDB for a matching story title or ObjectId.
+    1. Check ObjectId if valid.
+    2. Exact regex match across name, title, story_name, aliases.
     3. Word-boundary / Substring match.
     """
     if not query:
@@ -159,13 +163,23 @@ def search_story_from_mongo_sync(query: str) -> Optional[Dict[str, Any]]:
             client.close()
         return None
 
-    base_q = clean_q
-    for tag in ["pocket fm", "kuku fm", "kuku tv", "pratilipi", "headfone", "eight fm", "audiobook", "full story", "all episodes", "season 1", "season 2", "part 1", "part 2"]:
-        base_q = re.sub(rf"\b{re.escape(tag)}\b", "", base_q, flags=re.IGNORECASE).strip()
-    if not base_q:
-        base_q = clean_q
-
     try:
+        # Check by ObjectId directly
+        try:
+            from bson import ObjectId
+            if ObjectId.is_valid(clean_q):
+                doc = col.find_one({"_id": ObjectId(clean_q)})
+                if doc:
+                    return format_mongo_story_to_result(doc, settings)
+        except Exception:
+            pass
+
+        base_q = clean_q
+        for tag in ["pocket fm", "kuku fm", "kuku tv", "pratilipi", "headfone", "eight fm", "audiobook", "full story", "all episodes", "season 1", "season 2", "part 1", "part 2"]:
+            base_q = re.sub(rf"\b{re.escape(tag)}\b", "", base_q, flags=re.IGNORECASE).strip()
+        if not base_q:
+            base_q = clean_q
+
         # Pass 1: Exact Case-Insensitive Match
         exact_filter = {
             "$or": [

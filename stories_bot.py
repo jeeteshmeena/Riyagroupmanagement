@@ -4108,11 +4108,18 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
         else:
             keyboard.append([InlineKeyboardButton("Open Story", url=story_link, api_kwargs={"icon_custom_emoji_id": "5429633836684157942"})])
 
-    # safeguard for long lengths
-    fav_data = f"fav|{story_key}"
-    if len(fav_data) > 64: fav_data = "fav|toolong"
-    lnw_data = f"lnw|{story_key}"
-    if len(lnw_data) > 64: lnw_data = "lnw|toolong"
+    # Safeguard for callback_data: Telegram strictly limits callback_data to 64 BYTES (not characters)
+    def _make_safe_cb(prefix: str, key_val: str, max_bytes: int = 64) -> str:
+        pref_bytes = len(f"{prefix}|".encode("utf-8"))
+        avail = max_bytes - pref_bytes
+        kb = key_val.encode("utf-8")
+        if len(kb) <= avail:
+            return f"{prefix}|{key_val}"
+        return f"{prefix}|{kb[:avail].decode('utf-8', 'ignore')}"
+
+    cb_story_key = result.get("mongo_id") or story_key
+    fav_data = _make_safe_cb("fav", cb_story_key)
+    lnw_data = _make_safe_cb("lnw", cb_story_key)
     
     is_paid = result.get("is_paid", False)
     guide_url = "https://t.me/StoriesLinkopningguide/19" if is_paid else "https://t.me/StoriesLinkopningguide/5"
@@ -4153,9 +4160,7 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
         if result.get("episodes"):
             ep_str = f"{result['episodes']} Episodes" if str(result['episodes']).isdigit() else str(result['episodes'])
             caption += f'<tg-emoji emoji-id="5937999673510858217">🎬</tg-emoji> <b>Episodes :</b> <b>{html.escape(ep_str)}</b>\n'
-        if result.get("price") and str(result.get("price")).lower() not in ("free", "0", "none", "null", ""):
-            caption += f"\n   █▓▒▒░░░ᑭᖇIᑕE - ₹<b>{html.escape(str(result['price']))}</b> ░░░▒▒▓█\n"
-        elif result.get("is_paid"):
+        if result.get("is_paid"):
             caption += "\n█▓▒▒░░░<b>Paid Story</b>  → Purchase required for access.░░░▒▒▓█\n"
         if result.get("description"):
             try:
@@ -4181,18 +4186,29 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
     sent_msg = None
 
     # Tier 1: stored Telegram photo (channel file_id) + HTML caption OR remote URL
-    if photo and not sent_msg:
+    photo_payload = None
+    if photo and isinstance(photo, str):
+        photo_str = photo.strip()
+        if photo_str.startswith(("http://", "https://")):
+            try:
+                import requests
+                resp = await asyncio.to_thread(requests.get, photo_str, timeout=8)
+                if resp.status_code == 200 and len(resp.content) > 100:
+                    photo_payload = io.BytesIO(resp.content)
+                    photo_payload.name = "cover.jpg"
+            except Exception as _dl_err:
+                logger.warning(f"[Cover DL failed] {_dl_err}")
+                photo_payload = None
+        elif _os.path.exists(photo_str):
+            try:
+                photo_payload = open(photo_str, "rb")
+            except Exception:
+                photo_payload = None
+        elif re.match(r"^[A-Za-z0-9_-]{20,}$", photo_str):
+            photo_payload = photo_str
+
+    if photo_payload and not sent_msg:
         try:
-            photo_payload = photo
-            if isinstance(photo, str) and (photo.startswith("http://") or photo.startswith("https://")):
-                try:
-                    import requests
-                    resp = await asyncio.to_thread(requests.get, photo, timeout=10)
-                    if resp.status_code == 200:
-                        photo_payload = io.BytesIO(resp.content)
-                        photo_payload.name = "cover.jpg"
-                except Exception:
-                    photo_payload = photo
             sent_msg = await context.bot.send_photo(
                 chat_id=chat_id, photo=photo_payload, caption=caption,
                 parse_mode="HTML", reply_markup=_reply_markup)
@@ -5188,9 +5204,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if result.get("episodes"):
                 ep_str = f"{result['episodes']} Episodes" if str(result['episodes']).isdigit() else str(result['episodes'])
                 caption += f'<tg-emoji emoji-id="5937999673510858217">🎬</tg-emoji> <b>Episodes :</b> <b>{html.escape(ep_str)}</b>\n'
-            if result.get("price") and str(result.get("price")).lower() not in ("free", "0", "none", "null", ""):
-                caption += f"\n   █▓▒▒░░░ᑭᖇIᑕE - ₹<b>{html.escape(str(result['price']))}</b> ░░░▒▒▓█\n"
-            elif result.get("is_paid"):
+            if result.get("is_paid"):
                 caption += "\n█▓▒▒░░░<b>Paid Story</b>  → Purchase required for access.░░░▒▒▓█\n"
             if result.get("description"):
                 try:
@@ -5214,11 +5228,18 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         caption += "\n<tg-spoiler>◒ This reply will be deleted automatically in 24 hours.</tg-spoiler>"
         caption = inject_premium_emojis(caption)
 
-        # Keyboard matching normal search
-        fav_data = f"fav|{story_key}"
-        if len(fav_data) > 64: fav_data = "fav|toolong"
-        lnw_data = f"lnw|{story_key}"
-        if len(lnw_data) > 64: lnw_data = "lnw|toolong"
+        # Safeguard for callback_data: limit to 64 bytes
+        def _make_safe_cb_srch(prefix: str, key_val: str, max_bytes: int = 64) -> str:
+            pref_bytes = len(f"{prefix}|".encode("utf-8"))
+            avail = max_bytes - pref_bytes
+            kb = key_val.encode("utf-8")
+            if len(kb) <= avail:
+                return f"{prefix}|{key_val}"
+            return f"{prefix}|{kb[:avail].decode('utf-8', 'ignore')}"
+
+        cb_story_key = result.get("mongo_id") or story_key
+        fav_data = _make_safe_cb_srch("fav", cb_story_key)
+        lnw_data = _make_safe_cb_srch("lnw", cb_story_key)
 
         is_paid = result.get("is_paid", False)
         guide_url = "https://t.me/StoriesLinkopningguide/19" if is_paid else "https://t.me/StoriesLinkopningguide/5"
@@ -5255,18 +5276,29 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sent = None
 
         # Tier 1: stored photo / remote URL
-        if photo:
+        photo_payload = None
+        if photo and isinstance(photo, str):
+            photo_str = photo.strip()
+            if photo_str.startswith(("http://", "https://")):
+                try:
+                    import requests
+                    resp = await asyncio.to_thread(requests.get, photo_str, timeout=8)
+                    if resp.status_code == 200 and len(resp.content) > 100:
+                        photo_payload = io.BytesIO(resp.content)
+                        photo_payload.name = "cover.jpg"
+                except Exception as _dl_err:
+                    logger.warning(f"[Cover DL srch failed] {_dl_err}")
+                    photo_payload = None
+            elif _os.path.exists(photo_str):
+                try:
+                    photo_payload = open(photo_str, "rb")
+                except Exception:
+                    photo_payload = None
+            elif re.match(r"^[A-Za-z0-9_-]{20,}$", photo_str):
+                photo_payload = photo_str
+
+        if photo_payload:
             try:
-                photo_payload = photo
-                if isinstance(photo, str) and (photo.startswith("http://") or photo.startswith("https://")):
-                    try:
-                        import requests
-                        resp = await asyncio.to_thread(requests.get, photo, timeout=10)
-                        if resp.status_code == 200:
-                            photo_payload = io.BytesIO(resp.content)
-                            photo_payload.name = "cover.jpg"
-                    except Exception:
-                        photo_payload = photo
                 sent = await context.bot.send_photo(
                     chat_id=query.message.chat.id, photo=photo_payload,
                     caption=caption, parse_mode="HTML", reply_markup=_reply_markup
