@@ -5223,7 +5223,10 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.edit_text(text=text, parse_mode="HTML", reply_markup=markup)
         except Exception:
             pass  # already same content, ignore "message not modified"
-        await query.answer()
+        try:
+            await query.answer()
+        except Exception:
+            pass
         return
 
     # ── LEGACY: cmd|<section>  ──────────────────────────────────────────────
@@ -6192,7 +6195,10 @@ async def inline_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         )
 
-    await update.inline_query.answer(articles, cache_time=5)
+    try:
+        await update.inline_query.answer(articles, cache_time=5)
+    except Exception:
+        pass
 
     await log(
         context,

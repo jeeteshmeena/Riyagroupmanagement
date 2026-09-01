@@ -173,10 +173,65 @@ def extract_candidate_titles(channel_title: str) -> List[str]:
     return candidates
 
 
+_TITLE_CATALOG: Optional[List[Dict[str, Any]]] = None
+_TITLE_CATALOG_TIME: float = 0.0
+
+
+def _get_cached_story_catalog() -> List[Dict[str, Any]]:
+    global _TITLE_CATALOG, _TITLE_CATALOG_TIME
+    now = time.time()
+    if _TITLE_CATALOG is not None and (now - _TITLE_CATALOG_TIME) < 600:
+        return _TITLE_CATALOG
+
+    catalog: List[Dict[str, Any]] = []
+    try:
+        from mongo_search import _get_mongo_client
+        collection, client, _ = _get_mongo_client()
+        if collection is not None:
+            projection = {
+                "_id": 1,
+                "story_name_en": 1,
+                "story_name_hi": 1,
+                "story_name": 1,
+                "title": 1,
+                "name": 1,
+                "aliases": 1
+            }
+            cursor = collection.find({}, projection).limit(3000)
+            for d in cursor:
+                sid = str(d.get("_id"))
+                titles = []
+                for f in ["story_name_en", "story_name_hi", "story_name", "title", "name"]:
+                    val = d.get(f)
+                    if val and isinstance(val, str) and val.strip():
+                        titles.append(val.strip())
+                aliases = d.get("aliases")
+                if isinstance(aliases, list):
+                    for a in aliases:
+                        if a and isinstance(a, str):
+                            titles.append(a.strip())
+                elif isinstance(aliases, str):
+                    titles.append(aliases.strip())
+                
+                primary_name = titles[0] if titles else "Unknown"
+                catalog.append({
+                    "_id": sid,
+                    "primary_name": primary_name,
+                    "titles": titles,
+                    "titles_lower": [t.lower() for t in titles]
+                })
+            _TITLE_CATALOG = catalog
+            _TITLE_CATALOG_TIME = now
+            logger.info(f"[AutoStoryfi] Cached {len(catalog)} story titles from MongoDB.")
+    except Exception as e:
+        logger.debug(f"[AutoStoryfi] Title catalog fetch error: {e}")
+    return catalog or []
+
+
 def find_story_for_channel_sync(channel_title: str, config: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     """
     Finds matching story in MongoDB 'premium_stories' by title or fuzzy match.
-    Uses mongo_search connection pool with fallback to local database.
+    Uses ultra-fast in-memory title catalog with fallback to direct query and local DB.
     """
     if not channel_title or len(str(channel_title).strip()) < 2:
         return None
@@ -185,79 +240,55 @@ def find_story_for_channel_sync(channel_title: str, config: Optional[Dict[str, A
     if not candidates:
         candidates = [clean_channel_title_for_story(channel_title)]
 
-    # 1. Try search_story_from_mongo_sync for each candidate
+    # 1. Fast match against cached MongoDB title catalog in memory
+    catalog = _get_cached_story_catalog()
+    if catalog:
+        from difflib import SequenceMatcher
+        # Step 1A: Exact case-insensitive match
+        for cand in candidates:
+            cand_low = cand.lower().strip()
+            if not cand_low:
+                continue
+            for item in catalog:
+                for t_low in item["titles_lower"]:
+                    if cand_low == t_low:
+                        return _fetch_full_story_by_id_cached(item["_id"], item["primary_name"])
+
+        # Step 1B: Word-boundary / Substring match (e.g. "Vashikaran" in "Vashikaran: Season 1")
+        for cand in candidates:
+            cand_low = cand.lower().strip()
+            if len(cand_low) < 3:
+                continue
+            for item in catalog:
+                for t_low in item["titles_lower"]:
+                    if cand_low in t_low or t_low in cand_low:
+                        return _fetch_full_story_by_id_cached(item["_id"], item["primary_name"])
+
+        # Step 1C: Fuzzy ratio match
+        for cand in candidates:
+            cand_low = cand.lower().strip()
+            if len(cand_low) < 4:
+                continue
+            best_item = None
+            best_ratio = 0.0
+            for item in catalog:
+                for t_low in item["titles_lower"]:
+                    ratio = SequenceMatcher(None, cand_low, t_low).ratio()
+                    if ratio > best_ratio and ratio >= 0.70:
+                        best_ratio = ratio
+                        best_item = item
+            if best_item:
+                return _fetch_full_story_by_id_cached(best_item["_id"], best_item["primary_name"])
+
+    # 2. Fallback to search_story_from_mongo_sync
     try:
         from mongo_search import search_story_from_mongo_sync
         for cand in candidates:
             res = search_story_from_mongo_sync(cand)
             if res:
                 return res
-    except Exception as _ms_e:
-        logger.debug(f"[AutoStoryfi Matcher] search_story_from_mongo_sync note: {_ms_e}")
-
-    # 2. Direct MongoDB collection scan with candidate regex & fuzzy matching
-    try:
-        from mongo_search import _get_mongo_client
-        collection, client, p_settings = _get_mongo_client()
-        if collection is not None:
-            for cand in candidates:
-                if not cand or len(cand) < 2:
-                    continue
-                escaped = re.escape(cand)
-                # Exact or case-insensitive match
-                doc = collection.find_one({
-                    "$or": [
-                        {"story_name_en": {"$regex": f"^{escaped}$", "$options": "i"}},
-                        {"story_name_hi": {"$regex": f"^{escaped}$", "$options": "i"}},
-                        {"story_name": {"$regex": f"^{escaped}$", "$options": "i"}},
-                        {"title": {"$regex": f"^{escaped}$", "$options": "i"}},
-                        {"name": {"$regex": f"^{escaped}$", "$options": "i"}},
-                    ]
-                })
-                if doc:
-                    doc["_id"] = str(doc["_id"])
-                    return doc
-
-                # Substring match
-                doc = collection.find_one({
-                    "$or": [
-                        {"story_name_en": {"$regex": escaped, "$options": "i"}},
-                        {"story_name_hi": {"$regex": escaped, "$options": "i"}},
-                        {"story_name": {"$regex": escaped, "$options": "i"}},
-                        {"title": {"$regex": escaped, "$options": "i"}},
-                        {"name": {"$regex": escaped, "$options": "i"}},
-                    ]
-                })
-                if doc:
-                    doc["_id"] = str(doc["_id"])
-                    return doc
-
-            # Fuzzy match across collection documents
-            all_docs = list(collection.find({}, limit=500))
-            from difflib import SequenceMatcher
-            for cand in candidates:
-                cand_lower = cand.lower()
-                best_doc = None
-                best_ratio = 0.0
-                for d in all_docs:
-                    d_name = (
-                        d.get("story_name_en") or d.get("story_name_hi") or
-                        d.get("story_name") or d.get("title") or d.get("name") or ""
-                    ).strip().lower()
-                    if not d_name:
-                        continue
-                    if cand_lower == d_name or cand_lower in d_name or d_name in cand_lower:
-                        d["_id"] = str(d["_id"])
-                        return d
-                    ratio = SequenceMatcher(None, cand_lower, d_name).ratio()
-                    if ratio > best_ratio and ratio >= 0.65:
-                        best_ratio = ratio
-                        best_doc = d
-                if best_doc:
-                    best_doc["_id"] = str(best_doc["_id"])
-                    return best_doc
-    except Exception as e:
-        logger.warning(f"[AutoStoryfi Matcher] MongoDB query error: {e}")
+    except Exception:
+        pass
 
     # 3. Fallback to Local Scanned Database
     try:
@@ -278,8 +309,28 @@ def find_story_for_channel_sync(channel_title: str, config: Optional[Dict[str, A
                     return v
     except Exception:
         pass
-
     return None
+
+
+def _fetch_full_story_by_id_cached(story_id: str, fallback_title: str) -> Dict[str, Any]:
+    """Helper to fetch full story doc or return structured minimal doc."""
+    try:
+        from mongo_search import _get_mongo_client
+        from bson import ObjectId
+        collection, client, settings = _get_mongo_client()
+        if collection is not None:
+            doc = collection.find_one({"_id": ObjectId(story_id)})
+            if doc:
+                doc["_id"] = str(doc["_id"])
+                return doc
+    except Exception:
+        pass
+    return {
+        "_id": str(story_id),
+        "story_name_en": fallback_title,
+        "story_name": fallback_title,
+        "title": fallback_title
+    }
 
 
 # ------------------------------------------------------------------------------
