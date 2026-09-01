@@ -169,6 +169,36 @@ def extract_square_image_url(doc: Dict[str, Any], settings: Optional[Dict[str, A
     return ""
 
 
+def extract_smart_field(doc: Dict[str, Any], field_type: str, default: str = "") -> str:
+    """Extract a field intelligently from a MongoDB story document."""
+    if not isinstance(doc, dict):
+        return default
+    try:
+        from plugins.poster_bot import extract_smart_field as _psf
+        res = _psf(doc, field_type, default=default)
+        if res:
+            return res
+    except Exception:
+        pass
+
+    if field_type == "name":
+        return str(
+            doc.get("story_name_en")
+            or doc.get("story_name_hi")
+            or doc.get("story_name")
+            or doc.get("title")
+            or doc.get("name")
+            or default
+        ).strip()
+    elif field_type == "status":
+        return str(doc.get("status") or doc.get("state") or default).strip()
+    elif field_type == "platform":
+        return str(doc.get("platform") or doc.get("source") or default).strip()
+    elif field_type == "episodes":
+        return str(doc.get("episodes") or doc.get("total_episodes") or doc.get("eps") or default).strip()
+    return str(doc.get(field_type, default)).strip()
+
+
 def format_mongo_story_to_result(doc: Dict[str, Any], settings: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Convert a MongoDB story document into Riya Stories Bot search result format (LIGHT_PRO / Paid Story).
