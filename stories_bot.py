@@ -1036,11 +1036,11 @@ _DIVIDER = "──────────────────────"
 
 
 def _nav_row(caller_id: int, back: str | None = None) -> list:
-    """Standard bottom navigation row: [Back] [✕ Close]"""
+    """Standard bottom navigation row: [Back] [Close]"""
     row = []
     if back:
-        row.append(InlineKeyboardButton("➦ Back", callback_data=f"menu|{back}|{caller_id}"))
-    row.append(InlineKeyboardButton("✖ Close", callback_data=f"menu|close|{caller_id}"))
+        row.append(InlineKeyboardButton("Back", callback_data=f"menu|{back}|{caller_id}", api_kwargs={"icon_custom_emoji_id": "6023847595804201389"}))
+    row.append(InlineKeyboardButton("Close", callback_data=f"menu|close|{caller_id}", api_kwargs={"icon_custom_emoji_id": "5774077015388852135"}))
     return row
 
 
@@ -1150,9 +1150,8 @@ def _menu_saved(caller_id: int) -> tuple:
 
     if favs:
         text = (
-            "<b>♥ My Favourites</b>\n"
-            "<i>✧ Tap a title to open the story.</i>\n"
-            f"{_DIVIDER}\n\n"
+            "<b>My Wishlist</b>\n"
+            f"{_DIVIDER}\n"
             f"<i>{len(favs)} saved {'story' if len(favs)==1 else 'stories'}</i>"
         )
         # Use index-based callback: sv|caller_id|index → always within 64-byte limit
@@ -1160,15 +1159,14 @@ def _menu_saved(caller_id: int) -> tuple:
         for idx, s in enumerate(favs):
             label = clean_story(s)[:50]
             cb    = f"sv|{caller_id}|{idx}"   # max ~30 chars — well within Telegram limit
-            story_rows.append([InlineKeyboardButton(f"♥ {label}", callback_data=cb)])
+            story_rows.append([InlineKeyboardButton(f"{label}", callback_data=cb)])
         story_rows.append(_nav_row(caller_id, back="home"))
         markup = InlineKeyboardMarkup(story_rows)
     else:
         text = (
-            "<b>♥ My Favourites</b>\n"
-            "<i>✧ Your personal saved stories.</i>\n"
-            f"{_DIVIDER}\n\n"
-            "<i>♡ No favourites yet.\n➔ Tap ★ on any search result to save it.</i>"
+            "<b>My Wishlist</b>\n"
+            f"{_DIVIDER}\n"
+            "<i>No stories in your wishlist yet.\n➔ Tap ⭐ on any search result to save it.</i>"
         )
         markup = InlineKeyboardMarkup([_nav_row(caller_id, back="home")])
 
@@ -5555,13 +5553,25 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("Story no longer in your list.", show_alert=True)
             return
         story_key = favs[idx]
+
+        # Resolve story from local DB or MongoDB
         result = get_story(story_key)
+        if not result:
+            from search_engine import search_story_exact_or_alias
+            result = search_story_exact_or_alias(story_key)
+        if not result:
+            try:
+                from mongo_search import search_story_from_mongo_sync
+                result = search_story_from_mongo_sync(story_key)
+            except Exception:
+                pass
+
         if not result:
             await query.answer("Story not found in database.", show_alert=True)
             return
-        # Reuse the same display logic as srch| by routing there
-        query.data = f"srch|{story_key}"
-        await buttons(update, context)
+
+        await query.answer()
+        await send_story_result_card(update, context, result, user=query.from_user, user_query_msg=query.message)
         return
 
     if query.data == "noop":
@@ -10829,6 +10839,7 @@ def start_bot():
 
     # Premium feature commands
     app.add_handler(CommandHandler("saved", saved_cmd))
+    app.add_handler(CommandHandler("wishlist", saved_cmd))
     app.add_handler(CommandHandler("new", new_cmd))
     app.add_handler(CommandHandler("subscribe", subscribe_cmd))
     
