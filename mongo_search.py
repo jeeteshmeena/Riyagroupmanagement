@@ -38,9 +38,18 @@ def _clean_query(name: str) -> str:
     return name.strip()
 
 
+_CACHED_CLIENT = None
+_CACHED_COLLECTION = None
+_CACHED_SETTINGS = None
+
+
 def _get_mongo_client():
+    global _CACHED_CLIENT, _CACHED_COLLECTION, _CACHED_SETTINGS
     if pymongo is None:
         return None, None, None
+
+    if _CACHED_COLLECTION is not None and _CACHED_CLIENT is not None:
+        return _CACHED_COLLECTION, _CACHED_CLIENT, _CACHED_SETTINGS
 
     try:
         from plugins.poster_bot import load_poster_settings
@@ -67,7 +76,15 @@ def _get_mongo_client():
         return None, None, None
 
     try:
-        client = pymongo.MongoClient(mongo_uri, serverSelectionTimeoutMS=5000, readPreference='primaryPreferred', retryReads=True)
+        client = pymongo.MongoClient(
+            mongo_uri,
+            serverSelectionTimeoutMS=4000,
+            connectTimeoutMS=4000,
+            socketTimeoutMS=5000,
+            readPreference='primaryPreferred',
+            retryReads=True,
+            maxPoolSize=10
+        )
         
         # Auto-discover database name from settings -> default DB -> cluster DB list
         db_name = settings.get("database_name") or os.getenv("DATABASE_NAME")
@@ -96,6 +113,10 @@ def _get_mongo_client():
 
         col_name = settings.get("collection_name") or "premium_stories"
         col = client[db_name][col_name]
+        
+        _CACHED_CLIENT = client
+        _CACHED_COLLECTION = col
+        _CACHED_SETTINGS = settings
         return col, client, settings
     except Exception as e:
         logger.error(f"[MongoSearch] Failed to connect to MongoDB: {e}")
