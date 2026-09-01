@@ -261,37 +261,49 @@ def extract_smart_field(story: Dict[str, Any], field_type: str, default: str = "
                 if isinstance(v, str) and v.strip():
                     return v.strip()
 
-    elif field_type == "cover" or field_type == "poster":
+    elif field_type in ("cover", "poster", "image"):
         cover_keys = [
-            "poster_url", "posterurl", "poster", "image_url", "imageurl",
-            "cover", "coverurl", "coverimage", "image", "photo_url", "photourl",
-            "photo", "thumbnail", "thumb", "fileid", "img", "imgurl",
-            "pic", "picture", "banner_url", "bannerurl", "banner",
-            "photoid", "telegramfileid", "telefileid"
+            "poster_url", "square_poster", "square_poster_url", "square_image", "square_url", "square_cover",
+            "posterurl", "posterUrl", "poster", "poster_image", "poster_path",
+            "r2_url", "r2_poster", "r2_image", "cloudflare_url", "cdn_url",
+            "image_url", "imageurl", "imageUrl", "cover_url", "coverurl", "coverUrl",
+            "photo_url", "photourl", "photoUrl", "thumbnail_url", "thumbnail", "thumb",
+            "image", "cover", "photo"
         ]
+        # Pass 1: Look for valid HTTP(S) URLs (Cloudflare R2, CDN, etc.)
+        for k in cover_keys:
+            if k in flat:
+                val = flat[k]
+                if isinstance(val, str) and val.strip().startswith(("http://", "https://")):
+                    return val.strip()
+                elif isinstance(val, list) and val:
+                    first = val[0]
+                    if isinstance(first, str) and first.strip().startswith(("http://", "https://")):
+                        return first.strip()
+                    elif isinstance(first, dict):
+                        for sub_k in ["url", "src", "link", "path"]:
+                            s = str(first.get(sub_k) or "").strip()
+                            if s.startswith(("http://", "https://")):
+                                return s
+                elif isinstance(val, dict):
+                    for sub_k in ["url", "src", "link", "path"]:
+                        s = str(val.get(sub_k) or "").strip()
+                        if s.startswith(("http://", "https://")):
+                            return s
+
+        # Pass 2: Banner URLs as fallback
+        for bk in ["banner_url", "bannerurl", "bannerUrl", "banner", "banner_image"]:
+            if bk in flat:
+                val = flat[bk]
+                if isinstance(val, str) and val.strip().startswith(("http://", "https://")):
+                    return val.strip()
+
+        # Pass 3: Local file paths or other non-URL identifiers
         for k in cover_keys:
             if k in flat:
                 val = flat[k]
                 if isinstance(val, str) and val.strip():
                     return val.strip()
-                elif isinstance(val, list) and val:
-                    first = val[0]
-                    if isinstance(first, str) and first.strip():
-                        return first.strip()
-                    elif isinstance(first, dict):
-                        for sub_k in ["url", "file_id", "path", "src", "link"]:
-                            if sub_k in first and str(first[sub_k]).strip():
-                                return str(first[sub_k]).strip()
-                elif isinstance(val, dict):
-                    for sub_k in ["url", "file_id", "path", "src", "link"]:
-                        if sub_k in val and str(val[sub_k]).strip():
-                            return str(val[sub_k]).strip()
-
-        # Fuzzy search for cover image
-        for k, v in flat.items():
-            if any(x in k for x in ["cover", "banner", "poster", "image", "photo", "thumb", "pic"]) and not any(x in k for x in ["id_num", "count"]):
-                if isinstance(v, str) and v.strip():
-                    return v.strip()
 
     elif field_type == "status":
         return extract_field(story, ["status", "Status", "state", "State"], default=default)
