@@ -58,35 +58,85 @@ def _get_mongo_client():
         return None, None, None
 
 
+
+
+def extract_square_image_url(doc: Dict[str, Any], settings: Optional[Dict[str, Any]] = None) -> str:
+    """
+    Intelligently extracts the Square Poster (1:1) image URL from a MongoDB document in read-only mode.
+    Priority:
+      1. Square / R2 Poster fields: poster_url, square_poster, poster, square_url, poster_image, square_cover, r2_url, cloudflare_url
+      2. Nested objects: media.poster, images.square, images.poster, assets.poster, cloudflare.url, r2.url
+      3. General cover / image fields: image_url, cover_url, cover, image, photo_url, photo
+      4. Array of media / images
+      5. Banner only as last fallback
+    """
+    if not isinstance(doc, dict):
+        return ""
+
+    square_keys = [
+        "square_poster", "square_poster_url", "square_image", "square_url", "square_cover",
+        "poster_url", "posterurl", "posterUrl", "poster", "poster_image", "poster_path",
+        "r2_url", "r2_poster", "r2_image", "cloudflare_url", "cdn_url",
+        "image_url", "imageurl", "imageUrl", "image", "img_url", "img",
+        "cover_url", "coverurl", "coverUrl", "cover", "cover_image", "cover_path",
+        "photo_url", "photourl", "photoUrl", "photo", "thumbnail_url", "thumbnail", "thumb"
+    ]
+
+    def _extract_url_from_val(val: Any) -> str:
+        if isinstance(val, str):
+            s = val.strip()
+            if s.startswith(("http://", "https://")):
+                return s
+        elif isinstance(val, dict):
+            for sub_k in ["square", "square_poster", "poster", "poster_url", "url", "src", "link", "r2_url", "cdn_url", "path", "image", "cover"]:
+                if sub_k in val:
+                    sub_v = _extract_url_from_val(val[sub_k])
+                    if sub_v:
+                        return sub_v
+        elif isinstance(val, list) and val:
+            for item in val:
+                sub_v = _extract_url_from_val(item)
+                if sub_v:
+                    return sub_v
+        return ""
+
+    # 1. Check top-level square keys
+    for k in square_keys:
+        if k in doc:
+            url = _extract_url_from_val(doc[k])
+            if url:
+                return url
+
+    # 2. Check nested containers
+    for container_key in ["media", "images", "assets", "cloudflare", "r2", "files"]:
+        container = doc.get(container_key)
+        if isinstance(container, (dict, list)):
+            url = _extract_url_from_val(container)
+            if url:
+                return url
+
+    # 3. Fallback: Banner keys
+    for bk in ["banner_url", "bannerurl", "bannerUrl", "banner", "banner_image"]:
+        if bk in doc:
+            url = _extract_url_from_val(doc[bk])
+            if url:
+                return url
+
+    return ""
+
+
 def format_mongo_story_to_result(doc: Dict[str, Any], settings: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Convert a raw MongoDB document into a full Riya Paid Story result dictionary."""
-    try:
-        from plugins.poster_bot import extract_smart_field
-    except Exception:
-        def extract_smart_field(d, t, default=""):
-            return d.get(t, default)
+    """
+    Convert a MongoDB story document into Riya Stories Bot search result format (LIGHT_PRO / Paid Story).
+    Ensures safe data types and guaranteed HTTP(S) image URL.
+    """
+    story_id = str(doc.get("_id") or "")
+    story_name = extract_smart_field(doc, "name", default="Unknown Story")
 
-    story_id = str(doc.get("_id", ""))
-    raw_name = (
-        doc.get("story_name_en") or
-        doc.get("story_name_hi") or
-        doc.get("story_name") or
-        doc.get("title") or
-        doc.get("name") or
-        extract_smart_field(doc, "name", default="Untitled Story")
-    )
-    story_name = str(raw_name).strip()
     status = extract_smart_field(doc, "status", default="Completed")
-    platform = extract_smart_field(doc, "platform", default="Audiobook")
+    platform = extract_smart_field(doc, "platform", default="Pocket FM")
 
-    raw_genre = (
-        doc.get("genre") or
-        doc.get("genres") or
-        doc.get("Genre") or
-        doc.get("Genres") or
-        doc.get("category") or
-        doc.get("Category")
-    )
+    raw_genre = doc.get("genre") or doc.get("genres") or doc.get("category")
     if isinstance(raw_genre, list) and raw_genre:
         genre = str(raw_genre[0]).strip()
     elif raw_genre:
@@ -107,35 +157,8 @@ def format_mongo_story_to_result(doc: Dict[str, Any], settings: Optional[Dict[st
         else:
             story_link = "https://t.me/UseAryaBot/apminibyarya"
 
-    # Photo / Cover - Priority resolution for SQUARE Poster (1:1):
-    image_url = ""
-    for field in ["poster_url", "poster", "image_url", "cover", "image", "cover_url", "photo_url", "photo"]:
-        val = doc.get(field)
-        if isinstance(val, str) and val.strip().startswith(("http://", "https://")):
-            image_url = val.strip()
-            break
-        elif isinstance(val, dict):
-            for sub_k in ["url", "src", "link", "path"]:
-                s = str(val.get(sub_k) or "").strip()
-                if s.startswith(("http://", "https://")):
-                    image_url = s
-                    break
-            if image_url:
-                break
-        elif isinstance(val, list) and val:
-            first = val[0]
-            if isinstance(first, str) and first.strip().startswith(("http://", "https://")):
-                image_url = first.strip()
-                break
-            elif isinstance(first, dict):
-                for sub_k in ["url", "src", "link", "path"]:
-                    s = str(first.get(sub_k) or "").strip()
-                    if s.startswith(("http://", "https://")):
-                        image_url = s
-                        break
-                if image_url:
-                    break
-
+    # Extract square poster / Cloudflare R2 image URL
+    image_url = extract_square_image_url(doc, settings)
     if not image_url:
         image_url = "https://images.unsplash.com/photo-1614729939124-032f0b56c9ce?w=400"
 
