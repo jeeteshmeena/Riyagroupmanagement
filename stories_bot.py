@@ -1070,6 +1070,9 @@ def _menu_main(caller_id: int, lang: str = "en", mention: str = "") -> tuple:
             InlineKeyboardButton("Smtg New", callback_data=f"menu|new|{caller_id}", api_kwargs={"icon_custom_emoji_id": "5294524383279198295"}),
         ],
         [
+            InlineKeyboardButton("Search Now", switch_inline_query_current_chat="", api_kwargs={"icon_custom_emoji_id": "6105086781932183475"}),
+        ],
+        [
             InlineKeyboardButton("About", callback_data=f"menu|about|{caller_id}", api_kwargs={"icon_custom_emoji_id": "6021487472603568286"}),
             InlineKeyboardButton("Commands", callback_data="cmdmenu|0", api_kwargs={"icon_custom_emoji_id": "6021607757457660145"}),
         ],
@@ -2250,16 +2253,19 @@ def _stories_page(page=0):
         title = clean_story(name)
         db_story = db.get(name, {})
         link = db_story.get("link", "") or db_story.get("message_url", "")
+        is_paid = db_story.get("is_paid", False) or bool(db_story.get("price")) or (db_story.get("delivery_mode") == "paid")
+        paid_icon = '<tg-emoji emoji-id="6007983438294949171">💎</tg-emoji> ' if is_paid else ''
+
         # Number is plain text (non-copyable); title is linked without mono-space blocking
         # If linked: entire title = clickable anchor
         if link:
-            lines.append(f"{i}. <a href='{link}'>{html.escape(title)}</a>")
+            lines.append(f"{i}. {paid_icon}<a href='{link}'>{html.escape(title)}</a>")
         else:
-            lines.append(f"{i}. {html.escape(title)}")
+            lines.append(f"{i}. {paid_icon}{html.escape(title)}")
     total = len(story_index)
     header = (
-        f"<b>✦ Story List  ·  {total} titles</b>\n"
-        f"<i>▪ Page {page + 1}  ·  #{start + 1}–#{min(end, total)}</i>\n"
+        f'<tg-emoji emoji-id="6021435576513730578">📚</tg-emoji> <b>Story List  ·  {total} titles</b>\n'
+        f"▪ Page {page + 1}  ·  #{start + 1}–#{min(end, total)}\n"
         "━━━━━━━━━━━━━━━━\n"
     )
     text = header + "\n".join(lines)
@@ -2297,8 +2303,8 @@ async def stories(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         nav, 
         [
-            InlineKeyboardButton("🗑️ Delete", callback_data=f"story_delete|{caller_id}"),
-            InlineKeyboardButton("📋 Full List", callback_data=f"story_wtf|{caller_id}")
+            InlineKeyboardButton("🗑️", callback_data=f"story_delete|{caller_id}", api_kwargs={"icon_custom_emoji_id": "6021413766669801212"}),
+            InlineKeyboardButton("Full List", callback_data=f"story_wtf|{caller_id}", api_kwargs={"icon_custom_emoji_id": "5258500400918587241"})
         ]
     ]
 
@@ -5557,8 +5563,8 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         rows = [
             nav,
             [
-                InlineKeyboardButton("🗑️ Delete", callback_data=f"story_delete|{caller_id}"),
-                InlineKeyboardButton("📋 Full List", callback_data=f"story_wtf|{caller_id}")
+                InlineKeyboardButton("🗑️", callback_data=f"story_delete|{caller_id}", api_kwargs={"icon_custom_emoji_id": "6021413766669801212"}),
+                InlineKeyboardButton("Full List", callback_data=f"story_wtf|{caller_id}", api_kwargs={"icon_custom_emoji_id": "5258500400918587241"})
             ]
         ]
         try:
@@ -10214,10 +10220,12 @@ async def storylist_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db_story = db.get(name) or {}
         link = db_story.get("link", "")
         safe_name = html.escape(clean_story(name))
+        is_paid = db_story.get("is_paid", False) or bool(db_story.get("price")) or (db_story.get("delivery_mode") == "paid")
+        paid_icon = '<tg-emoji emoji-id="6007983438294949171">💎</tg-emoji> ' if is_paid else ''
         if link:
-            lines.append(f"{i}. <a href='{link}'><code>{safe_name}</code></a>")
+            lines.append(f"{i}. {paid_icon}<a href='{link}'><code>{safe_name}</code></a>")
         else:
-            lines.append(f"{i}. <code>{safe_name}</code>")
+            lines.append(f"{i}. {paid_icon}<code>{safe_name}</code>")
             
     current_msg = "<b>📚 Complete Story Index</b>\n━━━━━━━━━━━━━━━━\n\n"
     for line in lines:
