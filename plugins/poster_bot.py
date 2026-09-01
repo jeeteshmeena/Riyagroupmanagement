@@ -56,7 +56,7 @@ def load_poster_settings() -> Dict[str, Any]:
         "watermark": {
             "enabled": True,
             "path": "watermark.png",
-            "position": "bottom_right",
+            "position": "top_right",
             "opacity": 0.8,
         },
         "miniapp_url": "",

@@ -2242,6 +2242,33 @@ _Your story database is now fully updated._{error_text}
 # /stories command
 # -----------------------
 
+def _is_story_paid_indicator(db_story: dict, name: str = "") -> bool:
+    if not isinstance(db_story, dict):
+        db_story = {}
+    if db_story.get("is_paid"):
+        return True
+    if db_story.get("price"):
+        return True
+    if str(db_story.get("delivery_mode", "")).lower() in ("paid", "buy"):
+        return True
+    if str(db_story.get("format", "")).lower() in ("light_pro", "paid"):
+        return True
+
+    link = str(db_story.get("link") or db_story.get("message_url") or db_story.get("url") or "").lower()
+    if any(k in link for k in ["startapp=", "buy_", "/buy", "storyfi", "apmini", "usearyabot"]):
+        return True
+
+    btn_text = str(db_story.get("link_btn_text") or db_story.get("btn_text") or "").lower()
+    if any(w in btn_text for w in ["buy", "purchase", "paid", "₹", "rs."]):
+        return True
+
+    title_str = (name or str(db_story.get("name") or "")).lower()
+    if any(w in title_str for w in ["[paid]", "(paid)", "paid story", "premium story"]):
+        return True
+
+    return False
+
+
 def _stories_page(page=0):
     """Build stories list for a given page."""
     start = page * STORIES_PER_PAGE
@@ -2253,7 +2280,7 @@ def _stories_page(page=0):
         title = clean_story(name)
         db_story = db.get(name, {})
         link = db_story.get("link", "") or db_story.get("message_url", "")
-        is_paid = db_story.get("is_paid", False) or bool(db_story.get("price")) or (db_story.get("delivery_mode") == "paid")
+        is_paid = _is_story_paid_indicator(db_story, name)
         paid_icon = '<tg-emoji emoji-id="6007983438294949171">💎</tg-emoji> ' if is_paid else ''
 
         # Number is plain text (non-copyable); title is linked without mono-space blocking
@@ -4107,34 +4134,44 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
         asyncio.create_task(_del_broken())
         return sent
 
-    # React to user search message with custom emoji 5456140674028019486
+    # React to user search message with custom emoji 5456140674028019486 (ONLY for MongoDB Stories)
     target_msg_id = None
     if user_query_msg and hasattr(user_query_msg, "message_id"):
         target_msg_id = user_query_msg.message_id
     elif update and update.message and hasattr(update.message, "message_id"):
         target_msg_id = update.message.message_id
 
-    if target_msg_id:
+    if result.get("from_mongo") and target_msg_id:
         async def _set_reaction():
+            # 1. Try Telethon UserBot (User with Telegram Premium can set custom reactions anywhere)
             try:
-                from telegram import ReactionTypeCustomEmoji, ReactionTypeEmoji
-                try:
-                    await context.bot.set_message_reaction(
-                        chat_id=chat_id,
-                        message_id=target_msg_id,
-                        reaction=[ReactionTypeCustomEmoji(custom_emoji_id="5456140674028019486")]
-                    )
-                except Exception:
-                    try:
-                        await context.bot.set_message_reaction(
-                            chat_id=chat_id,
-                            message_id=target_msg_id,
-                            reaction=[ReactionTypeEmoji(emoji="❤️")]
-                        )
-                    except Exception:
-                        pass
-            except Exception:
-                pass
+                from link_checker import link_checker
+                if link_checker and link_checker.client and link_checker.client.is_connected():
+                    from telethon.tl.types import ReactionCustomEmoji
+                    from telethon.tl.functions.messages import SendReactionRequest
+                    peer = await link_checker.client.get_input_entity(chat_id)
+                    await link_checker.client(SendReactionRequest(
+                        peer=peer,
+                        msg_id=target_msg_id,
+                        reaction=[ReactionCustomEmoji(document_id=5456140674028019486)]
+                    ))
+                    logger.info(f"[Reaction] ✅ Telethon custom emoji reaction 5456140674028019486 set on msg {target_msg_id}")
+                    return
+            except Exception as _tel_err:
+                logger.debug(f"[Reaction Telethon] {_tel_err}")
+
+            # 2. Try Bot API
+            try:
+                from telegram import ReactionTypeCustomEmoji
+                await context.bot.set_message_reaction(
+                    chat_id=chat_id,
+                    message_id=target_msg_id,
+                    reaction=[ReactionTypeCustomEmoji(custom_emoji_id="5456140674028019486")]
+                )
+                logger.info(f"[Reaction] ✅ Bot API custom emoji reaction set on msg {target_msg_id}")
+            except Exception as _bot_err:
+                logger.debug(f"[Reaction Bot API] {_bot_err}")
+
         asyncio.create_task(_set_reaction())
 
     # Progressive typewriter loading animation when fetching story from MongoDB
@@ -4279,10 +4316,15 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
                             top = (h - min_s) // 2
                             im = im.crop((left, top, left + min_s, top + min_s))
 
-                        # If story fetched from MongoDB, apply storyfiwatermark.png
+                        # If story fetched from MongoDB, apply storyfiwatermark.png at top-right (Story banner position)
                         if result.get("from_mongo"):
                             try:
-                                from plugins.poster_bot import apply_watermark_to_image
+                                from plugins.poster_bot import apply_watermark_to_image, load_poster_settings
+                                p_cfg = load_poster_settings()
+                                wm_cfg = p_cfg.get("watermark", {})
+                                wm_pos = wm_cfg.get("position", "top_right")
+                                wm_opacity = float(wm_cfg.get("opacity", 0.85))
+
                                 wm_candidates = [
                                     "storyfiwatermark.png",
                                     _os.path.join(_os.path.dirname(__file__), "storyfiwatermark.png"),
@@ -4290,7 +4332,7 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
                                 ]
                                 wm_path = next((p for p in wm_candidates if _os.path.exists(p)), None)
                                 if wm_path:
-                                    buf = apply_watermark_to_image(im.convert("RGBA"), wm_path=wm_path, position="bottom_right", opacity=0.85)
+                                    buf = apply_watermark_to_image(im.convert("RGBA"), wm_path=wm_path, position=wm_pos, opacity=wm_opacity)
                                     buf.name = "cover.jpg"
                                     buf.seek(0)
                                     return buf
@@ -4339,7 +4381,12 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
                 logger.info(f"[StoryCard] Fallback: Sending Tier 2 default_cover.png...")
                 if result.get("from_mongo"):
                     try:
-                        from plugins.poster_bot import apply_watermark_to_image
+                        from plugins.poster_bot import apply_watermark_to_image, load_poster_settings
+                        p_cfg = load_poster_settings()
+                        wm_cfg = p_cfg.get("watermark", {})
+                        wm_pos = wm_cfg.get("position", "top_right")
+                        wm_opacity = float(wm_cfg.get("opacity", 0.85))
+
                         wm_candidates = [
                             "storyfiwatermark.png",
                             _os.path.join(_os.path.dirname(__file__), "storyfiwatermark.png"),
@@ -4348,7 +4395,7 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
                         wm_path = next((p for p in wm_candidates if _os.path.exists(p)), None)
                         if wm_path:
                             with open(_cp, "rb") as _cf_raw:
-                                _watermarked_buf = apply_watermark_to_image(_cf_raw.read(), wm_path=wm_path, position="bottom_right", opacity=0.85)
+                                _watermarked_buf = apply_watermark_to_image(_cf_raw.read(), wm_path=wm_path, position=wm_pos, opacity=wm_opacity)
                                 _watermarked_buf.seek(0)
                                 sent_msg = await context.bot.send_photo(
                                     chat_id=chat_id, photo=_watermarked_buf, caption=caption,
@@ -10220,7 +10267,7 @@ async def storylist_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db_story = db.get(name) or {}
         link = db_story.get("link", "")
         safe_name = html.escape(clean_story(name))
-        is_paid = db_story.get("is_paid", False) or bool(db_story.get("price")) or (db_story.get("delivery_mode") == "paid")
+        is_paid = _is_story_paid_indicator(db_story, name)
         paid_icon = '<tg-emoji emoji-id="6007983438294949171">💎</tg-emoji> ' if is_paid else ''
         if link:
             lines.append(f"{i}. {paid_icon}<a href='{link}'><code>{safe_name}</code></a>")
