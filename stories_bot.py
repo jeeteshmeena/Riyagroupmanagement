@@ -1875,7 +1875,7 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     caller_id = user.id if user else 0
     delete_btn = InlineKeyboardMarkup(
-        [[InlineKeyboardButton("🗑️ Delete", callback_data=f"status_delete|{caller_id}")]]
+        [[InlineKeyboardButton(" ", callback_data=f"status_delete|{caller_id}", api_kwargs={"icon_custom_emoji_id": "6021413766669801212"})]]
     )
 
     reply = await chat.send_message(text=text, parse_mode="HTML", reply_markup=delete_btn)
@@ -2303,7 +2303,7 @@ async def stories(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         nav, 
         [
-            InlineKeyboardButton("🗑️", callback_data=f"story_delete|{caller_id}", api_kwargs={"icon_custom_emoji_id": "6021413766669801212"}),
+            InlineKeyboardButton(" ", callback_data=f"story_delete|{caller_id}", api_kwargs={"icon_custom_emoji_id": "6021413766669801212"}),
             InlineKeyboardButton("Full List", callback_data=f"story_wtf|{caller_id}", api_kwargs={"icon_custom_emoji_id": "5258500400918587241"})
         ]
     ]
@@ -4116,24 +4116,6 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
 
     if result.get("from_mongo") and target_msg_id:
         async def _set_reaction():
-            # 1. Try Telethon UserBot (User with Telegram Premium can set custom reactions anywhere)
-            try:
-                from link_checker import link_checker
-                if link_checker and link_checker.client and link_checker.client.is_connected():
-                    from telethon.tl.types import ReactionCustomEmoji
-                    from telethon.tl.functions.messages import SendReactionRequest
-                    peer = await link_checker.client.get_input_entity(chat_id)
-                    await link_checker.client(SendReactionRequest(
-                        peer=peer,
-                        msg_id=target_msg_id,
-                        reaction=[ReactionCustomEmoji(document_id=5456140674028019486)]
-                    ))
-                    logger.info(f"[Reaction] ✅ Telethon custom emoji reaction 5456140674028019486 set on msg {target_msg_id}")
-                    return
-            except Exception as _tel_err:
-                logger.debug(f"[Reaction Telethon] {_tel_err}")
-
-            # 2. Try Bot API
             try:
                 from telegram import ReactionTypeCustomEmoji
                 await context.bot.set_message_reaction(
@@ -4233,6 +4215,8 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
     photo = result.get("photo") or result.get("image")
     story_type_line = f"\n<b>✽ Story Type:-</b> <i>{html.escape(str(story_type))}</i>" if story_type != "Not specified" else ""
 
+    is_paid = result.get("is_paid", False) or result.get("from_mongo", False) or _is_story_paid_indicator(result, story_name)
+    paid_badge = '<tg-emoji emoji-id="6007983438294949171">💎</tg-emoji> ' if is_paid else ''
     story_emoji = '<tg-emoji emoji-id="5296790785981718487">♨️</tg-emoji>' if is_paid else '<tg-emoji emoji-id="5465432711218863135">♨️</tg-emoji>'
 
     if result.get("format") in ("LIGHT", "LIGHT_PRO") or result.get("from_mongo"):
@@ -4243,7 +4227,7 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
         caption = (
             f"Hey {target_mention} 👋\n"
             f"<b>✫ I found this story</b> ➴\n\n"
-            f'{story_emoji} <b>Story :</b> <b>{html.escape(str(light_name))}</b>\n'
+            f'{story_emoji} <b>Story :</b> {paid_badge}<b>{html.escape(str(light_name))}</b>\n'
             f'<tg-emoji emoji-id="6019118553326689234">🔰</tg-emoji> <b>Status :</b> <b>{html.escape(str(light_status))}</b>\n'
             f'<tg-emoji emoji-id="6019455905827920171">🖥</tg-emoji> <b>Platform :</b> <b>{html.escape(str(light_platform))}</b>\n'
             f'<tg-emoji emoji-id="6024065724291488135">🧩</tg-emoji> <b>Genre :</b> <b>{html.escape(str(light_genre))}</b>\n'
@@ -4256,7 +4240,7 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
         caption = (
             f"Hey {target_mention} 👋\n"
             f"<b>✫ I found this story</b> ➴\n\n"
-            f"<i>❁ Name:-</i> <b>{html.escape(str(story_name))}</b>{story_type_line}\n\n"
+            f"<i>❁ Name:-</i> {paid_badge}<b>{html.escape(str(story_name))}</b>{story_type_line}\n\n"
             f"<tg-spoiler>◒ This reply will be deleted automatically in 24 hours.</tg-spoiler>"
         )
 
@@ -4835,7 +4819,7 @@ async def render_genre_dashboard(chat_id, user_mention, genre_name: str, page: i
 
     keyboard.append([
         InlineKeyboardButton("「All Genres」", callback_data="gnr_l|1"),
-        InlineKeyboardButton("🗑️", callback_data="delete")
+        InlineKeyboardButton(" ", callback_data="delete", api_kwargs={"icon_custom_emoji_id": "6021413766669801212"})
     ])
 
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -4925,7 +4909,7 @@ async def render_genre_list(chat_id, user_mention, page: int = 1, context=None, 
 
         keyboard.append(pag_row)
 
-    keyboard.append([InlineKeyboardButton("🗑️", callback_data="delete")])
+    keyboard.append([InlineKeyboardButton(" ", callback_data="delete", api_kwargs={"icon_custom_emoji_id": "6021413766669801212"})])
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     if target_msg:
@@ -5352,7 +5336,8 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         story_key  = result.get("name") or story_name.lower()
         story_type = result.get("story_type") or extract_story_type(result.get("caption", "")) or "Not specified"
 
-        is_paid = result.get("is_paid", False)
+        is_paid = result.get("is_paid", False) or result.get("from_mongo", False) or _is_story_paid_indicator(result, story_name)
+        paid_badge = '<tg-emoji emoji-id="6007983438294949171">💎</tg-emoji> ' if is_paid else ''
         story_emoji = '<tg-emoji emoji-id="5296790785981718487">♨️</tg-emoji>' if is_paid else '<tg-emoji emoji-id="5465432711218863135">♨️</tg-emoji>'
 
         # Light Pro / Light format caption
@@ -5364,7 +5349,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             caption = (
                 f"Hey {mention} 👋\n"
                 f"<b>✫ I found this story</b> ➴\n\n"
-                f'{story_emoji} <b>Story :</b> <b>{html.escape(str(light_name))}</b>\n'
+                f'{story_emoji} <b>Story :</b> {paid_badge}<b>{html.escape(str(light_name))}</b>\n'
                 f'<tg-emoji emoji-id="6019118553326689234">🔰</tg-emoji> <b>Status :</b> <b>{html.escape(str(light_status))}</b>\n'
                 f'<tg-emoji emoji-id="6019455905827920171">🖥</tg-emoji> <b>Platform :</b> <b>{html.escape(str(light_platform))}</b>\n'
                 f'<tg-emoji emoji-id="6024065724291488135">🧩</tg-emoji> <b>Genre :</b> <b>{html.escape(str(light_genre))}</b>\n'
@@ -5380,7 +5365,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             caption = (
                 f"Hey {mention} 👋\n"
                 f"<b>✫ I found this story</b> ➴\n\n"
-                f"<i>❁ Name:-</i> <b>{html.escape(str(story_name))}</b>{story_type_line}\n\n"
+                f"<i>❁ Name:-</i> {paid_badge}<b>{html.escape(str(story_name))}</b>{story_type_line}\n\n"
             )
 
         caption += "\n<tg-spoiler>◒ This reply will be deleted automatically in 24 hours.</tg-spoiler>"
@@ -5595,7 +5580,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         rows = [
             nav,
             [
-                InlineKeyboardButton("🗑️", callback_data=f"story_delete|{caller_id}", api_kwargs={"icon_custom_emoji_id": "6021413766669801212"}),
+                InlineKeyboardButton(" ", callback_data=f"story_delete|{caller_id}", api_kwargs={"icon_custom_emoji_id": "6021413766669801212"}),
                 InlineKeyboardButton("Full List", callback_data=f"story_wtf|{caller_id}", api_kwargs={"icon_custom_emoji_id": "5258500400918587241"})
             ]
         ]
