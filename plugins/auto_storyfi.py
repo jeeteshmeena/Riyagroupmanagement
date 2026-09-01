@@ -228,10 +228,52 @@ def _get_cached_story_catalog() -> List[Dict[str, Any]]:
     return catalog or []
 
 
+def suggest_stories_for_channel(channel_title: str, limit: int = 3) -> List[Dict[str, Any]]:
+    """Returns top N story candidates from MongoDB catalog for a given channel title."""
+    catalog = _get_cached_story_catalog()
+    if not catalog or not channel_title:
+        return []
+
+    candidates = extract_candidate_titles(channel_title)
+    if not candidates:
+        candidates = [clean_channel_title_for_story(channel_title)]
+
+    scored: List[Tuple[float, Dict[str, Any]]] = []
+    from difflib import SequenceMatcher
+
+    for item in catalog:
+        best_item_score = 0.0
+        for cand in candidates:
+            cand_low = cand.lower().strip()
+            cand_tokens = set(re.findall(r"\w+", cand_low))
+            for t_low in item["titles_lower"]:
+                t_tokens = set(re.findall(r"\w+", t_low))
+
+                if cand_low == t_low:
+                    best_item_score = max(best_item_score, 1.0)
+                elif cand_low in t_low or t_low in cand_low:
+                    best_item_score = max(best_item_score, 0.90)
+                else:
+                    if cand_tokens and t_tokens:
+                        common = cand_tokens.intersection(t_tokens)
+                        if common:
+                            overlap = len(common) / max(len(cand_tokens), 1)
+                            best_item_score = max(best_item_score, overlap * 0.85)
+
+                    ratio = SequenceMatcher(None, cand_low, t_low).ratio()
+                    best_item_score = max(best_item_score, ratio * 0.75)
+
+        if best_item_score >= 0.35:
+            scored.append((best_item_score, item))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [item for _, item in scored[:limit]]
+
+
 def find_story_for_channel_sync(channel_title: str, config: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     """
     Finds matching story in MongoDB 'premium_stories' by title or fuzzy match.
-    Uses ultra-fast in-memory title catalog with fallback to direct query and local DB.
+    Uses ultra-fast in-memory title catalog with token-subset and fuzzy fallback.
     """
     if not channel_title or len(str(channel_title).strip()) < 2:
         return None
@@ -244,6 +286,7 @@ def find_story_for_channel_sync(channel_title: str, config: Optional[Dict[str, A
     catalog = _get_cached_story_catalog()
     if catalog:
         from difflib import SequenceMatcher
+
         # Step 1A: Exact case-insensitive match
         for cand in candidates:
             cand_low = cand.lower().strip()
@@ -254,7 +297,19 @@ def find_story_for_channel_sync(channel_title: str, config: Optional[Dict[str, A
                     if cand_low == t_low:
                         return _fetch_full_story_by_id_cached(item["_id"], item["primary_name"])
 
-        # Step 1B: Word-boundary / Substring match (e.g. "Vashikaran" in "Vashikaran: Season 1")
+        # Step 1B: Token Subset Match (e.g. ['hukum', 'ikka'] in ['hukum', 'ka', 'ikka'])
+        for cand in candidates:
+            cand_low = cand.lower().strip()
+            cand_tokens = [w for w in re.findall(r"\w+", cand_low) if len(w) >= 3]
+            if not cand_tokens:
+                continue
+            for item in catalog:
+                for t_low in item["titles_lower"]:
+                    t_tokens = set(re.findall(r"\w+", t_low))
+                    if all(ct in t_tokens for ct in cand_tokens) or (len(cand_tokens) >= 2 and sum(1 for ct in cand_tokens if ct in t_tokens) >= len(cand_tokens) - 1):
+                        return _fetch_full_story_by_id_cached(item["_id"], item["primary_name"])
+
+        # Step 1C: Word-boundary / Substring match (e.g. "Vashikaran" in "Vashikaran: Season 1")
         for cand in candidates:
             cand_low = cand.lower().strip()
             if len(cand_low) < 3:
@@ -264,7 +319,7 @@ def find_story_for_channel_sync(channel_title: str, config: Optional[Dict[str, A
                     if cand_low in t_low or t_low in cand_low:
                         return _fetch_full_story_by_id_cached(item["_id"], item["primary_name"])
 
-        # Step 1C: Fuzzy ratio match
+        # Step 1D: Fuzzy ratio match (relaxed threshold >= 0.55 for slight typos/variations)
         for cand in candidates:
             cand_low = cand.lower().strip()
             if len(cand_low) < 4:
@@ -274,7 +329,7 @@ def find_story_for_channel_sync(channel_title: str, config: Optional[Dict[str, A
             for item in catalog:
                 for t_low in item["titles_lower"]:
                     ratio = SequenceMatcher(None, cand_low, t_low).ratio()
-                    if ratio > best_ratio and ratio >= 0.70:
+                    if ratio > best_ratio and ratio >= 0.55:
                         best_ratio = ratio
                         best_item = item
             if best_item:
@@ -994,7 +1049,12 @@ async def handle_storyfi_callbacks(query, context: ContextTypes.DEFAULT_TYPE, pa
         ]
 
         if not m_stories:
-            lines.append("<i>❌ No stories assigned. Tap '➕ Add Story from MongoDB' below.</i>")
+            lines.append("<i>❌ No stories assigned yet.</i>\n")
+            suggestions = suggest_stories_for_channel(c_title, limit=3)
+            if suggestions:
+                lines.append("<b>💡 Top Database Suggestions:</b>")
+                for sug_i, sug_obj in enumerate(suggestions, 1):
+                    lines.append(f"  <b>{sug_i}.</b> 📖 <code>{sug_obj.get('primary_name')}</code>")
         else:
             lines.append("<b>📚 Assigned Stories (Rotating):</b>")
             for s_i, s_obj in enumerate(m_stories):
@@ -1005,8 +1065,16 @@ async def handle_storyfi_callbacks(query, context: ContextTypes.DEFAULT_TYPE, pa
         toggle_label = "🔴 Disable Channel" if is_en else "🟢 Enable Channel"
         btn_rows.append([
             InlineKeyboardButton(toggle_label, callback_data=f"cfg|storyfi|chtoggle|{cid_str}|{return_page}|{caller_id}"),
-            InlineKeyboardButton("➕ Add Story", callback_data=f"cfg|storyfi|chadd|{cid_str}|0|{caller_id}")
+            InlineKeyboardButton("➕ Add from MongoDB", callback_data=f"cfg|storyfi|chadd|{cid_str}|0|{caller_id}")
         ])
+
+        # Quick assign suggestions if 0 stories
+        if not m_stories:
+            suggestions = suggest_stories_for_channel(c_title, limit=3)
+            for sug in suggestions:
+                btn_rows.append([
+                    InlineKeyboardButton(f"💡 Quick Add: {sug.get('primary_name')[:22]}", callback_data=f"cfg|storyfi|doadd|{cid_str}|{sug.get('_id')}|{caller_id}")
+                ])
 
         # Story remove buttons
         if m_stories:
