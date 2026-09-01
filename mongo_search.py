@@ -95,15 +95,17 @@ def format_mongo_story_to_result(doc: Dict[str, Any], settings: Optional[Dict[st
         genre = "Drama"
 
     episodes = extract_smart_field(doc, "episodes", default="Full Story")
-    description = ""
+    # Link: prefer Buy Via App link (UseAryaBot MiniApp)
+    buy_app_url = doc.get("buy_app_url") or doc.get("app_url") or ""
+    if not buy_app_url and story_id:
+        buy_app_url = f"https://t.me/UseAryaBot/apminibyarya?startapp=story_{story_id}"
 
-    # Link: prefer doc link, or fallback to StoryfiBot / Arya MiniApp deep link
-    story_link = str(doc.get("link") or doc.get("url") or "").strip()
+    story_link = str(buy_app_url or doc.get("link") or doc.get("url") or "").strip()
     if not story_link.startswith(("http://", "https://", "tg://")):
         if story_id:
-            story_link = f"https://t.me/StoryfiBot?start=buy_{story_id}"
+            story_link = f"https://t.me/UseAryaBot/apminibyarya?startapp=story_{story_id}"
         else:
-            story_link = "https://t.me/StoryfiBot"
+            story_link = "https://t.me/UseAryaBot/apminibyarya"
 
     # Photo / Cover - Priority resolution for SQUARE Poster (1:1):
     image_url = ""
