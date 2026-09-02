@@ -6263,21 +6263,53 @@ async def chat_member_update(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def anti_bot_addition_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
-    Strict Anti-Bot Security Layer:
-    If any non-admin user adds a bot to a group:
-    1. Instantly remove/kick/ban the added bot.
-    2. Instantly mute the user who added the bot for 60 minutes.
-    3. Delete the join service message.
-    4. Send a security warning in the group.
+    Strict Anti-Bot Security Layer (High Priority group=-1):
+    1. If any non-admin bot sends ANY message in a group:
+       - Instantly delete its message.
+       - Permanently ban the unauthorized bot.
+       - Stop propagation.
+    2. If any non-admin user adds a bot to a group:
+       - Permanently ban the added bot from the group.
+       - Instantly mute the user who added the bot for 24 Hours (86,400s).
+       - Delete the join service message.
+       - Send a clear warning alert in the group.
+       - Stop propagation.
     """
     chat = update.effective_chat
     if not chat or chat.type not in ("group", "supergroup"):
         return
 
+    # ── Case A: Intercept any message sent by a non-admin bot in the group ──────
+    if update.message and update.message.from_user:
+        msg_user = update.message.from_user
+        if msg_user.is_bot and (not context.bot or msg_user.id != context.bot.id):
+            # Check if this bot is an administrator in the group
+            is_bot_admin = False
+            try:
+                b_member = await context.bot.get_chat_member(chat.id, msg_user.id)
+                is_bot_admin = b_member.status in ("creator", "administrator")
+            except Exception:
+                is_bot_admin = False
+
+            if not is_bot_admin:
+                # Delete unauthorized bot's message instantly
+                try:
+                    await update.message.delete()
+                except Exception:
+                    pass
+                # Permanently ban the unauthorized bot
+                try:
+                    await context.bot.ban_chat_member(chat_id=chat.id, user_id=msg_user.id)
+                    logger.warning(f"[AntiBot] Permanently banned non-admin bot @{msg_user.username or msg_user.id} sending messages in {chat.id}")
+                except Exception as _e_bban:
+                    logger.debug(f"[AntiBot] Failed to ban posting bot {msg_user.id}: {_e_bban}")
+                raise Application.StopPropagation
+
+    # ── Case B: Intercept Bot Additions (Service Message or ChatMemberUpdate) ──
     new_bot_members = []
     adder = update.effective_user
 
-    # Case 1: Status update message
+    # 1. Status update message (new_chat_members)
     if update.message and update.message.new_chat_members:
         for m in update.message.new_chat_members:
             if m.is_bot and (not context.bot or m.id != context.bot.id):
@@ -6285,7 +6317,7 @@ async def anti_bot_addition_guard(update: Update, context: ContextTypes.DEFAULT_
         if update.message.from_user:
             adder = update.message.from_user
 
-    # Case 2: Chat member update
+    # 2. Chat member update
     elif update.chat_member:
         cm = update.chat_member
         if cm.new_chat_member and cm.old_chat_member:
@@ -6320,16 +6352,15 @@ async def anti_bot_addition_guard(update: Update, context: ContextTypes.DEFAULT_
     for bot_user in new_bot_members:
         logger.warning(f"[AntiBot] Non-admin {adder.id if adder else 'unknown'} added bot @{bot_user.username or bot_user.id} in chat {chat.id}")
         
-        # 1. Remove the added bot instantly
+        # 1. Permanently ban the added bot (do not unban)
         try:
             await context.bot.ban_chat_member(chat_id=chat.id, user_id=bot_user.id)
-            await context.bot.unban_chat_member(chat_id=chat.id, user_id=bot_user.id)
         except Exception as e_bot:
-            logger.error(f"[AntiBot] Failed to remove bot {bot_user.id}: {e_bot}")
+            logger.error(f"[AntiBot] Failed to ban bot {bot_user.id}: {e_bot}")
 
-        # 2. Mute the adder for 60 minutes
+        # 2. Mute the adder for 24 HOURS (86,400 seconds)
         if adder and (not context.bot or adder.id != context.bot.id):
-            mute_until = int(time.time()) + 3600
+            mute_until = int(time.time()) + 86400  # 24 Hours
             try:
                 from telegram import ChatPermissions
                 await context.bot.restrict_chat_member(
@@ -6365,9 +6396,9 @@ async def anti_bot_addition_guard(update: Update, context: ContextTypes.DEFAULT_
             "🛡️ <b>Anti-Bot Security Enforcement</b>\n"
             "<code>────────────────────────────</code>\n"
             f"⛔ <b>Action:</b> Unauthorized Bot Added\n"
-            f"🤖 <b>Removed Bot:</b> {bot_display} (<code>{bot_user.id}</code>)\n"
+            f"🤖 <b>Banned Bot:</b> {bot_display} (<code>{bot_user.id}</code>)\n"
             f"👤 <b>Added By:</b> {adder_mention} (<code>{adder.id if adder else 0}</code>)\n"
-            f"⏳ <b>Penalty:</b> Muted for <b>60 minutes</b>\n"
+            f"⏳ <b>Penalty:</b> Muted for <b>24 Hours</b>\n"
             "<code>────────────────────────────</code>\n"
             "<i>ℹ️ Non-admins are strictly prohibited from adding bots to this group.</i>"
         )
@@ -6378,7 +6409,7 @@ async def anti_bot_addition_guard(update: Update, context: ContextTypes.DEFAULT_
                 parse_mode="HTML"
             )
             async def _del_alert(m):
-                await asyncio.sleep(60)
+                await asyncio.sleep(120)
                 try:
                     await m.delete()
                 except Exception:
@@ -6386,6 +6417,8 @@ async def anti_bot_addition_guard(update: Update, context: ContextTypes.DEFAULT_
             asyncio.create_task(_del_alert(alert_msg))
         except Exception as e_alert:
             logger.warning(f"[AntiBot] Alert send error: {e_alert}")
+
+    raise Application.StopPropagation
 
 
 # -----------------------
@@ -10577,6 +10610,116 @@ async def gban_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     raise Application.StopPropagation
 
 
+async def get_all_managed_chat_ids(bot=None) -> Set[int]:
+    """
+    Collects all known group, channel, and supergroup IDs from all databases and sources:
+    - chat_languages.json
+    - GROUP_ID, REQUEST_GROUP, LOG_CHANNEL, COPYRIGHT_CHANNEL
+    - bot_config sources & auth_channels
+    - story_channels_db (Ongoing, Completed, etc.)
+    - channels.json (channel_manager)
+    - poster_settings.json
+    - auto_storyfi_config.json
+    - Telethon userbot dialogs (all groups & channels)
+    """
+    chat_ids = set()
+
+    # 1. Configured static IDs
+    for cid_val in [GROUP_ID, REQUEST_GROUP, LOG_CHANNEL, COPYRIGHT_CHANNEL, CHANNEL_ID]:
+        if cid_val:
+            try:
+                chat_ids.add(int(cid_val))
+            except Exception:
+                pass
+
+    # 2. chat_languages.json
+    for k in chat_languages.keys():
+        try:
+            chat_ids.add(int(k))
+        except Exception:
+            pass
+
+    # 3. bot_config sources & auth_channels
+    try:
+        from database import load_config
+        b_cfg = load_config()
+        for cid in b_cfg.get("sources", []):
+            if cid and str(cid).lstrip("-").isdigit():
+                chat_ids.add(int(cid))
+        for cid in b_cfg.get("auth_channels", []):
+            if cid and str(cid).lstrip("-").isdigit():
+                chat_ids.add(int(cid))
+    except Exception as e:
+        logger.debug(f"[Chat Collector] bot_config error: {e}")
+
+    # 4. story_channels_db
+    try:
+        from database import story_channels_db
+        for cat_list in story_channels_db.values():
+            if isinstance(cat_list, list):
+                for cid in cat_list:
+                    if isinstance(cid, int) or (isinstance(cid, str) and str(cid).lstrip("-").isdigit()):
+                        chat_ids.add(int(cid))
+    except Exception as e:
+        logger.debug(f"[Chat Collector] story_channels_db error: {e}")
+
+    # 5. channels.json (channel_manager)
+    try:
+        from channel_manager import load_channels
+        for cid in load_channels():
+            if isinstance(cid, int) or (isinstance(cid, str) and str(cid).lstrip("-").isdigit()):
+                chat_ids.add(int(cid))
+    except Exception as e:
+        logger.debug(f"[Chat Collector] channel_manager error: {e}")
+
+    # 6. poster_settings.json
+    try:
+        from plugins.poster_bot import load_poster_settings
+        p_cfg = load_poster_settings()
+        for cid in p_cfg.get("channels", []):
+            if isinstance(cid, int) or (isinstance(cid, str) and str(cid).lstrip("-").isdigit()):
+                chat_ids.add(int(cid))
+    except Exception as e:
+        logger.debug(f"[Chat Collector] poster_settings error: {e}")
+
+    # 7. auto_storyfi_config.json
+    try:
+        from plugins.auto_storyfi import load_storyfi_config
+        s_cfg = load_storyfi_config()
+        for cid_str in s_cfg.get("channels", {}).keys():
+            if cid_str.lstrip("-").isdigit():
+                chat_ids.add(int(cid_str))
+    except Exception as e:
+        logger.debug(f"[Chat Collector] auto_storyfi error: {e}")
+
+    # 8. Telethon Userbot Dialogs
+    try:
+        from plugins.auto_storyfi import _get_connected_telethon_client
+        tele_client, should_disc = await _get_connected_telethon_client()
+        if tele_client:
+            try:
+                from telethon.utils import get_peer_id
+                dialogs = await tele_client.get_dialogs(limit=None)
+                for d in dialogs:
+                    if d.is_channel or d.is_group:
+                        try:
+                            peer_id = get_peer_id(d.input_entity)
+                            chat_ids.add(peer_id)
+                        except Exception:
+                            raw_id = getattr(d.entity, "id", None)
+                            if raw_id:
+                                cid = raw_id if str(raw_id).startswith("-100") else (-1000000000000 - raw_id if raw_id > 0 else raw_id)
+                                chat_ids.add(cid)
+            finally:
+                if should_disc:
+                    try: await tele_client.disconnect()
+                    except Exception: pass
+    except Exception as e:
+        logger.debug(f"[Chat Collector] Telethon dialogs error: {e}")
+
+    return chat_ids
+
+
 async def gban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin-only: globally ban a user from all authorized channels and persist in GBan DB."""
     if not is_admin(update.effective_user.id):
@@ -10587,8 +10730,8 @@ async def gban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         lang = get_chat_lang(update.effective_chat.id)
         await update.message.reply_text(
-            "<b>Usage:</b> /gban &lt;user_id or @username&gt; [reason]\n\n"
-            "Bans the user from all groups/channels and permanently records them in GBan DB.",
+            "<b>Usage:</b> <code>/gban &lt;user_id or @username&gt; [reason]</code>\n\n"
+            "Bans the user from all groups/channels where Riya Bot is admin and permanently records them in GBan DB.",
             parse_mode="HTML"
         )
         return
@@ -10616,45 +10759,40 @@ async def gban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from database import add_gban_user
     add_gban_user(target_user_id, username=target_user_name or "", reason=reason_str, by_admin=update.effective_user.id)
 
-    wait_msg = await update.message.reply_text(f"⏳ Searching and executing Global Ban for <code>{target_user_id}</code>...\nPlease wait.", parse_mode="HTML")
+    wait_msg = await update.message.reply_text(f"⏳ Executing Global Ban for <code>{target_user_id}</code> across all administered chats...\nPlease wait.", parse_mode="HTML")
 
-    chats_to_check = set(chat_languages.keys())
-    if GROUP_ID: chats_to_check.add(str(GROUP_ID))
-    if REQUEST_GROUP: chats_to_check.add(str(REQUEST_GROUP))
-    for c in bot_config.get("sources", []):
-        chats_to_check.add(str(c))
+    chats_to_check = await get_all_managed_chat_ids(context.bot)
 
     success = []
     already_banned_or_not_present = []
     failed = []
 
-    for cid_str in chats_to_check:
+    for cid in chats_to_check:
+        cid_str = str(cid)
         try:
-            cid = int(cid_str)
-            try:
-                await context.bot.ban_chat_member(chat_id=cid, user_id=target_user_id)
-                success.append(cid_str)
-            except Exception as e:
-                err = str(e).lower()
-                if "not found" in err or "participant_id_invalid" in err or "user_not_participant" in err:
-                    already_banned_or_not_present.append(cid_str)
-                else:
-                    failed.append(cid_str)
-        except Exception:
-             continue
-        await asyncio.sleep(0.1)
+            await context.bot.ban_chat_member(chat_id=cid, user_id=target_user_id)
+            success.append(cid_str)
+        except Exception as e:
+            err = str(e).lower()
+            if "not found" in err or "participant_id_invalid" in err or "user_not_participant" in err or "chat_admin_required" not in err:
+                already_banned_or_not_present.append(cid_str)
+            else:
+                failed.append(cid_str)
+        await asyncio.sleep(0.04)
 
     success_names = []
     for cid_str in success:
         try:
             ch = await context.bot.get_chat(int(cid_str))
             success_names.append(ch.title or cid_str)
-        except:
+        except Exception:
             success_names.append(cid_str)
             
     success_text = ""
     if success_names:
-        bullets = "\n".join(f"• {name}" for name in success_names)
+        bullets = "\n".join(f"• {name}" for name in success_names[:25])
+        if len(success_names) > 25:
+            bullets += f"\n• ...and {len(success_names) - 25} more chats"
         success_text = f"\n<blockquote expandable>{bullets}</blockquote>"
 
     report = (
@@ -10665,13 +10803,14 @@ async def gban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"<b>Status:</b> Added to Permanent GBan DB ✅\n\n"
         f"<b>✅ Successfully Banned in ({len(success)}):</b>{success_text}\n\n"
         f"<b>⚪ Not Present / Already Banned:</b> {len(already_banned_or_not_present)} chats\n"
-        f"<b>❌ Failed (No Admin Rights):</b> {len(failed)} chats\n"
+        f"<b>❌ Skipped / No Admin Rights:</b> {len(failed)} chats\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"<i>Action performed by Admin {update.effective_user.id}</i>"
     )
     
     await wait_msg.edit_text(report, parse_mode="HTML")
     await log(context, f"GLOBAL BAN | Admin={update.effective_user.id} Target={target_user_id} Reason={reason_str}")
+
 
 async def gunban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin-only: globally unban a user across all authorized channels and remove from GBan DB."""
@@ -10682,7 +10821,7 @@ async def gunban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not context.args:
         await update.message.reply_text(
-            "<b>Usage:</b> /gunban &lt;user_id or @username&gt;\n\n"
+            "<b>Usage:</b> <code>/gunban &lt;user_id or @username&gt;</code>\n\n"
             "Unbans the user from all groups/channels and removes them from GBan DB.",
             parse_mode="HTML"
         )
@@ -10706,50 +10845,38 @@ async def gunban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from database import remove_gban_user
     remove_gban_user(target_user_id)
 
-    wait_msg = await update.message.reply_text(f"⏳ Searching and executing Global Unban for <code>{target_user_id}</code>...\nPlease wait.", parse_mode="HTML")
+    wait_msg = await update.message.reply_text(f"⏳ Executing Global Unban for <code>{target_user_id}</code> across all chats...\nPlease wait.", parse_mode="HTML")
 
-    chats_to_check = set(chat_languages.keys())
-    if GROUP_ID: chats_to_check.add(str(GROUP_ID))
-    if REQUEST_GROUP: chats_to_check.add(str(REQUEST_GROUP))
-    for c in bot_config.get("sources", []):
-        chats_to_check.add(str(c))
+    chats_to_check = await get_all_managed_chat_ids(context.bot)
 
     success = []
     not_banned = []
     failed = []
 
-    for cid_str in chats_to_check:
+    for cid in chats_to_check:
+        cid_str = str(cid)
         try:
-            cid = int(cid_str)
-            try:
-                await context.bot.unban_chat_member(chat_id=cid, user_id=target_user_id, only_if_banned=True)
-                success.append(cid_str)
-            except Exception as e:
-                err = str(e).lower()
-                if "not found" in err or "participant_id_invalid" in err or "user_not_participant" in err or "not banned" in err or "only_if_banned" in err:
-                    not_banned.append(cid_str)
-                    if "only_if_banned" in err:
-                        try:
-                            await context.bot.unban_chat_member(chat_id=cid, user_id=target_user_id)
-                            success.append(cid_str)
-                            not_banned.remove(cid_str)
-                        except:
-                            pass
-                else:
-                    failed.append(cid_str)
-        except Exception:
-             continue
-        await asyncio.sleep(0.1)
+            await context.bot.unban_chat_member(chat_id=cid, user_id=target_user_id, only_if_banned=False)
+            success.append(cid_str)
+        except Exception as e:
+            err = str(e).lower()
+            if "not found" in err or "participant_id_invalid" in err or "user_not_participant" in err or "not banned" in err:
+                not_banned.append(cid_str)
+            else:
+                failed.append(cid_str)
+        await asyncio.sleep(0.04)
 
     success_names = []
     for cid_str in success:
         try:
             ch = await context.bot.get_chat(int(cid_str))
             success_names.append(ch.title or cid_str)
-        except:
+        except Exception:
             success_names.append(cid_str)
             
-    success_bullet = "\n  • ".join(success_names)
+    success_bullet = "\n  • ".join(success_names[:25])
+    if len(success_names) > 25:
+        success_bullet += f"\n  • ...and {len(success_names) - 25} more chats"
     if success_bullet:
         success_bullet = "\n  • " + success_bullet
 
@@ -10760,13 +10887,15 @@ async def gunban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"<b>Status:</b> Removed from GBan DB ✅\n\n"
         f"<b>✅ Successfully Unbanned in ({len(success)}):</b>{success_bullet}\n\n"
         f"<b>⚪ Not Banned / Ignored:</b> {len(not_banned)} chats\n"
-        f"<b>❌ Failed (No Admin Rights):</b> {len(failed)} chats\n"
+        f"<b>❌ Skipped:</b> {len(failed)} chats\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"<i>Action performed by Admin {update.effective_user.id}</i>"
     )
     
     await wait_msg.edit_text(report, parse_mode="HTML")
     await log(context, f"GLOBAL UNBAN | Admin={update.effective_user.id} Target={target_user_id}")
+
+
 
 async def gbanlist_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin-only: list all globally banned users."""
@@ -10941,7 +11070,7 @@ def start_bot():
     app.add_handler(ChatMemberHandler(gban_guard, ChatMemberHandler.CHAT_MEMBER), group=-2)
 
     # ── Strict Anti-Bot Security Layer (High Priority group=-1) ───────────────
-    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, anti_bot_addition_guard), group=-1)
+    app.add_handler(MessageHandler(filters.ChatType.GROUPS & (filters.StatusUpdate.NEW_CHAT_MEMBERS | filters.ALL), anti_bot_addition_guard), group=-1)
     app.add_handler(ChatMemberHandler(anti_bot_addition_guard, ChatMemberHandler.CHAT_MEMBER), group=-1)
 
     # react when bot is added/removed
