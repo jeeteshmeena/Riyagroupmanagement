@@ -6223,13 +6223,21 @@ async def chat_member_update(update: Update, context: ContextTypes.DEFAULT_TYPE)
     old_status = chat_member.old_chat_member.status
 
     # bot added to a chat
-    if old_status in ("left", "kicked") and new_status in ("member", "administrator"):
+    if old_status in ("left", "kicked", "member") and new_status in ("member", "administrator"):
+        # Auto-register channel in Auto Storyfi if added as administrator
+        if chat.type in ("channel", "supergroup") and new_status == "administrator":
+            try:
+                from plugins.auto_storyfi import register_single_channel_storyfi
+                await register_single_channel_storyfi(context.bot, chat.id, chat.title, chat.username)
+            except Exception as _e_reg:
+                logger.debug(f"[AutoStoryfi ChatMember hook] note: {_e_reg}")
+
         # default language English
         set_chat_lang(chat.id, "en")
 
         text = (
             "<b>★ Thanks for adding Riya Bot</b>\n\n"
-            "<i>To work properly, Riya needs:</i>\n"
+            "To work properly, Riya needs:\n"
             "• Permission to read messages\n"
             "• Permission to send messages\n"
             "• (Optional) Permission to delete messages for auto-cleanup\n\n"
@@ -9224,6 +9232,28 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_type = update.effective_chat.type if update.effective_chat else "private"
     is_private = (chat_type == "private")
 
+    # ── Auto Storyfi Channel Forward Auto-Add Hook ───────────────────────────
+    if is_private and user_id in (OWNER_ID, ADMIN_ID):
+        fwd_chat = getattr(update.message, "forward_from_chat", None)
+        if fwd_chat and getattr(fwd_chat, "type", "") in ("channel", "supergroup"):
+            try:
+                from plugins.auto_storyfi import register_single_channel_storyfi
+                ok, res_msg = await register_single_channel_storyfi(context.bot, fwd_chat.id, fwd_chat.title, fwd_chat.username)
+                if ok:
+                    await update.message.reply_text(
+                        f"✅ <b>Auto Storyfi: Channel Registered!</b>\n{res_msg}\n\nThis channel is now connected to Auto Storyfi.",
+                        parse_mode="HTML"
+                    )
+                    return
+                else:
+                    await update.message.reply_text(
+                        f"⚠️ <b>Auto Storyfi:</b> Could not register forwarded channel.\nReason: {res_msg}",
+                        parse_mode="HTML"
+                    )
+                    return
+            except Exception as _e_fwd:
+                logger.debug(f"[AutoStoryfi FWD] error: {_e_fwd}")
+
     # ── Voice request via text: "voice mein bolo", "awaaz mein reply do" etc.
     _voice_txt_kw = [
         "voice mein", "voice me ", "voice reply", "awaaz mein",
@@ -10805,6 +10835,26 @@ def start_bot():
             logger.error(f"[RiyaReminder] Failed to start reminder loop: {e}")
 
 
+async def add_storyfi_channels_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin command to add multiple channels to Auto Storyfi: /addchannels @ch1 @ch2 -100123456789"""
+    user = update.effective_user
+    user_id = user.id if user else 0
+    if user_id not in (OWNER_ID, ADMIN_ID):
+        return
+    if not context.args:
+        await update.message.reply_text(
+            "<b>ℹ️ How to add channels to Auto Storyfi:</b>\n"
+            "• <b>Format:</b> <code>/addchannels @channel1 @channel2 -100123456789</code>\n"
+            "• Or simply <b>forward any post</b> from your channel directly to this bot in PM!",
+            parse_mode="HTML"
+        )
+        return
+    from plugins.auto_storyfi import bulk_add_channels_storyfi
+    status_msg = await update.message.reply_text("⏳ Verifying bot admin rights & mapping stories...", parse_mode="HTML")
+    res_text = await bulk_add_channels_storyfi(context.bot, context.args)
+    await status_msg.edit_text(res_text, parse_mode="HTML")
+
+
     app = Application.builder().token(BOT_TOKEN).post_init(_post_init).build()
 
     app.add_handler(PollAnswerHandler(poll_answer_handler))
@@ -10812,6 +10862,7 @@ def start_bot():
     app.add_handler(get_scheduler_handler())
     app.add_handler(get_sched_callback_handler())
     app.add_handler(CommandHandler("schedview", sched_view))
+    app.add_handler(CommandHandler(["addchannels", "addchannel"], add_storyfi_channels_cmd))
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("menu", menu_cmd))
     app.add_handler(CommandHandler("scan", scan))

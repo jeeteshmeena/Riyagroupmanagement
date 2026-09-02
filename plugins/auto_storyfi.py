@@ -642,10 +642,112 @@ async def publish_story_to_channel(bot, chat_id: int, channel_info: Dict[str, An
 # 5. ADMIN CHANNEL SCANNER & AUTO-MAPPER
 # ------------------------------------------------------------------------------
 
+async def register_single_channel_storyfi(bot, chat_target: Any, chat_title: Optional[str] = None, username: Optional[str] = None) -> Tuple[bool, str]:
+    """
+    Registers or updates a single channel in Auto Storyfi.
+    Verifies bot admin status & permissions, auto-matches MongoDB story, and saves config.
+    """
+    config = load_storyfi_config()
+    discovered = config.get("channels", {})
+
+    try:
+        chat = await bot.get_chat(chat_target)
+        if chat.type not in ("channel", "supergroup"):
+            return False, f"{chat.title or chat_target} is not a broadcast channel."
+
+        str_cid = str(chat.id)
+        c_title = chat.title or chat_title or str_cid
+        c_user = chat.username or username or ""
+        
+        member = await bot.get_chat_member(chat.id, bot.id)
+        if member.status not in ("administrator", "creator"):
+            return False, f"Bot is not an admin in {c_title}."
+
+        can_post = getattr(member, "can_post_messages", True)
+        if not can_post:
+            return False, f"Bot does not have 'Post Messages' permission in {c_title}."
+
+        clean_title = clean_channel_title_for_story(c_title)
+        matched_story = find_story_for_channel_sync(c_title, config)
+
+        existing = discovered.get(str_cid, {})
+        m_stories = existing.get("matched_stories")
+        if not m_stories:
+            if matched_story:
+                m_stories = [{
+                    "id": str(matched_story.get("_id", "")),
+                    "name": matched_story.get("story_name_en") or matched_story.get("story_name") or matched_story.get("title") or clean_title
+                }]
+            elif existing.get("matched_story_name"):
+                m_stories = [{
+                    "id": str(existing.get("matched_story_id") or ""),
+                    "name": existing.get("matched_story_name")
+                }]
+            else:
+                m_stories = []
+
+        discovered[str_cid] = {
+            "id": chat.id,
+            "title": c_title,
+            "username": c_user,
+            "cleaned_title": clean_title,
+            "matched_stories": m_stories,
+            "matched_story_name": m_stories[0]["name"] if m_stories else None,
+            "matched_story_id": m_stories[0]["id"] if m_stories else None,
+            "story_rotation_idx": existing.get("story_rotation_idx", 0),
+            "last_post_msg_id": existing.get("last_post_msg_id"),
+            "last_reply_msg_id": existing.get("last_reply_msg_id"),
+            "last_post_time": existing.get("last_post_time", 0),
+            "enabled": existing.get("enabled", True),
+        }
+
+        config["channels"] = discovered
+        save_storyfi_config(config)
+        m_count = len(m_stories)
+        logger.info(f"[AutoStoryfi] Successfully registered channel '{c_title}' ({chat.id}) with {m_count} stories.")
+        return True, f"'{c_title}' ({m_count} stories)"
+    except Exception as e:
+        logger.error(f"[AutoStoryfi] Register channel {chat_target} error: {e}")
+        return False, str(e)
+
+
+async def bulk_add_channels_storyfi(bot, channel_identifiers: List[str]) -> str:
+    """
+    Accepts a list of @usernames or chat IDs, checks bot permissions,
+    auto-matches MongoDB stories, and saves them to Auto Storyfi config.
+    """
+    results = []
+    added_count = 0
+    for item in channel_identifiers:
+        raw = item.strip().rstrip(",")
+        if not raw:
+            continue
+        try:
+            if raw.lstrip("-").isdigit():
+                chat_target = int(raw)
+            else:
+                chat_target = raw if raw.startswith("@") else f"@{raw}"
+            
+            ok, msg = await register_single_channel_storyfi(bot, chat_target)
+            if ok:
+                added_count += 1
+                results.append(f"✅ <code>{raw}</code>: {msg}")
+            else:
+                results.append(f"❌ <code>{raw}</code>: {msg}")
+        except Exception as e:
+            results.append(f"❌ <code>{raw}</code>: {e}")
+
+    summary = f"<b>📋 Auto Storyfi Batch Import Results</b>\n──────────────────────\n"
+    summary += f"<b>Successfully Added/Updated:</b> {added_count}/{len(channel_identifiers)}\n\n"
+    summary += "\n".join(results[:30])
+    return summary
+
+
 async def scan_and_sync_admin_channels(bot, context: ContextTypes.DEFAULT_TYPE) -> Dict[str, Any]:
     """
-    Scans all dialogs where the bot/userbot is admin.
-    Maps channel names to MongoDB stories and saves them into data/auto_storyfi_config.json.
+    Scans all dialogs where the bot or userbot is present.
+    Collects from Telethon (all dialogs, limit=None), local databases, poster config, channels.json.
+    Verifies Bot API permissions on every single channel and auto-maps stories.
     Preserves any manually added stories.
     """
     config = load_storyfi_config()
@@ -657,7 +759,12 @@ async def scan_and_sync_admin_channels(bot, context: ContextTypes.DEFAULT_TYPE) 
 
     known_channel_ids = set()
 
-    # 1. Collect from story_channels_db
+    # 1. Existing channels in Auto Storyfi config
+    for str_cid in discovered.keys():
+        if str_cid.lstrip("-").isdigit():
+            known_channel_ids.add(int(str_cid))
+
+    # 2. Collect from story_channels_db
     try:
         from database import story_channels_db
         for cat_list in story_channels_db.values():
@@ -668,21 +775,52 @@ async def scan_and_sync_admin_channels(bot, context: ContextTypes.DEFAULT_TYPE) 
     except Exception as e:
         logger.debug(f"[AutoStoryfi Scan] Local DB scan note: {e}")
 
-    # 2. Collect from Telethon if available
+    # 3. Collect from channels.json (channel_manager)
+    try:
+        from channel_manager import load_channels
+        c_list = load_channels()
+        for cid in c_list:
+            if isinstance(cid, int) or (isinstance(cid, str) and str(cid).lstrip("-").isdigit()):
+                known_channel_ids.add(int(cid))
+    except Exception as e:
+        logger.debug(f"[AutoStoryfi Scan] channels.json scan note: {e}")
+
+    # 4. Collect from poster_settings.json
+    try:
+        from plugins.poster_bot import load_poster_settings
+        p_sets = load_poster_settings()
+        for p_cid in p_sets.get("channels", []):
+            if isinstance(p_cid, int) or (isinstance(p_cid, str) and str(p_cid).lstrip("-").isdigit()):
+                known_channel_ids.add(int(p_cid))
+        sel_cid = p_sets.get("selected_channel_id")
+        if sel_cid and (isinstance(sel_cid, int) or (isinstance(sel_cid, str) and str(sel_cid).lstrip("-").isdigit())):
+            known_channel_ids.add(int(sel_cid))
+    except Exception as e:
+        logger.debug(f"[AutoStoryfi Scan] poster_settings scan note: {e}")
+
+    # 5. Collect from Telethon across ALL dialogs (limit=None, no is_admin restriction!)
     try:
         from plugins.forward_bot import client as telethon_client
         if telethon_client and telethon_client.is_connected():
-            dialogs = await telethon_client.get_dialogs()
+            from telethon.utils import get_peer_id
+            dialogs = await telethon_client.get_dialogs(limit=None)
             for d in dialogs:
                 if d.is_channel or d.is_group:
-                    entity = d.entity
-                    is_admin_flag = getattr(entity, "admin_rights", None) is not None or getattr(entity, "creator", False)
-                    if is_admin_flag:
-                        known_channel_ids.add(entity.id if entity.id < 0 else -1000000000000 - entity.id)
+                    try:
+                        peer_id = get_peer_id(d.input_entity)
+                        known_channel_ids.add(peer_id)
+                    except Exception:
+                        entity = d.entity
+                        raw_id = getattr(entity, "id", None)
+                        if raw_id:
+                            cid = raw_id if str(raw_id).startswith("-100") else (-1000000000000 - raw_id if raw_id > 0 else raw_id)
+                            known_channel_ids.add(cid)
     except Exception as e:
         logger.debug(f"[AutoStoryfi Scan] Telethon scan note: {e}")
 
-    # 3. Verify each channel with Bot API
+    logger.info(f"[AutoStoryfi Scan] Candidate channels pool collected: {len(known_channel_ids)} channels to verify.")
+
+    # 6. Verify each channel with Bot API
     for cid in list(known_channel_ids):
         str_cid = str(cid)
         if cid in blacklisted or str_cid in blacklisted:
@@ -750,6 +888,7 @@ async def scan_and_sync_admin_channels(bot, context: ContextTypes.DEFAULT_TYPE) 
 
     config["channels"] = discovered
     save_storyfi_config(config)
+    logger.info(f"[AutoStoryfi Scan] Scan complete: {len(discovered)} total channels verified & saved.")
     return config
 
 
