@@ -639,109 +639,263 @@ async def publish_story_to_channel(bot, chat_id: int, channel_info: Dict[str, An
 
 
 # ------------------------------------------------------------------------------
-# 5. ADMIN CHANNEL SCANNER & AUTO-MAPPER
+# 5. ADMIN CHANNEL SCANNER & AUTO-MAPPER & UNLINKED STORIES
 # ------------------------------------------------------------------------------
+
+def get_unlinked_mongodb_stories() -> List[Dict[str, Any]]:
+    """
+    Returns all stories from MongoDB catalog that are NOT yet linked
+    to any channel in Auto Storyfi config.
+    """
+    catalog = _get_cached_story_catalog()
+    config = load_storyfi_config()
+    channels = config.get("channels", {})
+
+    assigned_story_ids = set()
+    assigned_story_names = set()
+
+    for c in channels.values():
+        for s in c.get("matched_stories") or []:
+            if s.get("id"):
+                assigned_story_ids.add(str(s["id"]))
+            if s.get("name"):
+                assigned_story_names.add(str(s["name"]).lower().strip())
+        if c.get("matched_story_id"):
+            assigned_story_ids.add(str(c["matched_story_id"]))
+        if c.get("matched_story_name"):
+            assigned_story_names.add(str(c["matched_story_name"]).lower().strip())
+
+    unlinked = []
+    for item in catalog:
+        sid = str(item.get("_id", ""))
+        p_name = item.get("primary_name", "").strip()
+        p_name_low = p_name.lower()
+
+        if sid in assigned_story_ids:
+            continue
+        if p_name_low in assigned_story_names:
+            continue
+        # Also check aliases/titles
+        if any(t in assigned_story_names for t in item.get("titles_lower", [])):
+            continue
+
+        unlinked.append(item)
+
+    return unlinked
+
+
+def get_unlinked_stories_panel(page: int, caller_id: int, page_size: int = 15) -> Tuple[str, InlineKeyboardMarkup]:
+    """
+    Renders paginated view of MongoDB stories that have not been connected to any Auto Storyfi channel yet.
+    """
+    unlinked = get_unlinked_mongodb_stories()
+    total_unlinked = len(unlinked)
+    
+    if total_unlinked == 0:
+        text = (
+            "<b>🎉 All MongoDB Stories Are Linked!</b>\n"
+            "──────────────────────\n"
+            "Every single story in your MongoDB catalog is currently assigned to an Auto Storyfi channel."
+        )
+        keyboard = [[InlineKeyboardButton("🔙 Back to Main Panel", callback_data=f"cfg|storyfi|main||{caller_id}")]]
+        return text, InlineKeyboardMarkup(keyboard)
+
+    total_pages = max(1, (total_unlinked + page_size - 1) // page_size)
+    page = max(0, min(page, total_pages - 1))
+
+    start_idx = page * page_size
+    end_idx = min(start_idx + page_size, total_unlinked)
+    current_batch = unlinked[start_idx:end_idx]
+
+    lines = [
+        f"<b>📖 Unlinked MongoDB Stories ({page + 1}/{total_pages})</b>",
+        f"Total Unlinked: <code>{total_unlinked}</code> stories pending",
+        "──────────────────────",
+    ]
+
+    for i, s in enumerate(current_batch, start=start_idx + 1):
+        s_name = s.get("primary_name", "Unknown")
+        lines.append(f"<b>{i}.</b> <code>{s_name}</code>")
+
+    lines.append("──────────────────────")
+    lines.append(
+        "<b>💡 To connect channels for these stories:</b>\n"
+        "• Send: <code>/addchannels @channel1 @channel2 -100xxxx</code>\n"
+        "• Or <b>forward a post</b> from the channel directly to Riya Bot in PM!"
+    )
+
+    text = "\n".join(lines)
+
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"cfg|storyfi|unlinked|{page - 1}||{caller_id}"))
+    nav_row.append(InlineKeyboardButton(f"📄 {page + 1}/{total_pages}", callback_data=f"cfg|storyfi|noop||{caller_id}"))
+    if page < total_pages - 1:
+        nav_row.append(InlineKeyboardButton("Next ➡️", callback_data=f"cfg|storyfi|unlinked|{page + 1}||{caller_id}"))
+
+    keyboard = [
+        nav_row,
+        [
+            InlineKeyboardButton("🔄 Refresh List", callback_data=f"cfg|storyfi|unlinked|{page}||{caller_id}"),
+            InlineKeyboardButton("🔙 Back to Panel", callback_data=f"cfg|storyfi|main||{caller_id}")
+        ]
+    ]
+
+    return text, InlineKeyboardMarkup(keyboard)
+
 
 async def register_single_channel_storyfi(bot, chat_target: Any, chat_title: Optional[str] = None, username: Optional[str] = None) -> Tuple[bool, str]:
     """
     Registers or updates a single channel in Auto Storyfi.
-    If channel is already registered, keeps all its assigned stories untouched.
+    Accepts @username, t.me link, or channel ID.
+    Verifies bot admin status & permissions, auto-matches MongoDB story, and saves config.
     """
     config = load_storyfi_config()
     discovered = config.get("channels", {})
 
+    target_str = str(chat_target).strip()
+    # Normalize t.me links
+    if "t.me/" in target_str:
+        target_str = target_str.split("t.me/")[-1].split("/")[0].strip()
+        if not target_str.startswith("@") and not target_str.startswith("+"):
+            target_str = f"@{target_str}"
+
+    # Normalize pure numbers
+    if target_str.lstrip("-").isdigit():
+        raw_int = int(target_str)
+        if raw_int > 0 and not target_str.startswith("100"):
+            target_int = int(f"-100{raw_int}")
+        elif raw_int > 0 and target_str.startswith("100"):
+            target_int = int(f"-{raw_int}")
+        else:
+            target_int = raw_int
+        target_resolved = target_int
+    else:
+        target_resolved = target_str if target_str.startswith("@") else f"@{target_str}"
+
+    chat = None
+    # 1. Try directly with Bot API
     try:
-        chat = await bot.get_chat(chat_target)
-        if chat.type not in ("channel", "supergroup"):
-            return False, f"{chat.title or chat_target} is not a broadcast channel."
+        chat = await bot.get_chat(target_resolved)
+    except Exception as e_bot:
+        logger.debug(f"[AutoStoryfi] Bot API get_chat({target_resolved}) error: {e_bot}")
+        # 2. Try resolving with Telethon Userbot if available
+        tele_client, should_disc = await _get_connected_telethon_client()
+        if tele_client:
+            try:
+                from telethon.utils import get_peer_id
+                entity = await tele_client.get_entity(target_resolved)
+                peer_id = get_peer_id(entity)
+                chat = await bot.get_chat(peer_id)
+            except Exception as e_tele:
+                logger.debug(f"[AutoStoryfi] Telethon get_entity({target_resolved}) error: {e_tele}")
+            finally:
+                if should_disc:
+                    try: await tele_client.disconnect()
+                    except Exception: pass
 
-        str_cid = str(chat.id)
-        c_title = chat.title or chat_title or str_cid
-        c_user = chat.username or username or ""
-        
+    if not chat:
+        return False, f"Could not find or access channel <code>{chat_target}</code>. Make sure the username/ID is valid and Riya Bot is added to the channel."
+
+    if chat.type not in ("channel", "supergroup"):
+        return False, f"<code>{chat.title or chat_target}</code> is not a broadcast channel."
+
+    str_cid = str(chat.id)
+    c_title = chat.title or chat_title or str_cid
+    c_user = chat.username or username or ""
+
+    try:
         member = await bot.get_chat_member(chat.id, bot.id)
-        if member.status not in ("administrator", "creator"):
-            return False, f"Bot is not an admin in {c_title}."
+    except Exception as e_mem:
+        return False, f"Bot is not in <b>{c_title}</b> (Error: {e_mem}). Please add <b>@Riya_Stories_Bot</b> as Admin."
 
-        can_post = getattr(member, "can_post_messages", True)
-        if not can_post:
-            return False, f"Bot does not have 'Post Messages' permission in {c_title}."
+    if member.status not in ("administrator", "creator"):
+        return False, f"Bot is not an Admin in <b>{c_title}</b>. Please promote Riya Bot to Admin."
 
-        existing = discovered.get(str_cid)
-        if existing:
-            # Channel already added: preserve all assigned stories and state 100% untouched
-            existing["title"] = c_title
-            existing["username"] = c_user
-            config["channels"][str_cid] = existing
-            save_storyfi_config(config)
-            m_count = len(existing.get("matched_stories") or [])
-            return True, f"'{c_title}' (Already added, {m_count} stories preserved)"
+    can_post = getattr(member, "can_post_messages", True)
+    if not can_post:
+        return False, f"Bot does not have 'Post Messages' permission in <b>{c_title}</b>."
 
-        # New channel: find story match
-        clean_title = clean_channel_title_for_story(c_title)
-        matched_story = find_story_for_channel_sync(c_title, config)
-
-        m_stories = []
-        if matched_story:
-            m_stories = [{
-                "id": str(matched_story.get("_id", "")),
-                "name": matched_story.get("story_name_en") or matched_story.get("story_name") or matched_story.get("title") or clean_title
-            }]
-
-        discovered[str_cid] = {
-            "id": chat.id,
-            "title": c_title,
-            "username": c_user,
-            "cleaned_title": clean_title,
-            "matched_stories": m_stories,
-            "matched_story_name": m_stories[0]["name"] if m_stories else None,
-            "matched_story_id": m_stories[0]["id"] if m_stories else None,
-            "story_rotation_idx": 0,
-            "last_post_msg_id": None,
-            "last_reply_msg_id": None,
-            "last_post_time": 0,
-            "enabled": True,
-        }
-
-        config["channels"] = discovered
+    existing = discovered.get(str_cid)
+    if existing:
+        # Preserve existing assigned stories
+        existing["title"] = c_title
+        existing["username"] = c_user
+        config["channels"][str_cid] = existing
         save_storyfi_config(config)
-        m_count = len(m_stories)
-        logger.info(f"[AutoStoryfi] Successfully registered new channel '{c_title}' ({chat.id}) with {m_count} stories.")
-        return True, f"'{c_title}' ({m_count} stories)"
-    except Exception as e:
-        logger.error(f"[AutoStoryfi] Register channel {chat_target} error: {e}")
-        return False, str(e)
+        m_count = len(existing.get("matched_stories") or [])
+        return True, f"<b>{c_title}</b> (Already in database, {m_count} stories preserved)"
+
+    # Match MongoDB story
+    clean_title = clean_channel_title_for_story(c_title)
+    matched_story = find_story_for_channel_sync(c_title, config)
+
+    m_stories = []
+    if matched_story:
+        s_name = matched_story.get("story_name_en") or matched_story.get("story_name") or matched_story.get("title") or clean_title
+        m_stories = [{
+            "id": str(matched_story.get("_id", "")),
+            "name": s_name
+        }]
+
+    discovered[str_cid] = {
+        "id": chat.id,
+        "title": c_title,
+        "username": c_user,
+        "cleaned_title": clean_title,
+        "matched_stories": m_stories,
+        "matched_story_name": m_stories[0]["name"] if m_stories else None,
+        "matched_story_id": m_stories[0]["id"] if m_stories else None,
+        "story_rotation_idx": 0,
+        "last_post_msg_id": None,
+        "last_reply_msg_id": None,
+        "last_post_time": 0,
+        "enabled": True,
+    }
+
+    config["channels"] = discovered
+    save_storyfi_config(config)
+    m_info = f"Matched: <b>{m_stories[0]['name']}</b>" if m_stories else "❌ No story auto-matched (can add via panel)"
+    logger.info(f"[AutoStoryfi] Successfully added channel '{c_title}' ({chat.id}) | {m_info}")
+    return True, f"<b>{c_title}</b> ➔ {m_info}"
 
 
 async def bulk_add_channels_storyfi(bot, channel_identifiers: List[str]) -> str:
     """
-    Accepts a list of @usernames or chat IDs, checks bot permissions,
+    Accepts a list of @usernames, links, or chat IDs, checks bot permissions,
     auto-matches MongoDB stories, and saves them to Auto Storyfi config.
     """
     results = []
     added_count = 0
-    for item in channel_identifiers:
-        raw = item.strip().rstrip(",")
-        if not raw:
-            continue
+    # Flatten items if space or newline separated
+    flat_items = []
+    for raw in channel_identifiers:
+        for chunk in re.split(r"[\s,\n]+", raw):
+            c_clean = chunk.strip().rstrip(",")
+            if c_clean and c_clean not in flat_items:
+                flat_items.append(c_clean)
+
+    for item in flat_items:
         try:
-            if raw.lstrip("-").isdigit():
-                chat_target = int(raw)
-            else:
-                chat_target = raw if raw.startswith("@") else f"@{raw}"
-            
-            ok, msg = await register_single_channel_storyfi(bot, chat_target)
+            ok, msg = await register_single_channel_storyfi(bot, item)
             if ok:
                 added_count += 1
-                results.append(f"✅ <code>{raw}</code>: {msg}")
+                results.append(f"✅ {msg}")
             else:
-                results.append(f"❌ <code>{raw}</code>: {msg}")
+                results.append(f"❌ <code>{item}</code>: {msg}")
         except Exception as e:
-            results.append(f"❌ <code>{raw}</code>: {e}")
+            results.append(f"❌ <code>{item}</code>: {e}")
 
-    summary = f"<b>📋 Auto Storyfi Batch Import Results</b>\n──────────────────────\n"
-    summary += f"<b>Successfully Added/Updated:</b> {added_count}/{len(channel_identifiers)}\n\n"
+    summary = (
+        "<b>📋 Auto Storyfi Batch Import Results</b>\n"
+        "──────────────────────\n"
+        f"• <b>Total Channels Processed:</b> {len(flat_items)}\n"
+        f"• <b>Successfully Added:</b> {added_count}\n"
+        "──────────────────────\n"
+    )
     summary += "\n".join(results[:30])
+    if len(results) > 30:
+        summary += f"\n<i>...and {len(results) - 30} more channels</i>"
     return summary
 
 
@@ -1109,6 +1263,8 @@ def get_storyfi_main_panel(caller_id: int) -> Tuple[str, InlineKeyboardMarkup]:
     total_ch = len(channels)
     active_ch = sum(1 for c in channels.values() if c.get("enabled", True))
     matched_ch = sum(1 for c in channels.values() if c.get("matched_story_name"))
+    unlinked_stories = get_unlinked_mongodb_stories()
+    unlinked_count = len(unlinked_stories)
 
     text = (
         "<b>🤖 Auto Storyfi Control Panel</b>\n"
@@ -1118,7 +1274,8 @@ def get_storyfi_main_panel(caller_id: int) -> Tuple[str, InlineKeyboardMarkup]:
         f"• <b>Stagger Gap:</b> <code>{stagger_min}–{stagger_max} Minutes</code>\n"
         f"• <b>Reply Tone:</b> <code>{tone}</code>\n"
         f"• <b>Connected Channels:</b> <code>{active_ch}/{total_ch} Active</code>\n"
-        f"• <b>Matched Stories:</b> <code>{matched_ch}/{total_ch} Ready</code>\n"
+        f"• <b>Matched Channels:</b> <code>{matched_ch}/{total_ch} Ready</code>\n"
+        f"• <b>Unlinked Stories:</b> <code>{unlinked_count} Pending</code>\n"
         "──────────────────────\n"
         "Auto Storyfi automatically posts HD story cards + replies into channel-specific story channels, replacing old posts."
     )
@@ -1132,13 +1289,14 @@ def get_storyfi_main_panel(caller_id: int) -> Tuple[str, InlineKeyboardMarkup]:
         ],
         [
             InlineKeyboardButton("📋 Channels List", callback_data=f"cfg|storyfi|channels|0||{caller_id}"),
-            InlineKeyboardButton("⏱️ Frequency (2x/1x/3x)", callback_data=f"cfg|storyfi|freq||{caller_id}")
+            InlineKeyboardButton(f"📖 Unlinked Stories ({unlinked_count})", callback_data=f"cfg|storyfi|unlinked|0||{caller_id}")
         ],
         [
-            InlineKeyboardButton("⏳ Stagger Minutes Gap", callback_data=f"cfg|storyfi|stagger||{caller_id}"),
-            InlineKeyboardButton(f"💬 Reply Tone ({tone})", callback_data=f"cfg|storyfi|tone||{caller_id}")
+            InlineKeyboardButton("⏱️ Frequency (2x/1x/3x)", callback_data=f"cfg|storyfi|freq||{caller_id}"),
+            InlineKeyboardButton("⏳ Stagger Minutes Gap", callback_data=f"cfg|storyfi|stagger||{caller_id}")
         ],
         [
+            InlineKeyboardButton(f"💬 Reply Tone ({tone})", callback_data=f"cfg|storyfi|tone||{caller_id}"),
             InlineKeyboardButton("🚀 Send Instant Test Post", callback_data=f"cfg|storyfi|test_select||{caller_id}")
         ],
         [
@@ -1170,6 +1328,17 @@ async def handle_storyfi_callbacks(query, context: ContextTypes.DEFAULT_TYPE, pa
 
     if action == "main":
         text, markup = get_storyfi_main_panel(caller_id)
+        try:
+            await query.message.edit_text(text, parse_mode="HTML", reply_markup=markup)
+        except Exception as e:
+            if "Message is not modified" not in str(e):
+                try: await query.message.reply_text(text, parse_mode="HTML", reply_markup=markup)
+                except Exception: pass
+        return
+
+    if action == "unlinked":
+        page = int(param) if param.isdigit() else 0
+        text, markup = get_unlinked_stories_panel(page, caller_id)
         try:
             await query.message.edit_text(text, parse_mode="HTML", reply_markup=markup)
         except Exception as e:

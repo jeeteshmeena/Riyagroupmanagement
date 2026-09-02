@@ -10815,6 +10815,20 @@ async def add_storyfi_channels_cmd(update: Update, context: ContextTypes.DEFAULT
     await status_msg.edit_text(res_text, parse_mode="HTML")
 
 
+async def unlinked_stories_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin command to list MongoDB stories not yet linked to any Auto Storyfi channel."""
+    user = update.effective_user
+    user_id = user.id if user else 0
+    if user_id not in (OWNER_ID, ADMIN_ID):
+        return
+    page = 0
+    if context.args and context.args[0].isdigit():
+        page = max(0, int(context.args[0]) - 1)
+    from plugins.auto_storyfi import get_unlinked_stories_panel
+    text, markup = get_unlinked_stories_panel(page, user_id)
+    await update.message.reply_text(text, parse_mode="HTML", reply_markup=markup)
+
+
 def start_bot():
 
     global app
@@ -10864,6 +10878,7 @@ def start_bot():
     app.add_handler(get_sched_callback_handler())
     app.add_handler(CommandHandler("schedview", sched_view))
     app.add_handler(CommandHandler(["addchannels", "addchannel"], add_storyfi_channels_cmd))
+    app.add_handler(CommandHandler(["unlinkedstories", "unmatchedstories"], unlinked_stories_cmd))
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("menu", menu_cmd))
     app.add_handler(CommandHandler("scan", scan))
