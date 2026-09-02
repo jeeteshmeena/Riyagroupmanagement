@@ -10794,6 +10794,27 @@ async def gbanlist_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(text, parse_mode="HTML")
 
+
+async def add_storyfi_channels_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin command to add multiple channels to Auto Storyfi: /addchannels @ch1 @ch2 -100123456789"""
+    user = update.effective_user
+    user_id = user.id if user else 0
+    if user_id not in (OWNER_ID, ADMIN_ID):
+        return
+    if not context.args:
+        await update.message.reply_text(
+            "<b>ℹ️ How to add channels to Auto Storyfi:</b>\n"
+            "• <b>Format:</b> <code>/addchannels @channel1 @channel2 -100123456789</code>\n"
+            "• Or simply <b>forward any post</b> from your channel directly to this bot in PM!",
+            parse_mode="HTML"
+        )
+        return
+    from plugins.auto_storyfi import bulk_add_channels_storyfi
+    status_msg = await update.message.reply_text("⏳ Verifying bot admin rights & mapping stories...", parse_mode="HTML")
+    res_text = await bulk_add_channels_storyfi(context.bot, context.args)
+    await status_msg.edit_text(res_text, parse_mode="HTML")
+
+
 def start_bot():
 
     global app
@@ -10833,26 +10854,6 @@ def start_bot():
             logger.info("[RiyaReminder] Auto-reminder loop launched in _post_init ✅")
         except Exception as e:
             logger.error(f"[RiyaReminder] Failed to start reminder loop: {e}")
-
-
-async def add_storyfi_channels_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin command to add multiple channels to Auto Storyfi: /addchannels @ch1 @ch2 -100123456789"""
-    user = update.effective_user
-    user_id = user.id if user else 0
-    if user_id not in (OWNER_ID, ADMIN_ID):
-        return
-    if not context.args:
-        await update.message.reply_text(
-            "<b>ℹ️ How to add channels to Auto Storyfi:</b>\n"
-            "• <b>Format:</b> <code>/addchannels @channel1 @channel2 -100123456789</code>\n"
-            "• Or simply <b>forward any post</b> from your channel directly to this bot in PM!",
-            parse_mode="HTML"
-        )
-        return
-    from plugins.auto_storyfi import bulk_add_channels_storyfi
-    status_msg = await update.message.reply_text("⏳ Verifying bot admin rights & mapping stories...", parse_mode="HTML")
-    res_text = await bulk_add_channels_storyfi(context.bot, context.args)
-    await status_msg.edit_text(res_text, parse_mode="HTML")
 
 
     app = Application.builder().token(BOT_TOKEN).post_init(_post_init).build()
