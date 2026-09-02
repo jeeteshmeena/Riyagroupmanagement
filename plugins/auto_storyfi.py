@@ -745,6 +745,32 @@ async def bulk_add_channels_storyfi(bot, channel_identifiers: List[str]) -> str:
     return summary
 
 
+async def _get_connected_telethon_client():
+    """
+    Returns a connected Telethon client using the existing link_checker instance
+    or instantiating a new client with SESSION_STRING.
+    """
+    try:
+        from link_checker import link_checker
+        if link_checker.client and link_checker.client.is_connected() and await link_checker.client.is_user_authorized():
+            return link_checker.client, False
+    except Exception:
+        pass
+
+    try:
+        from config import API_ID, API_HASH, SESSION_STRING
+        from telethon import TelegramClient
+        from telethon.sessions import StringSession
+        if SESSION_STRING and API_ID and API_HASH:
+            client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
+            await client.connect()
+            if await client.is_user_authorized():
+                return client, True
+    except Exception as e:
+        logger.error(f"[AutoStoryfi] Telethon client connection failed: {e}")
+    return None, False
+
+
 async def scan_and_sync_admin_channels(bot, context: ContextTypes.DEFAULT_TYPE) -> Dict[str, Any]:
     """
     Scans all dialogs where the bot or userbot is present.
@@ -796,11 +822,12 @@ async def scan_and_sync_admin_channels(bot, context: ContextTypes.DEFAULT_TYPE) 
         logger.debug(f"[AutoStoryfi Scan] poster_settings scan note: {e}")
 
     # 4. Collect from Telethon across ALL dialogs (limit=None, no is_admin restriction!)
-    try:
-        from plugins.forward_bot import client as telethon_client
-        if telethon_client and telethon_client.is_connected():
+    tele_client, should_disconnect = await _get_connected_telethon_client()
+    if tele_client:
+        try:
             from telethon.utils import get_peer_id
-            dialogs = await telethon_client.get_dialogs(limit=None)
+            dialogs = await tele_client.get_dialogs(limit=None)
+            logger.info(f"[AutoStoryfi Scan] Fetched {len(dialogs)} dialogs from Telethon Userbot account.")
             for d in dialogs:
                 if d.is_channel or d.is_group:
                     try:
@@ -812,8 +839,16 @@ async def scan_and_sync_admin_channels(bot, context: ContextTypes.DEFAULT_TYPE) 
                         if raw_id:
                             cid = raw_id if str(raw_id).startswith("-100") else (-1000000000000 - raw_id if raw_id > 0 else raw_id)
                             known_channel_ids.add(cid)
-    except Exception as e:
-        logger.debug(f"[AutoStoryfi Scan] Telethon scan note: {e}")
+        except Exception as e:
+            logger.error(f"[AutoStoryfi Scan] Telethon scan error: {e}")
+        finally:
+            if should_disconnect:
+                try:
+                    await tele_client.disconnect()
+                except Exception:
+                    pass
+    else:
+        logger.warning("[AutoStoryfi Scan] No active Telethon client available for dialog scanning.")
 
     # Filter strictly NEW channels that are not already in discovered and not blacklisted
     new_channel_ids = [
@@ -821,7 +856,7 @@ async def scan_and_sync_admin_channels(bot, context: ContextTypes.DEFAULT_TYPE) 
         if str(cid) not in discovered and cid not in blacklisted and str(cid) not in blacklisted
     ]
 
-    logger.info(f"[AutoStoryfi Scan] {len(discovered)} existing channels preserved untouched. Scanning {len(new_channel_ids)} newly discovered channels...")
+    logger.info(f"[AutoStoryfi Scan] {len(discovered)} existing channels preserved untouched. Scanning {len(new_channel_ids)} newly discovered candidate channels...")
 
     # 5. Verify Bot API permissions and add NEW channels only
     newly_added = 0
