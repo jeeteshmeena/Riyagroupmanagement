@@ -53,7 +53,7 @@ DEFAULT_STORYFI_CONFIG = {
     "reply_enabled": True,
     "reply_tone": "mixed",             # mixed, savage, humour, marketing, mysterious
     "watermark_enabled": True,
-    "watermark_position": "top_right",
+    "watermark_position": "bottom_right",
     "watermark_opacity": 0.85,
     "watermark_path": "storyfiwatermark.png",
     "notify_owner_on_missing": True,
@@ -391,40 +391,69 @@ def _fetch_full_story_by_id_cached(story_id: str, fallback_title: str) -> Dict[s
 
 
 # ------------------------------------------------------------------------------
-# 3. ENGAGING AUTO-REPLY MESSAGES LIBRARY
+# 3. ENGAGING AUTO-REPLY MESSAGES LIBRARY (Hindi, Devanagari, Hinglish, English)
 # ------------------------------------------------------------------------------
 
 SAVAGE_REPLIES = [
-    "🔥 Bhai is story ka cliffhanger dekh kar hosh udd jayenge! Pure suspense ka baap hai 🤯 Must listen!",
-    "⚠️ Warning: Ek baar sunna shuru kiya to bina complete kiye so nahi paoge! Super addictive 🔥",
-    "Plot twist aisa ki dimaag hil jaye 🤯 Agar ye nahi suni to pocket fm chalana bekar hai!",
+    # Hinglish
+    "🔥 '{story_name}' ka cliffhanger dekh kar hosh udd jayenge! Pure suspense ka baap hai 🤯 Must listen!",
+    "⚠️ Warning: '{story_name}' ek baar sunna shuru kiya to bina complete kiye chain nahi aayega! Super addictive 🔥",
+    "Plot twist aisa ki dimaag hil jaye 🤯 '{story_name}' nahi suni to asli maza miss kar rahe ho!",
     "Har episode me ek naya banger twist 🎧 Popcorn ready rakho, direct goosebumps aane wale hain!",
-    "Is story ka villain to alag hi level par hai 💀 Sabhi episodes abhi suno aur rate karo!",
+    "Is story ka villain aur storyline to alag hi level par hai 💀 Sabhi episodes abhi suno aur rate karo!",
+    # Devanagari Hindi
+    "🔥 '{story_name}' का क्लाइमेक्स और सस्पेंस होश उड़ा देने वाला है! 🤯 अगर नहीं सुना तो बहुत कुछ मिस कर रहे हो!",
+    "⚠️ चेतावनी: '{story_name}' एक बार सुनना शुरू किया तो पूरी सुने बिना सो नहीं पाओगे! 🎧💥",
+    "हर एपिसोड में इतना तगड़ा ट्विस्ट कि रोंगटे खड़े हो जाएं 🎧🍿 अभी सुनें सारे एपिसोड्स!",
+    # Natural English
+    "🔥 The suspense and insane plot twists in '{story_name}' are unmatched! An absolute masterpiece 🤯",
+    "⚠️ High-octane drama! Once you start listening to '{story_name}', there's no going back 🎧💥",
 ]
 
 HUMOUR_REPLIES = [
-    "Doston popcorn ready rakho 🍿 Aisa drama kahi nahi milega, guaranteed full entertainment!",
-    "Kahani itni spicy hai ki headphones pighal jayenge 🎧🌶️ Aaj ka quota complete karo!",
-    "Is character ki kismat dekh kar lagta hai meri life fir bhi theek chal rahi hai 😂 Super funny & thrilling!",
-    "Free time me bore hone se achha ye sun lo, time kab nikal jayega pata bhi nahi chalega 🚀",
+    # Hinglish
+    "Doston popcorn ready rakho 🍿 '{story_name}' me aisa drama hai jo kahi aur nahi milega, guaranteed full entertainment!",
+    "'{story_name}' itni spicy hai ki headphones pighal jayenge 🎧🌶️ Aaj ka quota complete karo dosto!",
+    "Is character ke decisions dekh kar lagta hai meri life fir bhi sorted hai 😂 Super fun & thrilling audio!",
+    "Bore ho rahe ho? Bas earphones lagao aur '{story_name}' shuru karo, time kab beet jayega pata bhi nahi chalega 🚀",
+    # Devanagari Hindi
+    "पॉपकॉर्न तैयार रखो दोस्तों 🍿 '{story_name}' में ड्रामा और ट्विस्ट का अलग ही लेवल है! 😂🎧",
+    "ये कहानी इतनी एंटरटेनिंग है कि समय का पता ही नहीं चलेगा 🎧✨ ज़रूर सुनें!",
+    # Natural English
+    "Grab your headphones and snacks 🍿 '{story_name}' is pure non-stop entertainment from start to finish! 😂🎧",
+    "The most hilarious yet thrilling audio series you'll listen to today! 🚀🎧",
 ]
 
 MARKETING_REPLIES = [
-    "🌟 Trending #1 Story on Pocket FM! All latest episodes are now unlocked & ready.",
-    "🚀 Instant Access Unlocked! Click 'Buy Via App' or 'Buy Via Bot' to listen right away.",
-    "🎧 Premium Audio Story available with full HD sound & complete episodes!",
-    "🔥 Don't miss out on today's most loved story series! Tap buttons below to get started.",
+    # Hinglish
+    "🌟 Trending #1 Audio Series on Pocket FM! '{story_name}' ke sabhi episodes unlock ho chuke hain 🎧",
+    "🚀 Instant Access Available! Neeche 'Buy Via App' ya 'Buy Via Bot' par tap karein aur abhi enjoy karein ✨",
+    "🎧 Premium HD Sound Quality ke sath '{story_name}' suniye, complete story available hai!",
+    "🔥 Don't miss out on today's highest-rated story series '{story_name}'! Tap buttons below to get started 🚀",
+    # Devanagari Hindi
+    "🌟 पॉकेट एफएम की नंबर 1 ट्रेंडिंग स्टोरी '{story_name}'! सभी लेटेस्ट एपिसोड्स अनलॉक हो चुके हैं 🎧✨",
+    "🚀 नीचे दिए गए बटन्स पर टैप करें और '{story_name}' का पूरा ऑडियो तुरंत सुनें!",
+    # Natural English
+    "🌟 Ranked #1 Trending Story! All latest episodes of '{story_name}' are now ready for you 🎧",
+    "🚀 Tap 'Buy Via App' or 'Buy Via Bot' below for instant listening access! ✨",
 ]
 
 MYSTERIOUS_REPLIES = [
-    "Is kahani ke peeche ek aisa raaz chupa hai jiska koi andaza bhi nahi laga sakta... 🤫 Ek baar zaroor suno!",
-    "Har mod par ek naya mystery khulta hai 🔮 Ending dekh kar hairan reh jaoge!",
-    "Kya sach me wahi tha jo dikh raha tha? 🕵️‍♂️ Suniye aur khud pata lagaiye!",
+    # Hinglish
+    "'{story_name}' ke peeche ek aisa gehra raaz chupa hai jiska koi andaza bhi nahi laga sakta... 🤫 Ek baar sunkar dekho!",
+    "Har mod par ek naya mystery khulta hai 🔮 '{story_name}' ka ending dekh kar hairan reh jaoge!",
+    "Kya sach me wahi sach tha jo dikh raha tha? 🕵️‍♂️ '{story_name}' suniye aur khud pata lagaiye!",
+    # Devanagari Hindi
+    "'{story_name}' के पीछे एक ऐसा गहरा रहस्य छिपा है जिसका कोई अंदाज़ा नहीं लगा सकता... 🤫 ज़रूर सुनें!",
+    "हर मोड़ पर एक नया रहस्य 🔮 '{story_name}' का अंत देखकर आप हैरान रह जाएंगे!",
+    # Natural English
+    "Behind '{story_name}' lies a secret no one could have anticipated... 🤫 Unravel the mystery now!",
+    "A dark, gripping mystery that will keep you guessing until the very last second 🔮🎧",
 ]
 
 
 def get_random_engaging_reply(story_name: str, tone: str = "mixed") -> str:
-    """Generates an engaging reply message tailored to the chosen tone."""
+    """Generates an engaging reply message tailored to the chosen tone with Hindi, Hinglish, Devanagari and English."""
     tone = tone.lower()
     if tone == "savage":
         pool = SAVAGE_REPLIES
@@ -437,8 +466,8 @@ def get_random_engaging_reply(story_name: str, tone: str = "mixed") -> str:
     else:  # mixed
         pool = SAVAGE_REPLIES + HUMOUR_REPLIES + MARKETING_REPLIES + MYSTERIOUS_REPLIES
 
-    selected = random.choice(pool)
-    return selected
+    template = random.choice(pool)
+    return template.format(story_name=story_name or "Story")
 
 
 # ------------------------------------------------------------------------------
@@ -686,18 +715,22 @@ def get_unlinked_mongodb_stories() -> List[Dict[str, Any]]:
 
 def get_unlinked_stories_panel(page: int, caller_id: int, page_size: int = 15) -> Tuple[str, InlineKeyboardMarkup]:
     """
-    Renders paginated view of MongoDB stories that have not been connected to any Auto Storyfi channel yet.
+    Renders clean paginated view of MongoDB stories that have not been connected to any Auto Storyfi channel yet.
     """
     unlinked = get_unlinked_mongodb_stories()
     total_unlinked = len(unlinked)
     
+    tg_book = '<tg-emoji emoji-id="6021435576513730578">📚</tg-emoji>'
+    tg_check = '<tg-emoji emoji-id="5454074580010295588">✅</tg-emoji>'
+    tg_tip = '<tg-emoji emoji-id="5805406692984232989">📌</tg-emoji>'
+
     if total_unlinked == 0:
         text = (
-            "<b>🎉 All MongoDB Stories Are Linked!</b>\n"
+            f"{tg_check} <b>All MongoDB Stories Are Linked!</b>\n"
             "──────────────────────\n"
-            "Every single story in your MongoDB catalog is currently assigned to an Auto Storyfi channel."
+            "Every single story in your MongoDB database is currently assigned to an Auto Storyfi channel."
         )
-        keyboard = [[InlineKeyboardButton("🔙 Back to Main Panel", callback_data=f"cfg|storyfi|main||{caller_id}")]]
+        keyboard = [[InlineKeyboardButton("🔙 Back to Panel", callback_data=f"cfg|storyfi|main||{caller_id}")]]
         return text, InlineKeyboardMarkup(keyboard)
 
     total_pages = max(1, (total_unlinked + page_size - 1) // page_size)
@@ -708,8 +741,10 @@ def get_unlinked_stories_panel(page: int, caller_id: int, page_size: int = 15) -
     current_batch = unlinked[start_idx:end_idx]
 
     lines = [
-        f"<b>📖 Unlinked MongoDB Stories ({page + 1}/{total_pages})</b>",
-        f"Total Unlinked: <code>{total_unlinked}</code> stories pending",
+        f"{tg_book} <b>Unlinked Stories Catalog</b>",
+        "──────────────────────",
+        f"• <b>Pending Stories :</b> <code>{total_unlinked}</code>",
+        f"• <b>Page :</b> <code>{page + 1}/{total_pages}</code>",
         "──────────────────────",
     ]
 
@@ -719,9 +754,9 @@ def get_unlinked_stories_panel(page: int, caller_id: int, page_size: int = 15) -
 
     lines.append("──────────────────────")
     lines.append(
-        "<b>💡 To connect channels for these stories:</b>\n"
+        f"{tg_tip} <b>How to link channels for these stories:</b>\n"
         "• Send: <code>/addchannels @channel1 @channel2 -100xxxx</code>\n"
-        "• Or <b>forward a post</b> from the channel directly to Riya Bot in PM!"
+        "• Or <b>forward any post</b> from your channel directly to Riya Bot in PM!"
     )
 
     text = "\n".join(lines)
@@ -736,7 +771,7 @@ def get_unlinked_stories_panel(page: int, caller_id: int, page_size: int = 15) -
     keyboard = [
         nav_row,
         [
-            InlineKeyboardButton("🔄 Refresh List", callback_data=f"cfg|storyfi|unlinked|{page}||{caller_id}"),
+            InlineKeyboardButton("🔄 Refresh", callback_data=f"cfg|storyfi|unlinked|{page}||{caller_id}"),
             InlineKeyboardButton("🔙 Back to Panel", callback_data=f"cfg|storyfi|main||{caller_id}")
         ]
     ]
@@ -1248,10 +1283,9 @@ async def handle_storyfi_search_input(update: Update, context: ContextTypes.DEFA
 
 
 def get_storyfi_main_panel(caller_id: int) -> Tuple[str, InlineKeyboardMarkup]:
-    """Builds the main Auto Storyfi admin panel text & keyboard."""
+    """Builds the main Auto Storyfi admin panel text & keyboard with custom emojis and clean styling."""
     config = load_storyfi_config()
     is_on = config.get("enabled", False)
-    status_str = "🟢 Active (ON)" if is_on else "🔴 Stopped (OFF)"
     interval_h = config.get("interval_hours", 12.0)
     posts_per_day = round(24.0 / interval_h, 1) if interval_h > 0 else 0
 
@@ -1266,41 +1300,56 @@ def get_storyfi_main_panel(caller_id: int) -> Tuple[str, InlineKeyboardMarkup]:
     unlinked_stories = get_unlinked_mongodb_stories()
     unlinked_count = len(unlinked_stories)
 
+    tg_engine = '<tg-emoji emoji-id="6021607757457660145">⚙️</tg-emoji>'
+    tg_active = '<tg-emoji emoji-id="5454074580010295588">✅</tg-emoji>'
+    tg_stopped = '<tg-emoji emoji-id="5893192487324880883">⛔</tg-emoji>'
+    tg_freq = '<tg-emoji emoji-id="5807879906951960923">⏳</tg-emoji>'
+    tg_stagger = '<tg-emoji emoji-id="5258113901106580375">⏱️</tg-emoji>'
+    tg_tone = '<tg-emoji emoji-id="5296790785981718487">🎙</tg-emoji>'
+    tg_channel = '<tg-emoji emoji-id="6019455905827920171">📱</tg-emoji>'
+    tg_matched = '<tg-emoji emoji-id="5465432711218863135">♨️</tg-emoji>'
+    tg_unlinked = '<tg-emoji emoji-id="6021435576513730578">📚</tg-emoji>'
+
+    status_str = f"{tg_active} <b>Activated</b>" if is_on else f"{tg_stopped} <b>Deactivated</b>"
+
     text = (
-        "<b>🤖 Auto Storyfi Control Panel</b>\n"
+        f"{tg_engine} <b>Auto Storyfi Engine</b>\n"
         "──────────────────────\n"
-        f"• <b>Status:</b> {status_str}\n"
-        f"• <b>Frequency:</b> <code>{interval_h}h</code> (~{posts_per_day} Posts / Day)\n"
-        f"• <b>Stagger Gap:</b> <code>{stagger_min}–{stagger_max} Minutes</code>\n"
-        f"• <b>Reply Tone:</b> <code>{tone}</code>\n"
-        f"• <b>Connected Channels:</b> <code>{active_ch}/{total_ch} Active</code>\n"
-        f"• <b>Matched Channels:</b> <code>{matched_ch}/{total_ch} Ready</code>\n"
-        f"• <b>Unlinked Stories:</b> <code>{unlinked_count} Pending</code>\n"
-        "──────────────────────\n"
-        "Auto Storyfi automatically posts HD story cards + replies into channel-specific story channels, replacing old posts."
+        f"• <b>Status :</b> {status_str}\n"
+        f"• <b>Frequency :</b> <code>{interval_h}h</code> (<b>{posts_per_day} Posts / Day</b>)\n"
+        f"• <b>Stagger Gap :</b> <code>{stagger_min}–{stagger_max} Minutes</code>\n"
+        f"• <b>Reply Tone :</b> <code>{tone}</code>\n"
+        f"• <b>Connected Channels :</b> <code>{active_ch}/{total_ch} Active</code>\n"
+        f"• <b>Matched Channels :</b> <code>{matched_ch}/{total_ch} Ready</code>\n"
+        f"• <b>Unlinked Stories :</b> <code>{unlinked_count} Available</code>\n"
+        "──────────────────────"
     )
 
-    toggle_btn_text = "🔴 Stop Engine" if is_on else "🟢 Start Engine"
+    toggle_btn_text = "🔴 Deactivate" if is_on else "🟢 Activate"
 
     keyboard = [
         [
             InlineKeyboardButton(toggle_btn_text, callback_data=f"cfg|storyfi|toggle||{caller_id}"),
-            InlineKeyboardButton("🔍 Auto-Scan Channels", callback_data=f"cfg|storyfi|scan||{caller_id}")
+            InlineKeyboardButton("🔍 Auto Scan", callback_data=f"cfg|storyfi|scan||{caller_id}")
         ],
         [
             InlineKeyboardButton("📋 Channels List", callback_data=f"cfg|storyfi|channels|0||{caller_id}"),
-            InlineKeyboardButton(f"📖 Unlinked Stories ({unlinked_count})", callback_data=f"cfg|storyfi|unlinked|0||{caller_id}")
+            InlineKeyboardButton("📖 Unlinked Stories", callback_data=f"cfg|storyfi|unlinked|0||{caller_id}")
         ],
         [
-            InlineKeyboardButton("⏱️ Frequency (2x/1x/3x)", callback_data=f"cfg|storyfi|freq||{caller_id}"),
-            InlineKeyboardButton("⏳ Stagger Minutes Gap", callback_data=f"cfg|storyfi|stagger||{caller_id}")
+            InlineKeyboardButton(f"⏱️ Frequency : {interval_h}h ({posts_per_day}x / Day)", callback_data=f"cfg|storyfi|freq||{caller_id}")
         ],
         [
-            InlineKeyboardButton(f"💬 Reply Tone ({tone})", callback_data=f"cfg|storyfi|tone||{caller_id}"),
-            InlineKeyboardButton("🚀 Send Instant Test Post", callback_data=f"cfg|storyfi|test_select||{caller_id}")
+            InlineKeyboardButton(f"⏳ Stagger Gap : {stagger_min}–{stagger_max} Min", callback_data=f"cfg|storyfi|stagger||{caller_id}")
         ],
         [
-            InlineKeyboardButton("➦ Back to Config", callback_data=f"cfg|main||{caller_id}")
+            InlineKeyboardButton(f"💬 Reply Tone : {tone}", callback_data=f"cfg|storyfi|tone||{caller_id}")
+        ],
+        [
+            InlineKeyboardButton("🚀 Test It", callback_data=f"cfg|storyfi|test_select||{caller_id}")
+        ],
+        [
+            InlineKeyboardButton("🔙 Back to Config", callback_data=f"cfg|main||{caller_id}")
         ]
     ]
 
@@ -1440,7 +1489,7 @@ async def handle_storyfi_callbacks(query, context: ContextTypes.DEFAULT_TYPE, pa
 
         if nav_row:
             btn_rows.append(nav_row)
-        btn_rows.append([InlineKeyboardButton("➦ Back to Control Panel", callback_data=f"cfg|storyfi|main||{caller_id}")])
+        btn_rows.append([InlineKeyboardButton("🔙 Back to Panel", callback_data=f"cfg|storyfi|main||{caller_id}")])
 
         try:
             await query.message.edit_text("\n".join(lines), parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btn_rows))
@@ -1533,10 +1582,10 @@ async def handle_storyfi_callbacks(query, context: ContextTypes.DEFAULT_TYPE, pa
                 ])
 
         btn_rows.append([
-            InlineKeyboardButton("🚀 Instant Test Post", callback_data=f"cfg|storyfi|test_do|{cid_str}||{caller_id}")
+            InlineKeyboardButton("🚀 Test It", callback_data=f"cfg|storyfi|test_do|{cid_str}||{caller_id}")
         ])
         btn_rows.append([
-            InlineKeyboardButton("➦ Back to Channels List", callback_data=f"cfg|storyfi|channels|{return_page}||{caller_id}")
+            InlineKeyboardButton("🔙 Back to Channels", callback_data=f"cfg|storyfi|channels|{return_page}||{caller_id}")
         ])
 
         try:
@@ -1708,14 +1757,14 @@ async def handle_storyfi_callbacks(query, context: ContextTypes.DEFAULT_TYPE, pa
         return
 
     if action == "freq":
-        # Cycle through 24h (1x), 12h (2x), 8h (3x), 6h (4x)
-        current = config.get("interval_hours", 12.0)
-        options = [24.0, 12.0, 8.0, 6.0]
+        # Cycle through 24h (1x), 12h (2x), 8h (3x), 6h (4x), 4h (6x)
+        current = float(config.get("interval_hours", 12.0))
+        options = [24.0, 12.0, 8.0, 6.0, 4.0]
         next_val = options[(options.index(current) + 1) % len(options)] if current in options else 12.0
         config["interval_hours"] = next_val
         save_storyfi_config(config)
         p_day = round(24.0 / next_val, 1)
-        try: await query.answer(f"Frequency set to: {next_val} hours (~{p_day} posts/day)", show_alert=True)
+        try: await query.answer(f"⏱️ Frequency: {next_val}h ({p_day} posts/day)", show_alert=True)
         except Exception: pass
         text, markup = get_storyfi_main_panel(caller_id)
         try:
@@ -1725,13 +1774,13 @@ async def handle_storyfi_callbacks(query, context: ContextTypes.DEFAULT_TYPE, pa
         return
 
     if action == "stagger":
-        # Cycle stagger minutes: 1-3 min -> 2-5 min -> 3-8 min -> 5-10 min
+        # Cycle stagger minutes: 1-3 min -> 2-5 min -> 3-7 min -> 5-10 min
         current_pair = (config.get("stagger_min_minutes", 2), config.get("stagger_max_minutes", 5))
-        presets = [(1, 3), (2, 5), (3, 8), (5, 10)]
+        presets = [(1, 3), (2, 5), (3, 7), (5, 10)]
         next_pair = presets[(presets.index(current_pair) + 1) % len(presets)] if current_pair in presets else (2, 5)
         config["stagger_min_minutes"], config["stagger_max_minutes"] = next_pair
         save_storyfi_config(config)
-        try: await query.answer(f"Stagger gap set to: {next_pair[0]}–{next_pair[1]} Minutes between channels", show_alert=True)
+        try: await query.answer(f"⏳ Stagger Gap: {next_pair[0]}–{next_pair[1]} Minutes between channel posts", show_alert=True)
         except Exception: pass
         text, markup = get_storyfi_main_panel(caller_id)
         try:
@@ -1746,7 +1795,7 @@ async def handle_storyfi_callbacks(query, context: ContextTypes.DEFAULT_TYPE, pa
         next_tone = tones[(tones.index(current_tone) + 1) % len(tones)] if current_tone in tones else "mixed"
         config["reply_tone"] = next_tone
         save_storyfi_config(config)
-        try: await query.answer(f"Reply Tone set to: {next_tone.capitalize()}", show_alert=True)
+        try: await query.answer(f"💬 Reply Tone: {next_tone.capitalize()}", show_alert=True)
         except Exception: pass
         text, markup = get_storyfi_main_panel(caller_id)
         try:
@@ -1769,7 +1818,7 @@ async def handle_storyfi_callbacks(query, context: ContextTypes.DEFAULT_TYPE, pa
         page = max(0, min(page, total_pages - 1))
         chunk = matched[page * per_page : (page + 1) * per_page]
 
-        text = f"<b>🚀 Select a Channel for Instant Test Post (Page {page + 1}/{total_pages}):</b>\n──────────────────────\nTap a channel below to immediately send a test post + auto-reply."
+        text = f"<tg-emoji emoji-id=\"5219943216781995020\">🚀</tg-emoji> <b>Select Channel for Test Post (Page {page + 1}/{total_pages})</b>\n──────────────────────\nTap any channel below to send an instant test post + reply:"
         btn_rows = []
         for c in chunk:
             m_sts = c.get("matched_stories") or []
@@ -1787,7 +1836,7 @@ async def handle_storyfi_callbacks(query, context: ContextTypes.DEFAULT_TYPE, pa
 
         if nav_row:
             btn_rows.append(nav_row)
-        btn_rows.append([InlineKeyboardButton("➦ Back to Control Panel", callback_data=f"cfg|storyfi|main||{caller_id}")])
+        btn_rows.append([InlineKeyboardButton("🔙 Back to Panel", callback_data=f"cfg|storyfi|main||{caller_id}")])
 
         try:
             await query.message.edit_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(btn_rows))
