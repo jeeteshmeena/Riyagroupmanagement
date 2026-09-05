@@ -394,38 +394,79 @@ def search_story_from_mongo_sync(query: str) -> Optional[Dict[str, Any]]:
         if not base_q:
             base_q = clean_q
 
-        # Pass 1: Exact Case-Insensitive Match
+        # Build token-flexible regex pattern (e.g. 'mr and mrs agent' matches 'Mr. & Mrs. Agent')
+        qn = normalize_text(base_q)
+        tokens = [t for t in qn.split() if t]
+        
+        if tokens:
+            pattern_parts = []
+            for t in tokens:
+                if t in ("and", "&", "+"):
+                    pattern_parts.append(r"(?:and|\&|\+)")
+                else:
+                    pattern_parts.append(re.escape(t))
+            sep = r"[\s\.\-_,:;'/\\!*?\"~|]+"
+            flexible_exact = rf"^[\s\.\-_,:;'/\\!*?\"~|]*" + sep.join(pattern_parts) + rf"[\s\.\-_,:;'/\\!*?\"~|]*$"
+            flexible_wb = rf"\b" + sep.join(pattern_parts) + rf"\b"
+        else:
+            flexible_exact = rf"^{re.escape(base_q)}$"
+            flexible_wb = rf"\b{re.escape(base_q)}\b"
+
+        # Pass 1: Flexible Exact Match (Bypasses punctuation, maps & <-> and)
         exact_filter = {
             "$or": [
-                {"story_name_en": {"$regex": rf"^{re.escape(base_q)}$", "$options": "i"}},
-                {"story_name_hi": {"$regex": rf"^{re.escape(base_q)}$", "$options": "i"}},
-                {"story_name": {"$regex": rf"^{re.escape(base_q)}$", "$options": "i"}},
-                {"title": {"$regex": rf"^{re.escape(base_q)}$", "$options": "i"}},
-                {"name": {"$regex": rf"^{re.escape(base_q)}$", "$options": "i"}},
-                {"aliases": {"$regex": rf"^{re.escape(base_q)}$", "$options": "i"}},
+                {"story_name_en": {"$regex": flexible_exact, "$options": "i"}},
+                {"story_name_hi": {"$regex": flexible_exact, "$options": "i"}},
+                {"story_name": {"$regex": flexible_exact, "$options": "i"}},
+                {"title": {"$regex": flexible_exact, "$options": "i"}},
+                {"name": {"$regex": flexible_exact, "$options": "i"}},
+                {"aliases": {"$regex": flexible_exact, "$options": "i"}},
             ]
         }
         doc = col.find_one(exact_filter)
         if doc:
             return format_mongo_story_to_result(doc, settings)
 
-        # Pass 2: Word-boundary Regex Match (e.g. "Vashikaran" in "Vashikaran: Season 1")
-        if len(base_q) >= 3:
+        # Pass 2: Word-boundary Regex Match (e.g. "Mr and Mrs Agent" in "Mr. & Mrs. Agent: Complete Series")
+        if len(tokens) >= 1:
             wb_filter = {
                 "$or": [
-                    {"story_name_en": {"$regex": rf"\b{re.escape(base_q)}\b", "$options": "i"}},
-                    {"story_name_hi": {"$regex": rf"\b{re.escape(base_q)}\b", "$options": "i"}},
-                    {"story_name": {"$regex": rf"\b{re.escape(base_q)}\b", "$options": "i"}},
-                    {"title": {"$regex": rf"\b{re.escape(base_q)}\b", "$options": "i"}},
-                    {"name": {"$regex": rf"\b{re.escape(base_q)}\b", "$options": "i"}},
-                    {"aliases": {"$regex": rf"\b{re.escape(base_q)}\b", "$options": "i"}},
+                    {"story_name_en": {"$regex": flexible_wb, "$options": "i"}},
+                    {"story_name_hi": {"$regex": flexible_wb, "$options": "i"}},
+                    {"story_name": {"$regex": flexible_wb, "$options": "i"}},
+                    {"title": {"$regex": flexible_wb, "$options": "i"}},
+                    {"name": {"$regex": flexible_wb, "$options": "i"}},
+                    {"aliases": {"$regex": flexible_wb, "$options": "i"}},
                 ]
             }
             doc = col.find_one(wb_filter)
             if doc:
                 return format_mongo_story_to_result(doc, settings)
 
-        # Pass 3: Substring Match for queries with 4+ characters
+        # Pass 3: Multi-word AND lookahead match with & / and tolerance
+        if len(tokens) > 1:
+            lookahead_parts = []
+            for t in tokens:
+                if t in ("and", "&", "+"):
+                    lookahead_parts.append(r"(?=.*(?:and|\&|\+))")
+                else:
+                    lookahead_parts.append(rf"(?=.*{re.escape(t)})")
+            lookahead_pattern = "".join(lookahead_parts)
+            multi_filter = {
+                "$or": [
+                    {"story_name_en": {"$regex": lookahead_pattern, "$options": "i"}},
+                    {"story_name_hi": {"$regex": lookahead_pattern, "$options": "i"}},
+                    {"story_name": {"$regex": lookahead_pattern, "$options": "i"}},
+                    {"title": {"$regex": lookahead_pattern, "$options": "i"}},
+                    {"name": {"$regex": lookahead_pattern, "$options": "i"}},
+                    {"aliases": {"$regex": lookahead_pattern, "$options": "i"}},
+                ]
+            }
+            doc = col.find_one(multi_filter)
+            if doc:
+                return format_mongo_story_to_result(doc, settings)
+
+        # Pass 4: Substring Match
         if len(base_q) >= 4:
             sub_filter = {
                 "$or": [
@@ -441,23 +482,38 @@ def search_story_from_mongo_sync(query: str) -> Optional[Dict[str, Any]]:
             if doc:
                 return format_mongo_story_to_result(doc, settings)
 
-        # Pass 4: Multi-word AND lookahead match (e.g. 'hiss rebirth' matches 'Hiss - Rebirth of a Destroyer')
-        words = [w for w in re.split(r"\s+", base_q) if len(w) >= 2]
-        if len(words) > 1:
-            lookahead_pattern = "".join(rf"(?=.*{re.escape(w)})" for w in words)
-            multi_filter = {
-                "$or": [
-                    {"story_name_en": {"$regex": lookahead_pattern, "$options": "i"}},
-                    {"story_name_hi": {"$regex": lookahead_pattern, "$options": "i"}},
-                    {"story_name": {"$regex": lookahead_pattern, "$options": "i"}},
-                    {"title": {"$regex": lookahead_pattern, "$options": "i"}},
-                    {"name": {"$regex": lookahead_pattern, "$options": "i"}},
-                    {"aliases": {"$regex": lookahead_pattern, "$options": "i"}},
-                ]
-            }
-            doc = col.find_one(multi_filter)
-            if doc:
-                return format_mongo_story_to_result(doc, settings)
+        # Pass 5: RapidFuzz In-Memory Candidate Fallback (Typo Tolerance)
+        try:
+            from rapidfuzz import fuzz
+            sig_words = [w for w in tokens if len(w) >= 3 and w not in ("and", "the", "for", "with", "story", "audiobook")]
+            if sig_words:
+                or_clauses = []
+                for sw in sig_words[:3]:
+                    or_clauses.extend([
+                        {"story_name_en": {"$regex": re.escape(sw), "$options": "i"}},
+                        {"title": {"$regex": re.escape(sw), "$options": "i"}},
+                        {"name": {"$regex": re.escape(sw), "$options": "i"}},
+                    ])
+                if or_clauses:
+                    candidates = list(col.find({"$or": or_clauses}).limit(35))
+                    best_c = None
+                    best_s = 0
+                    qn_len = len(qn)
+                    for c_doc in candidates:
+                        c_title = extract_smart_field(c_doc, "name", "")
+                        c_norm = normalize_text(c_title)
+                        if not c_norm:
+                            continue
+                        if abs(len(c_norm) - qn_len) > max(5, int(0.35 * max(len(c_norm), qn_len))):
+                            continue
+                        score = max(fuzz.ratio(qn, c_norm), fuzz.token_sort_ratio(qn, c_norm))
+                        if score >= 82 and score > best_s:
+                            best_s = score
+                            best_c = c_doc
+                    if best_c:
+                        return format_mongo_story_to_result(best_c, settings)
+        except Exception:
+            pass
 
         return None
     except Exception as e:

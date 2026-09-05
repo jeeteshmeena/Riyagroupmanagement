@@ -2,27 +2,27 @@
 import database
 from database import load_db, normalize_text
 import re
-
-
-
 from rapidfuzz import fuzz
 
 def clean_story(name):
     """Local copy of clean_story function to avoid circular imports."""
-    name = re.sub(r"\(.*?\)", "", name)
+    if not name:
+        return ""
+    name = re.sub(r"\(.*?\)", "", str(name))
     name = re.sub(r"\s+", " ", name)
     return name.strip()
 
 
-# We caching everything inside dicts for O(1) alias/exact lookups
+# Cached lookup indices for O(1) exact, normalized, token-set, and alias matching
 _exact_cache = {}    # exact clean name -> data
 _norm_cache = {}     # normalized_name -> data
 _alias_cache = {}    # clean_alias -> data
+_token_cache = {}    # frozenset(normalized_tokens) -> data
 _list_cache = []     # for partial/did_you_mean containing original titles
 _search_cache_mtime = None
 
 def _get_cache():
-    global _exact_cache, _norm_cache, _alias_cache, _list_cache, _search_cache_mtime
+    global _exact_cache, _norm_cache, _alias_cache, _token_cache, _list_cache, _search_cache_mtime
     db = load_db()
     
     if not db:
@@ -37,6 +37,7 @@ def _get_cache():
     new_exact = {}
     new_norm = {}
     new_alias = {}
+    new_tokens = {}
     new_list = []
     
     for name, data in db.items():
@@ -45,11 +46,15 @@ def _get_cache():
         new_exact[story_name_clean] = data
         
         # normalized name index
-        norm_name = data.get("normalized_name", normalize_text(story_name_clean))
+        raw_title = data.get("text", name)
+        norm_name = normalize_text(raw_title) or normalize_text(story_name_clean)
         if norm_name:
             new_norm[norm_name] = data
+            tokens = frozenset(norm_name.split())
+            if len(tokens) >= 1:
+                new_tokens[tokens] = data
             
-        new_list.append(data.get("text", name))
+        new_list.append(raw_title)
         
         # aliases
         aliases = data.get("aliases", [])
@@ -60,10 +65,14 @@ def _get_cache():
             al_norm = normalize_text(al)
             if al_norm:
                 new_alias[al_norm] = data
+                al_tokens = frozenset(al_norm.split())
+                if len(al_tokens) >= 1:
+                    new_tokens[al_tokens] = data
                 
     _exact_cache = new_exact
     _norm_cache = new_norm
     _alias_cache = new_alias
+    _token_cache = new_tokens
     _list_cache = new_list
     _search_cache_mtime = database._DB_MTIME
     return _exact_cache
@@ -85,14 +94,13 @@ SEARCH_STOP_WORDS = {
 
 def search_story_exact_or_alias(query):
     """
-    Strict High-Precision Story Match:
-    1. Exact story title match
-    2. Normalized story title match
-    3. Alias match
-    4. Exact title with common platform / season suffix stripped
-    5. High-confidence direct string similarity (fuzz.ratio >= 88 with length guard)
-    
-    Prevents false positive matching of completely different stories!
+    Robust High-Precision Story Match:
+    1. Exact story title match (case-insensitive)
+    2. Normalized story title match (bypassing punctuation, symbols like &, +, @)
+    3. Alias exact and normalized match
+    4. Token-set exact match (e.g. "Mr and Mrs agent" == "Mr. & Mrs. Agent")
+    5. Cleaned platform / season suffix match
+    6. High-confidence fuzzy match with length safety guard
     """
     _get_cache()  # ensure cache is warm
     if not query:
@@ -117,7 +125,12 @@ def search_story_exact_or_alias(query):
     if qn and qn in _alias_cache:
         return _alias_cache[qn]
 
-    # 4. Clean platform tags from query: e.g. "Vashikaran Pocket FM" -> "Vashikaran"
+    # 4. Token-set match (handles word reordering & punctuation/symbol differences)
+    q_tokens = frozenset(qn.split())
+    if q_tokens and q_tokens in _token_cache:
+        return _token_cache[q_tokens]
+
+    # 5. Clean platform tags from query: e.g. "Vashikaran Pocket FM" -> "Vashikaran"
     clean_q = q
     for tag in ["pocket fm", "kuku fm", "kuku tv", "pratilipi", "headfone", "eight fm", "audiobook", "full story", "all episodes", "season 1", "season 2", "part 1", "part 2"]:
         clean_q = clean_q.replace(tag, "").strip()
@@ -130,23 +143,34 @@ def search_story_exact_or_alias(query):
             return _norm_cache[clean_qn]
         if clean_q in _alias_cache:
             return _alias_cache[clean_q]
+        clean_tokens = frozenset(clean_qn.split())
+        if clean_tokens and clean_tokens in _token_cache:
+            return _token_cache[clean_tokens]
 
-    # 5. Strict high-precision fuzzy match (Typo correction for VERY similar names only)
-    # E.g. "Vashikarn" -> "Vashikaran", "Asli Warish" -> "Asli Waris"
-    # Never matches different stories or loose tokens!
+    # 6. Strict high-precision fuzzy match (Typo correction for VERY similar names)
+    # E.g. "Vashikarn" -> "Vashikaran", "Asli Warish" -> "Asli Waris", "Mr and Mrs agnet" -> "Mr. & Mrs. Agent"
     best_match = None
     best_score = 0
-    q_len = len(q)
+    qn_len = len(qn)
     
-    for key, data in _exact_cache.items():
-        k_len = len(key)
-        # Length guard: title length must be close (within 3 chars or 20%)
-        if abs(k_len - q_len) > max(3, int(0.20 * max(k_len, q_len))):
+    for norm_title, data in _norm_cache.items():
+        t_len = len(norm_title)
+        # Length guard: title length must be close (within 4 chars or 30%)
+        if abs(t_len - qn_len) > max(4, int(0.30 * max(t_len, qn_len))):
             continue
             
-        ratio = fuzz.ratio(q, key)
-        if ratio >= 88 and ratio > best_score:
-            best_score = ratio
+        ratio = fuzz.ratio(qn, norm_title)
+        sort_ratio = fuzz.token_sort_ratio(qn, norm_title)
+        score = max(ratio, sort_ratio)
+        
+        # Token set ratio for multi-word titles with slight additions
+        if len(q_tokens) >= 2 and len(norm_title.split()) >= 2:
+            set_ratio = fuzz.token_set_ratio(qn, norm_title)
+            if set_ratio >= 92 and score < 85:
+                score = set_ratio
+                
+        if score >= 84 and score > best_score:
+            best_score = score
             best_match = data
             
     if best_match:
@@ -163,27 +187,27 @@ def get_suggestions(query, limit=5):
     if not query or len(query.strip()) < 3:
         return []
 
-    q = clean_story(query).lower().strip()
-    q_words = set(w for w in re.findall(r"\w+", q) if w not in SEARCH_STOP_WORDS and len(w) >= 3)
+    qn = normalize_text(query)
+    q_words = set(w for w in qn.split() if w not in SEARCH_STOP_WORDS and len(w) >= 3)
     
-    if not q_words and len(q) < 5:
+    if not q_words and len(qn) < 4:
         return []
 
     results = []
-    q_len = len(q)
+    qn_len = len(qn)
     for title in _list_cache:
-        title_clean = clean_story(title).lower()
-        t_len = len(title_clean)
+        title_norm = normalize_text(title)
+        t_len = len(title_norm)
         
         # Length guard to prevent tiny words matching long unrelated stories
-        if abs(t_len - q_len) > max(5, int(0.35 * max(t_len, q_len))):
+        if abs(t_len - qn_len) > max(6, int(0.40 * max(t_len, qn_len))):
             continue
 
-        ratio = fuzz.ratio(q, title_clean)
-        sort_ratio = fuzz.token_sort_ratio(q, title_clean)
+        ratio = fuzz.ratio(qn, title_norm)
+        sort_ratio = fuzz.token_sort_ratio(qn, title_norm)
         best = max(ratio, sort_ratio)
 
-        if best >= 78:
+        if best >= 74:
             results.append((title, best))
 
     # Sort by best score descending
@@ -210,28 +234,32 @@ def search_stories_by_keyword(query: str, limit: int = 10) -> list:
         return []
         
     q = clean_story(query).lower().strip()
-    if not q or len(q) < 2:
+    qn = normalize_text(query)
+    if not qn or len(qn) < 2:
         return []
 
     # If query is purely a stopword (e.g. "hai", "kya", "bhai", "story"), don't search
-    if q in SEARCH_STOP_WORDS and len(q) <= 4:
+    if qn in SEARCH_STOP_WORDS and len(qn) <= 4:
         return []
 
     matched = []
     seen_keys = set()
 
-    # 1. Exact match / exact alias matches first
+    # 1. Exact match / exact normalized match first
     if q in _exact_cache:
         matched.append(_exact_cache[q])
         seen_keys.add(clean_story(_exact_cache[q].get("text", _exact_cache[q].get("name", ""))).lower())
+    elif qn in _norm_cache:
+        matched.append(_norm_cache[qn])
+        seen_keys.add(clean_story(_norm_cache[qn].get("text", _norm_cache[qn].get("name", ""))).lower())
 
-    # 2. Word boundary substring match: e.g. "mahabali" in "Mahabali Mayank", "Mahabali Veer"
+    # 2. Word boundary substring match on normalized names: e.g. "mahabali" in "Mahabali Mayank", "Mahabali Veer"
     try:
-        pattern = re.compile(rf"\b{re.escape(q)}", re.IGNORECASE)
-        for key, data in _exact_cache.items():
-            t_name = clean_story(data.get("text", data.get("name", key)))
+        pattern = re.compile(rf"\b{re.escape(qn)}\b", re.IGNORECASE)
+        for norm_name, data in _norm_cache.items():
+            t_name = clean_story(data.get("text", data.get("name", norm_name)))
             t_key = t_name.lower()
-            if t_key not in seen_keys and pattern.search(key):
+            if t_key not in seen_keys and pattern.search(norm_name):
                 matched.append(data)
                 seen_keys.add(t_key)
                 if len(matched) >= limit:
@@ -239,12 +267,12 @@ def search_stories_by_keyword(query: str, limit: int = 10) -> list:
     except Exception:
         pass
 
-    # 3. Substring match if q is 3+ chars: e.g. "waris" in "asli waris"
-    if len(q) >= 3:
-        for key, data in _exact_cache.items():
-            t_name = clean_story(data.get("text", data.get("name", key)))
+    # 3. Substring match if qn is 3+ chars: e.g. "waris" in "asli waris"
+    if len(qn) >= 3:
+        for norm_name, data in _norm_cache.items():
+            t_name = clean_story(data.get("text", data.get("name", norm_name)))
             t_key = t_name.lower()
-            if t_key not in seen_keys and (q in key or any(q in clean_story(al).lower() for al in data.get("aliases", []))):
+            if t_key not in seen_keys and (qn in norm_name or any(qn in normalize_text(al) for al in data.get("aliases", []))):
                 matched.append(data)
                 seen_keys.add(t_key)
                 if len(matched) >= limit:
@@ -256,33 +284,35 @@ def search_stories_by_keyword(query: str, limit: int = 10) -> list:
 def extract_story_from_text(text: str) -> tuple:
     """
     Scans a conversational sentence for any known story titles in the database.
-    E.g. In "kisi ke pas mahabali mayank story h kya free bali",
-    detects "mahabali mayank" and returns (story_data, matched_title).
+    E.g. In "kisi ke pas Mr and Mrs agent story h kya free wali",
+    detects "mr and mrs agent" and returns (story_data, matched_title).
     Returns (None, None) if no story found.
     """
     _get_cache()
     if not text or len(text.strip()) < 3:
         return None, None
         
-    t = clean_story(text).lower().strip()
+    tn = normalize_text(text)
+    if not tn or len(tn) < 3:
+        return None, None
     
-    # Sort database titles by length descending so longer titles match first
-    # (e.g. "Mahabali Mayank" matches before "Mahabali")
-    sorted_titles = sorted(_exact_cache.items(), key=lambda x: len(x[0]), reverse=True)
+    # Sort normalized titles by length descending so longer titles match first
+    # (e.g. "Mr and Mrs Agent" matches before "Agent")
+    sorted_titles = sorted(_norm_cache.items(), key=lambda x: len(x[0]), reverse=True)
     
-    for key, data in sorted_titles:
-        if len(key) < 3 or key in SEARCH_STOP_WORDS:
+    for norm_key, data in sorted_titles:
+        if len(norm_key) < 3 or norm_key in SEARCH_STOP_WORDS:
             continue
-        # Check whole word boundary match in sentence
-        pattern = rf"\b{re.escape(key)}\b"
-        if re.search(pattern, t, re.IGNORECASE):
-            return data, data.get("text", data.get("name", key))
+        # Check whole word boundary match in normalized sentence
+        pattern = rf"\b{re.escape(norm_key)}\b"
+        if re.search(pattern, tn, re.IGNORECASE):
+            return data, data.get("text", data.get("name", norm_key))
             
-        # Also check aliases
+        # Also check normalized aliases
         for al in data.get("aliases", []):
-            al_clean = clean_story(al).lower()
-            if len(al_clean) >= 3 and al_clean not in SEARCH_STOP_WORDS:
-                if re.search(rf"\b{re.escape(al_clean)}\b", t, re.IGNORECASE):
+            al_norm = normalize_text(al)
+            if len(al_norm) >= 3 and al_norm not in SEARCH_STOP_WORDS:
+                if re.search(rf"\b{re.escape(al_norm)}\b", tn, re.IGNORECASE):
                     return data, data.get("text", data.get("name", al))
                     
     return None, None

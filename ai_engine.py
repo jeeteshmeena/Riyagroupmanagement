@@ -673,12 +673,12 @@ async def process_gemini_message(user_id: int, user_name: str, message_text: str
 async def ai_resolve_story_name(query: str) -> Optional[str]:
     """
     High-Precision AI Story Resolver:
-    Uses RapidFuzz to pre-filter candidate titles from the whole database,
+    Uses RapidFuzz to pre-filter candidate titles from local and MongoDB database,
     then uses AI to resolve typos/phonetics.
     Strictly verifies that the returned story is genuine and not a random hallucination.
     """
     titles, _ = get_db_stories_info()
-    if not titles or not query or len(query.strip()) < 2:
+    if not query or len(query.strip()) < 2:
         return None
 
     from search_engine import search_story_exact_or_alias
@@ -686,16 +686,24 @@ async def ai_resolve_story_name(query: str) -> Optional[str]:
     if direct:
         return direct.get("text") or direct.get("name") or query
 
-    from rapidfuzz import fuzz
-    q_clean = query.strip().lower()
+    try:
+        from mongo_search import search_story_from_mongo_sync
+        m_direct = search_story_from_mongo_sync(query)
+        if m_direct:
+            return m_direct.get("text") or m_direct.get("name") or query
+    except Exception:
+        pass
 
-    # Pre-filter top candidates from the entire database by similarity
+    from rapidfuzz import fuzz
+    from database import normalize_text
+    qn = normalize_text(query)
+
+    # Pre-filter top candidates from the entire database by normalized similarity
     candidates_with_score = []
-    for t in titles:
-        t_clean = t.lower()
-        # Check partial ratio, token sort, and direct ratio
-        score = max(fuzz.partial_ratio(q_clean, t_clean), fuzz.token_sort_ratio(q_clean, t_clean), fuzz.ratio(q_clean, t_clean))
-        if score >= 55:
+    for t in (titles or []):
+        tn = normalize_text(t)
+        score = max(fuzz.partial_ratio(qn, tn), fuzz.token_sort_ratio(qn, tn), fuzz.ratio(qn, tn))
+        if score >= 50:
             candidates_with_score.append((t, score))
 
     candidates_with_score.sort(key=lambda x: x[1], reverse=True)
@@ -721,10 +729,17 @@ async def ai_resolve_story_name(query: str) -> Optional[str]:
         res = raw.strip().strip('"\'').strip()
         if res and res.upper() != "NONE" and len(res) < 100:
             match = search_story_exact_or_alias(res)
+            if not match:
+                try:
+                    from mongo_search import search_story_from_mongo_sync
+                    match = search_story_from_mongo_sync(res)
+                except Exception:
+                    match = None
             if match:
                 matched_title = match.get("text") or match.get("name") or res
+                m_norm = normalize_text(matched_title)
                 # Double check confidence threshold
-                if fuzz.partial_ratio(q_clean, matched_title.lower()) >= 65 or fuzz.token_sort_ratio(q_clean, matched_title.lower()) >= 65:
+                if fuzz.partial_ratio(qn, m_norm) >= 60 or fuzz.token_sort_ratio(qn, m_norm) >= 60:
                     return matched_title
     except Exception as e:
         logger.debug(f"[AI] ai_resolve_story_name error: {e}")

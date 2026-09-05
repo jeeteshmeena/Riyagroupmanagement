@@ -6261,17 +6261,39 @@ async def chat_member_update(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
 
 
+_CHAT_ADMIN_BOTS_CACHE: dict = {}
+
+async def _get_chat_admin_bot_ids(chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> set:
+    now = time.time()
+    cached = _CHAT_ADMIN_BOTS_CACHE.get(chat_id)
+    if cached and (now - cached[1]) < 300:
+        return cached[0]
+    
+    admin_bot_ids = set()
+    try:
+        admins = await context.bot.get_chat_administrators(chat_id)
+        for adm in admins:
+            if adm.user and adm.user.is_bot:
+                admin_bot_ids.add(adm.user.id)
+        _CHAT_ADMIN_BOTS_CACHE[chat_id] = (admin_bot_ids, now)
+    except Exception as e:
+        logger.debug(f"[AntiBot] get_chat_administrators error for {chat_id}: {e}")
+        if cached:
+            return cached[0]
+    return admin_bot_ids
+
+
 async def anti_bot_addition_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Strict Anti-Bot Security Layer (High Priority group=-1):
     1. If any non-admin bot sends ANY message in a group:
        - Instantly delete its message.
-       - Permanently ban the unauthorized bot.
+       - Permanently ban the unauthorized bot & revoke all its messages.
        - Stop propagation.
     2. If any non-admin user adds a bot to a group:
-       - Permanently ban the added bot from the group.
+       - Instantly delete the join service message.
+       - Permanently ban the added bot from the group & revoke its messages.
        - Instantly mute the user who added the bot for 24 Hours (86,400s).
-       - Delete the join service message.
        - Send a clear warning alert in the group.
        - Stop propagation.
     """
@@ -6279,30 +6301,27 @@ async def anti_bot_addition_guard(update: Update, context: ContextTypes.DEFAULT_
     if not chat or chat.type not in ("group", "supergroup"):
         return
 
-    # ── Case A: Intercept any message sent by a non-admin bot in the group ──────
-    if update.message and update.message.from_user:
-        msg_user = update.message.from_user
-        if msg_user.is_bot and (not context.bot or msg_user.id != context.bot.id):
-            # Check if this bot is an administrator in the group
-            is_bot_admin = False
-            try:
-                b_member = await context.bot.get_chat_member(chat.id, msg_user.id)
-                is_bot_admin = b_member.status in ("creator", "administrator")
-            except Exception:
-                is_bot_admin = False
+    eff_msg = update.effective_message
 
-            if not is_bot_admin:
-                # Delete unauthorized bot's message instantly
+    # ── Case A: Intercept any message sent by an unauthorized bot in the group ─
+    if eff_msg and eff_msg.from_user:
+        msg_user = eff_msg.from_user
+        if msg_user.is_bot and (not context.bot or msg_user.id != context.bot.id):
+            admin_bot_ids = await _get_chat_admin_bot_ids(chat.id, context)
+            if msg_user.id not in admin_bot_ids:
+                # 1. Instantly delete unauthorized bot's message
                 try:
-                    await update.message.delete()
-                except Exception:
-                    pass
-                # Permanently ban the unauthorized bot
+                    await eff_msg.delete()
+                except Exception as _e_del:
+                    logger.debug(f"[AntiBot] Failed to delete bot msg: {_e_del}")
+
+                # 2. Permanently ban the unauthorized bot and revoke all its messages
                 try:
-                    await context.bot.ban_chat_member(chat_id=chat.id, user_id=msg_user.id)
-                    logger.warning(f"[AntiBot] Permanently banned non-admin bot @{msg_user.username or msg_user.id} sending messages in {chat.id}")
+                    await context.bot.ban_chat_member(chat_id=chat.id, user_id=msg_user.id, revoke_messages=True)
+                    logger.warning(f"[AntiBot] Permanently banned non-admin bot @{msg_user.username or msg_user.id} and revoked messages in {chat.id}")
                 except Exception as _e_bban:
                     logger.debug(f"[AntiBot] Failed to ban posting bot {msg_user.id}: {_e_bban}")
+
                 raise Application.StopPropagation
 
     # ── Case B: Intercept Bot Additions (Service Message or ChatMemberUpdate) ──
@@ -6310,12 +6329,12 @@ async def anti_bot_addition_guard(update: Update, context: ContextTypes.DEFAULT_
     adder = update.effective_user
 
     # 1. Status update message (new_chat_members)
-    if update.message and update.message.new_chat_members:
-        for m in update.message.new_chat_members:
+    if eff_msg and eff_msg.new_chat_members:
+        for m in eff_msg.new_chat_members:
             if m.is_bot and (not context.bot or m.id != context.bot.id):
                 new_bot_members.append(m)
-        if update.message.from_user:
-            adder = update.message.from_user
+        if eff_msg.from_user:
+            adder = eff_msg.from_user
 
     # 2. Chat member update
     elif update.chat_member:
@@ -6349,12 +6368,19 @@ async def anti_bot_addition_guard(update: Update, context: ContextTypes.DEFAULT_
         return
 
     # NON-ADMIN ADDED A BOT -> STRICT ENFORCEMENT
+    # 1. Delete the service message immediately
+    if eff_msg:
+        try:
+            await eff_msg.delete()
+        except Exception:
+            pass
+
     for bot_user in new_bot_members:
         logger.warning(f"[AntiBot] Non-admin {adder.id if adder else 'unknown'} added bot @{bot_user.username or bot_user.id} in chat {chat.id}")
         
-        # 1. Permanently ban the added bot (do not unban)
+        # 1. Permanently ban the added bot and purge all its messages using revoke_messages=True
         try:
-            await context.bot.ban_chat_member(chat_id=chat.id, user_id=bot_user.id)
+            await context.bot.ban_chat_member(chat_id=chat.id, user_id=bot_user.id, revoke_messages=True)
         except Exception as e_bot:
             logger.error(f"[AntiBot] Failed to ban bot {bot_user.id}: {e_bot}")
 
@@ -6381,14 +6407,7 @@ async def anti_bot_addition_guard(update: Update, context: ContextTypes.DEFAULT_
             except Exception as e_mute:
                 logger.error(f"[AntiBot] Failed to mute adder {adder.id}: {e_mute}")
 
-        # 3. Delete service message
-        if update.message:
-            try:
-                await update.message.delete()
-            except Exception:
-                pass
-
-        # 4. Send Security Alert in Group
+        # 3. Send Security Alert in Group
         adder_mention = adder.mention_html() if adder else "User"
         bot_display = f"@{bot_user.username}" if bot_user.username else f"<b>{html.escape(bot_user.first_name)}</b>"
         
@@ -6399,6 +6418,7 @@ async def anti_bot_addition_guard(update: Update, context: ContextTypes.DEFAULT_
             f"🤖 <b>Banned Bot:</b> {bot_display} (<code>{bot_user.id}</code>)\n"
             f"👤 <b>Added By:</b> {adder_mention} (<code>{adder.id if adder else 0}</code>)\n"
             f"⏳ <b>Penalty:</b> Muted for <b>24 Hours</b>\n"
+            f"🗑 <b>Messages:</b> All bot messages purged\n"
             "<code>────────────────────────────</code>\n"
             "<i>ℹ️ Non-admins are strictly prohibited from adding bots to this group.</i>"
         )
@@ -6586,6 +6606,7 @@ def _cfg_main_panel(caller_id: int, lang: str = "en") -> tuple:
         ],
         [
             InlineKeyboardButton("Auto Storyfi",   callback_data=f"cfg|storyfi|main||{caller_id}", api_kwargs={"icon_custom_emoji_id": "6021607757457660145"}),
+            InlineKeyboardButton("Story Cleaner",  callback_data=f"cfg|cleaner|main||{caller_id}"),
         ],
         [
             InlineKeyboardButton("Tutorial",       callback_data=f"cfg|tutorial_guide||{caller_id}"),
@@ -7305,6 +7326,11 @@ async def _handle_config_callback(query, context: ContextTypes.DEFAULT_TYPE):
     if section == "storyfi":
         from plugins.auto_storyfi import handle_storyfi_callbacks
         await handle_storyfi_callbacks(query, context, parts, caller_id)
+        return
+
+    if section == "cleaner":
+        from plugins.story_cleaner import handle_cleaner_callbacks
+        await handle_cleaner_callbacks(query, context, parts, caller_id)
         return
 
     if section == "broadcast":
@@ -10998,6 +11024,14 @@ def start_bot():
         except Exception as e:
             logger.error(f"[RiyaReminder] Failed to start reminder loop: {e}")
 
+        # Launch Past 30-Day Story Cleaner worker loop
+        try:
+            from plugins.story_cleaner import story_cleaner_worker_loop
+            asyncio.create_task(story_cleaner_worker_loop(application))
+            logger.info("[StoryCleaner] Background worker task launched in _post_init ✅")
+        except Exception as e:
+            logger.error(f"[StoryCleaner] Failed to start story cleaner worker loop: {e}")
+
 
     app = Application.builder().token(BOT_TOKEN).post_init(_post_init).build()
 
@@ -11008,6 +11042,8 @@ def start_bot():
     app.add_handler(CommandHandler("schedview", sched_view))
     app.add_handler(CommandHandler(["addchannels", "addchannel"], add_storyfi_channels_cmd))
     app.add_handler(CommandHandler(["unlinkedstories", "unmatchedstories"], unlinked_stories_cmd))
+    from plugins.story_cleaner import clean_stories_command
+    app.add_handler(CommandHandler(["cleanstories", "clean_stories"], clean_stories_command))
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("menu", menu_cmd))
     app.add_handler(CommandHandler("scan", scan))

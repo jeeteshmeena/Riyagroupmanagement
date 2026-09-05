@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import unicodedata
 
 def normalize_text(text):
@@ -20,8 +21,14 @@ def normalize_text(text):
     # Convert unicode fancy fonts to normal (NFKD handles most Math Bold, script, fraktur)
     t = unicodedata.normalize('NFKD', t).lower()
     
-    # Keep only alphanumeric and spaces
-    t = ''.join(c for c in t if c.isalnum() or c.isspace())
+    # Pre-process symbols before stripping punctuation
+    t = re.sub(r'[\&\+]', ' and ', t)
+    t = re.sub(r'[@]', ' at ', t)
+    
+    # Replace all punctuation and special characters with spaces
+    t = re.sub(r'[^\w\s]', ' ', t)
+    
+    # Collapse multiple spaces and return clean string
     return ' '.join(t.split())
 
 # Paths - use DATA_DIR from config for VPS (load_dotenv runs when config is imported first)
