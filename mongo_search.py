@@ -181,6 +181,7 @@ def extract_square_image_url(doc: Dict[str, Any], settings: Optional[Dict[str, A
         return ""
 
     square_keys = [
+        "banner_url", "banner", "banner_image", "story_banner", "bannerUrl",
         "poster_url", "posterurl", "posterUrl", "square_poster", "square_poster_url",
         "square_image", "square_url", "square_cover", "poster", "poster_image", "poster_path",
         "r2_url", "r2_poster", "r2_image", "cloudflare_url", "cdn_url",
@@ -217,7 +218,7 @@ def extract_square_image_url(doc: Dict[str, Any], settings: Optional[Dict[str, A
                 if resolved:
                     return resolved
         elif isinstance(val, dict):
-            for sub_k in ["square", "square_poster", "poster", "poster_url", "url", "src", "link", "r2_url", "cdn_url", "path", "image", "cover"]:
+            for sub_k in ["banner", "banner_url", "square", "square_poster", "poster", "poster_url", "url", "src", "link", "r2_url", "cdn_url", "path", "image", "cover"]:
                 if sub_k in val:
                     sub_v = _extract_url_from_val(val[sub_k])
                     if sub_v:
@@ -229,7 +230,7 @@ def extract_square_image_url(doc: Dict[str, Any], settings: Optional[Dict[str, A
                     return sub_v
         return ""
 
-    # 1. Check top-level square keys
+    # 1. Check top-level square and banner keys
     for k in square_keys:
         if k in doc:
             url = _extract_url_from_val(doc[k])
@@ -251,10 +252,10 @@ def extract_square_image_url(doc: Dict[str, Any], settings: Optional[Dict[str, A
                 if url:
                     return url
 
-    # 3. Deep search any key containing 'poster', 'cover', 'square', 'image', 'photo', 'r2'
+    # 3. Deep search any key containing 'poster', 'cover', 'square', 'image', 'photo', 'r2', 'banner'
     for k, v in doc.items():
         k_lower = k.lower()
-        if any(w in k_lower for w in ["poster", "cover", "square", "image", "photo", "r2"]) and not any(w in k_lower for w in ["banner", "horizontal", "wide"]):
+        if any(w in k_lower for w in ["banner", "poster", "cover", "square", "image", "photo", "r2"]):
             url = _extract_url_from_val(v)
             if url:
                 return url
@@ -406,13 +407,14 @@ def search_story_from_mongo_sync(query: str) -> Optional[Dict[str, Any]]:
                 else:
                     pattern_parts.append(re.escape(t))
             sep = r"[\s\.\-_,:;'/\\!*?\"~|]+"
-            flexible_exact = rf"^[\s\.\-_,:;'/\\!*?\"~|]*" + sep.join(pattern_parts) + rf"[\s\.\-_,:;'/\\!*?\"~|]*$"
+            # Allow title with optional trailing punctuation / subtitle (e.g. : Season 1, Pocket FM)
+            flexible_exact = rf"^[\s\.\-_,:;'/\\!*?\"~|]*" + sep.join(pattern_parts) + rf"(?:[\s\.\-_,:;'/\\!*?\"~|].*)?$"
             flexible_wb = rf"\b" + sep.join(pattern_parts) + rf"\b"
         else:
-            flexible_exact = rf"^{re.escape(base_q)}$"
+            flexible_exact = rf"^{re.escape(base_q)}(?:[\s\.\-_,:;'/\\!*?\"~|].*)?$"
             flexible_wb = rf"\b{re.escape(base_q)}\b"
 
-        # Pass 1: Flexible Exact Match (Bypasses punctuation, maps & <-> and)
+        # Pass 1: Flexible Exact / Prefix Match (Bypasses punctuation, maps & <-> and)
         exact_filter = {
             "$or": [
                 {"story_name_en": {"$regex": flexible_exact, "$options": "i"}},
@@ -425,7 +427,13 @@ def search_story_from_mongo_sync(query: str) -> Optional[Dict[str, Any]]:
         }
         doc = col.find_one(exact_filter)
         if doc:
-            return format_mongo_story_to_result(doc, settings)
+            res = format_mongo_story_to_result(doc, settings)
+            try:
+                from database import save_learned_alias
+                save_learned_alias(query, res["text"])
+            except Exception:
+                pass
+            return res
 
         # Pass 2: Word-boundary Regex Match (e.g. "Mr and Mrs Agent" in "Mr. & Mrs. Agent: Complete Series")
         if len(tokens) >= 1:
@@ -441,7 +449,13 @@ def search_story_from_mongo_sync(query: str) -> Optional[Dict[str, Any]]:
             }
             doc = col.find_one(wb_filter)
             if doc:
-                return format_mongo_story_to_result(doc, settings)
+                res = format_mongo_story_to_result(doc, settings)
+                try:
+                    from database import save_learned_alias
+                    save_learned_alias(query, res["text"])
+                except Exception:
+                    pass
+                return res
 
         # Pass 3: Multi-word AND lookahead match with & / and tolerance
         if len(tokens) > 1:
@@ -464,7 +478,13 @@ def search_story_from_mongo_sync(query: str) -> Optional[Dict[str, Any]]:
             }
             doc = col.find_one(multi_filter)
             if doc:
-                return format_mongo_story_to_result(doc, settings)
+                res = format_mongo_story_to_result(doc, settings)
+                try:
+                    from database import save_learned_alias
+                    save_learned_alias(query, res["text"])
+                except Exception:
+                    pass
+                return res
 
         # Pass 4: Substring Match
         if len(base_q) >= 4:
@@ -480,45 +500,107 @@ def search_story_from_mongo_sync(query: str) -> Optional[Dict[str, Any]]:
             }
             doc = col.find_one(sub_filter)
             if doc:
-                return format_mongo_story_to_result(doc, settings)
+                res = format_mongo_story_to_result(doc, settings)
+                try:
+                    from database import save_learned_alias
+                    save_learned_alias(query, res["text"])
+                except Exception:
+                    pass
+                return res
 
-        # Pass 5: RapidFuzz In-Memory Candidate Fallback (Typo Tolerance)
+        # Pass 5: RapidFuzz In-Memory Candidate Fallback (Smart Typo Tolerance)
         try:
             from rapidfuzz import fuzz
             sig_words = [w for w in tokens if len(w) >= 3 and w not in ("and", "the", "for", "with", "story", "audiobook")]
+            or_clauses = []
             if sig_words:
-                or_clauses = []
                 for sw in sig_words[:3]:
                     or_clauses.extend([
                         {"story_name_en": {"$regex": re.escape(sw), "$options": "i"}},
                         {"title": {"$regex": re.escape(sw), "$options": "i"}},
                         {"name": {"$regex": re.escape(sw), "$options": "i"}},
+                        {"aliases": {"$regex": re.escape(sw), "$options": "i"}},
                     ])
-                if or_clauses:
-                    candidates = list(col.find({"$or": or_clauses}).limit(35))
-                    best_c = None
-                    best_s = 0
-                    qn_len = len(qn)
-                    for c_doc in candidates:
-                        c_title = extract_smart_field(c_doc, "name", "")
-                        c_norm = normalize_text(c_title)
-                        if not c_norm:
-                            continue
-                        if abs(len(c_norm) - qn_len) > max(5, int(0.35 * max(len(c_norm), qn_len))):
-                            continue
-                        score = max(fuzz.ratio(qn, c_norm), fuzz.token_sort_ratio(qn, c_norm))
-                        if score >= 82 and score > best_s:
-                            best_s = score
-                            best_c = c_doc
-                    if best_c:
-                        return format_mongo_story_to_result(best_c, settings)
-        except Exception:
-            pass
+            if not or_clauses and tokens:
+                for tok in tokens[:2]:
+                    or_clauses.append({"story_name_en": {"$regex": re.escape(tok), "$options": "i"}})
+                    or_clauses.append({"title": {"$regex": re.escape(tok), "$options": "i"}})
+
+            if or_clauses:
+                candidates = list(col.find({"$or": or_clauses}).limit(50))
+                best_c = None
+                best_s = 0
+                for c_doc in candidates:
+                    c_title = extract_smart_field(c_doc, "name", "")
+                    c_norm = normalize_text(c_title)
+                    if not c_norm:
+                        continue
+                    r_ratio = fuzz.ratio(qn, c_norm)
+                    r_sort = fuzz.token_sort_ratio(qn, c_norm)
+                    r_set = fuzz.token_set_ratio(qn, c_norm)
+                    score = max(r_ratio, r_sort, r_set if len(tokens) >= 2 else 0)
+
+                    for al in c_doc.get("aliases", []):
+                        al_norm = normalize_text(al)
+                        if al_norm:
+                            al_score = max(fuzz.ratio(qn, al_norm), fuzz.token_sort_ratio(qn, al_norm), fuzz.token_set_ratio(qn, al_norm))
+                            score = max(score, al_score)
+
+                    threshold = 75 if (len(tokens) >= 2 or len(qn) >= 6) else 82
+                    if score >= threshold and score > best_s:
+                        best_s = score
+                        best_c = c_doc
+
+                if best_c:
+                    res = format_mongo_story_to_result(best_c, settings)
+                    try:
+                        save_mongo_alias_sync(str(best_c.get("_id") or res["text"]), query)
+                        from database import save_learned_alias
+                        save_learned_alias(query, res["text"])
+                    except Exception:
+                        pass
+                    return res
+        except Exception as e_fuzz:
+            logger.debug(f"[MongoSearch] Typo search error: {e_fuzz}")
 
         return None
     except Exception as e:
         logger.error(f"[MongoSearch] Error querying MongoDB for '{query}': {e}")
         return None
+
+
+def save_mongo_alias_sync(doc_id_or_name: str, alias: str) -> bool:
+    """
+    Saves an alias permanently to the story document in MongoDB using $addToSet.
+    """
+    if not doc_id_or_name or not alias:
+        return False
+    col, client, settings = _get_mongo_client()
+    if col is None:
+        return False
+    clean_alias = _clean_query(alias).strip()
+    if not clean_alias or len(clean_alias) < 2:
+        return False
+    try:
+        from bson import ObjectId
+        query = None
+        if ObjectId.is_valid(doc_id_or_name):
+            query = {"_id": ObjectId(doc_id_or_name)}
+        else:
+            query = {
+                "$or": [
+                    {"story_name_en": doc_id_or_name},
+                    {"story_name": doc_id_or_name},
+                    {"title": doc_id_or_name},
+                    {"name": doc_id_or_name}
+                ]
+            }
+        col.update_one(query, {"$addToSet": {"aliases": clean_alias}})
+        logger.info(f"[MongoSearch] ✅ Saved alias '{clean_alias}' to Mongo story '{doc_id_or_name}'")
+        return True
+    except Exception as e:
+        logger.debug(f"[MongoSearch] Error saving alias to Mongo: {e}")
+        return False
 
 
 async def async_search_story_from_mongo(query: str) -> Optional[Dict[str, Any]]:

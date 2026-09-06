@@ -277,12 +277,24 @@ async def _get_valid_models(client, pid: str, default_model: str) -> list:
     return res
 
 # ── Database Story Context ───────────────────────────────────────────────────
+_AI_DB_STORIES_CACHE = None
+_AI_DB_STORIES_CACHE_TIME = 0
+
 def get_db_stories_info() -> tuple:
-    """Return (titles_list, genres_list) from database."""
+    """Return (titles_list, genres_list) from both local DB and MongoDB catalog."""
+    global _AI_DB_STORIES_CACHE, _AI_DB_STORIES_CACHE_TIME
+    import time
+    now = time.time()
+    if _AI_DB_STORIES_CACHE is not None and (now - _AI_DB_STORIES_CACHE_TIME) < 300:
+        return _AI_DB_STORIES_CACHE
+
+    titles = []
+    genres = []
+
+    # 1. Local Database
     try:
         from database import load_db, load_genre_index
         db = load_db()
-        titles = []
         if db:
             for k, v in db.items():
                 t = v.get("text") or v.get("name") or k
@@ -291,10 +303,28 @@ def get_db_stories_info() -> tuple:
         
         g_map = load_genre_index()
         genres = list(g_map.keys()) if g_map else []
-        return titles, genres
     except Exception as e:
-        logger.debug(f"[AI] Error loading db stories: {e}")
-        return [], []
+        logger.debug(f"[AI] Error loading local db stories: {e}")
+
+    # 2. MongoDB Database
+    try:
+        from mongo_search import _get_mongo_client, extract_smart_field
+        col, client, _ = _get_mongo_client()
+        if col is not None:
+            cursor = col.find({}, {"story_name_en": 1, "story_name_hi": 1, "story_name": 1, "title": 1, "name": 1, "aliases": 1}).limit(2000)
+            for doc in cursor:
+                t = extract_smart_field(doc, "name", "")
+                if t and t not in titles:
+                    titles.append(t)
+                for al in doc.get("aliases", []):
+                    if al and al not in titles:
+                        titles.append(al)
+    except Exception as e_m:
+        logger.debug(f"[AI] Error loading mongo db stories: {e_m}")
+
+    _AI_DB_STORIES_CACHE = (titles, genres)
+    _AI_DB_STORIES_CACHE_TIME = now
+    return titles, genres
 
 # ── API Calls ─────────────────────────────────────────────────────────────────
 async def _call_openai_compat(client, user_id: int, payload: str, model: str, pid: str = "") -> str:
@@ -740,6 +770,11 @@ async def ai_resolve_story_name(query: str) -> Optional[str]:
                 m_norm = normalize_text(matched_title)
                 # Double check confidence threshold
                 if fuzz.partial_ratio(qn, m_norm) >= 60 or fuzz.token_sort_ratio(qn, m_norm) >= 60:
+                    try:
+                        from database import save_learned_alias
+                        save_learned_alias(query, matched_title)
+                    except Exception:
+                        pass
                     return matched_title
     except Exception as e:
         logger.debug(f"[AI] ai_resolve_story_name error: {e}")

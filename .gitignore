@@ -3,6 +3,7 @@ stories_db.json
 story_index.json
 voting_db.json
 search_index.json
+learned_aliases.json
 
 # Python
 __pycache__/

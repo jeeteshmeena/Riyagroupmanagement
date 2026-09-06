@@ -71,7 +71,26 @@ def load_cleaner_config() -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"[StoryCleaner] Failed to read {CONFIG_FILE}: {e}")
 
-    _CONFIG_CACHE = dict(DEFAULT_CONFIG)
+    # Seed from environment or config if not yet set
+    env_groups = os.getenv("CLEANER_GROUPS", "")
+    if not _CONFIG_CACHE.get("target_groups"):
+        if env_groups:
+            g_list = []
+            for g in env_groups.split(","):
+                try:
+                    g_list.append(int(g.strip()))
+                except Exception:
+                    pass
+            if g_list:
+                _CONFIG_CACHE["target_groups"] = g_list
+        else:
+            try:
+                from config import GROUP_ID
+                if GROUP_ID and GROUP_ID not in _CONFIG_CACHE.get("target_groups", []):
+                    _CONFIG_CACHE.setdefault("target_groups", []).append(GROUP_ID)
+            except Exception:
+                pass
+
     return _CONFIG_CACHE
 
 
@@ -189,7 +208,7 @@ def is_story_message(text: str, exact_set: Set[str], sorted_phrases: List[str]) 
 # ── Telethon Client Helper ─────────────────────────────────────────────────────
 
 async def _get_telethon_client():
-    """Returns a connected Telethon client using the existing session or link_checker."""
+    """Returns a connected Telethon client using the existing session, link_checker, or direct StringSession."""
     try:
         from link_checker import checker
         if checker and getattr(checker, "client", None) and checker.client.is_connected():
@@ -199,11 +218,66 @@ async def _get_telethon_client():
 
     try:
         from plugins.auto_storyfi import _get_connected_telethon_client
-        return await _get_connected_telethon_client()
+        c = await _get_connected_telethon_client()
+        if c and c[0] and c[0].is_connected():
+            return c
     except Exception:
         pass
 
+    # Direct connect using configured Telethon string session
+    try:
+        from config import API_ID, API_HASH, SESSION_STRING
+        if SESSION_STRING and API_ID and API_HASH:
+            from telethon import TelegramClient
+            from telethon.sessions import StringSession
+            client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
+            await client.connect()
+            if await client.is_user_authorized():
+                return client, True
+    except Exception as e_direct:
+        logger.debug(f"[StoryCleaner] Direct telethon connect error: {e_direct}")
+
     return None, False
+
+
+# ── Real-Time Story Cleaner Guard ──────────────────────────────────────────────
+
+async def realtime_story_cleaner_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Real-time cleaner for configured target groups:
+    Immediately catches and deletes any user message that contains a story title in configured target groups.
+    """
+    if not update.effective_chat or not update.effective_message:
+        return
+    chat_id = update.effective_chat.id
+    cfg = load_cleaner_config()
+    if not cfg.get("enabled"):
+        return
+    target_groups = cfg.get("target_groups", [])
+    if chat_id not in target_groups:
+        return
+
+    user = update.effective_user
+    if user:
+        try:
+            from stories_bot import is_admin
+            if is_admin(user.id):
+                return
+        except Exception:
+            pass
+
+    text = update.effective_message.text or update.effective_message.caption or ""
+    if not text:
+        return
+
+    exact_set, sorted_phrases = get_all_story_titles()
+    matched, title = is_story_message(text, exact_set, sorted_phrases)
+    if matched:
+        try:
+            await update.effective_message.delete()
+            logger.info(f"[StoryCleaner RealTime] Deleted story title message '{title}' in target group {chat_id}")
+        except Exception as e_del:
+            logger.debug(f"[StoryCleaner RealTime] Failed to delete story msg: {e_del}")
 
 
 # ── Group Cleaner Core ─────────────────────────────────────────────────────────

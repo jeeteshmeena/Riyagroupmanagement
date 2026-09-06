@@ -193,6 +193,11 @@ async def new_member_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         for member in new_members:
             if member.is_bot:
+                try:
+                    if update.message:
+                        await update.message.delete()
+                except Exception:
+                    pass
                 continue
 
             # ── PROFILE / USERNAME GUARD ──────────────────────────────────────

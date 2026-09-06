@@ -26,6 +26,7 @@ def normalize_text(text):
     t = re.sub(r'[@]', ' at ', t)
     
     # Replace all punctuation and special characters with spaces
+    # Bypasses . - , : ; ' " _ ! ? / \ | ~ ( ) [ ] { } * # % ^ = < >
     t = re.sub(r'[^\w\s]', ' ', t)
     
     # Collapse multiple spaces and return clean string
@@ -56,8 +57,78 @@ STATS_FILE = _data_path("stats_db.json")
 SUBS_FILE = _data_path("subs_db.json")
 FORMATS_FILE = _data_path("learned_formats.json")
 STORY_CHANNELS_FILE = _data_path("story_channels.json")
+LEARNED_ALIASES_FILE = _data_path("learned_aliases.json")
 
 _DB_CACHE = None
+_LEARNED_ALIASES_CACHE = None
+
+def load_learned_aliases() -> dict:
+    global _LEARNED_ALIASES_CACHE
+    if _LEARNED_ALIASES_CACHE is not None:
+        return _LEARNED_ALIASES_CACHE
+    if not os.path.exists(LEARNED_ALIASES_FILE):
+        _LEARNED_ALIASES_CACHE = {}
+        return _LEARNED_ALIASES_CACHE
+    try:
+        with open(LEARNED_ALIASES_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            _LEARNED_ALIASES_CACHE = data if isinstance(data, dict) else {}
+            return _LEARNED_ALIASES_CACHE
+    except Exception:
+        _LEARNED_ALIASES_CACHE = {}
+        return _LEARNED_ALIASES_CACHE
+
+def save_learned_alias(alias: str, canonical_name: str, story_data: dict = None) -> None:
+    """
+    Save learned alias mapping so future queries hit immediately.
+    Also propagates to local stories_db.json or MongoDB if applicable.
+    """
+    if not alias or not canonical_name:
+        return
+    a_norm = normalize_text(alias)
+    if not a_norm or len(a_norm) < 2 or a_norm == normalize_text(canonical_name):
+        return
+
+    aliases = load_learned_aliases()
+    if aliases.get(a_norm) == canonical_name:
+        return
+
+    aliases[a_norm] = canonical_name
+    global _LEARNED_ALIASES_CACHE
+    _LEARNED_ALIASES_CACHE = aliases
+
+    try:
+        with open(LEARNED_ALIASES_FILE, "w", encoding="utf-8") as f:
+            json.dump(aliases, f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
+
+    # If story is in local DB, also append to story["aliases"]
+    try:
+        db = load_db()
+        key = canonical_name.lower().strip()
+        matched_key = None
+        for k, v in db.items():
+            if k == key or normalize_text(v.get("text", k)) == normalize_text(canonical_name):
+                matched_key = k
+                break
+        if matched_key:
+            st = db[matched_key]
+            st_aliases = st.setdefault("aliases", [])
+            if alias not in st_aliases:
+                st_aliases.append(alias)
+            if a_norm not in st_aliases:
+                st_aliases.append(a_norm)
+            save_db(db)
+    except Exception:
+        pass
+
+    # If MongoDB story, propagate to MongoDB document
+    try:
+        from mongo_search import save_mongo_alias_sync
+        save_mongo_alias_sync(canonical_name, alias)
+    except Exception:
+        pass
 _DB_MTIME = None
 
 

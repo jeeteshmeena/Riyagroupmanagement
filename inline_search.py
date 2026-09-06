@@ -29,25 +29,18 @@ def search_inline(query, offset):
     sliced = matches[offset: offset + RESULTS_PER_PAGE]
 
     for story in sliced:
-
+        banner = story.get("banner_url") or story.get("banner") or story.get("photo") or story.get("image") or story.get("poster_url")
+        thumb = banner if (banner and str(banner).startswith(("http://", "https://"))) else None
         results.append(
-
             InlineQueryResultArticle(
-
-                id=story["name"],
-
-                title=story["text"],
-
-                description="Open story",
-
+                id=str(story.get("name") or story.get("text", "")),
+                title=story.get("text", story.get("name", "Story")),
+                description=f"{story.get('platform', 'Story')} • {story.get('genre', '')}",
+                thumbnail_url=thumb,
                 input_message_content=InputTextMessageContent(
-
-                    f"{story['text']}\n{story['link']}"
-
+                    f"{story.get('text', '')}\n{story.get('link', '')}"
                 )
-
             )
-
         )
 
     next_offset = offset + RESULTS_PER_PAGE

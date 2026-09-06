@@ -68,6 +68,22 @@ def _get_cache():
                 al_tokens = frozenset(al_norm.split())
                 if len(al_tokens) >= 1:
                     new_tokens[al_tokens] = data
+
+    # Integrate learned aliases from persistent storage
+    try:
+        learned = database.load_learned_aliases()
+        for al, canonical in (learned or {}).items():
+            al_norm = normalize_text(al)
+            if al_norm:
+                can_norm = normalize_text(canonical)
+                target_data = new_exact.get(clean_story(canonical).lower()) or new_norm.get(can_norm)
+                if target_data:
+                    new_alias[al_norm] = target_data
+                    toks = frozenset(al_norm.split())
+                    if len(toks) >= 1:
+                        new_tokens[toks] = target_data
+    except Exception:
+        pass
                 
     _exact_cache = new_exact
     _norm_cache = new_norm
@@ -97,10 +113,10 @@ def search_story_exact_or_alias(query):
     Robust High-Precision Story Match:
     1. Exact story title match (case-insensitive)
     2. Normalized story title match (bypassing punctuation, symbols like &, +, @)
-    3. Alias exact and normalized match
+    3. Alias exact and normalized match (including persistent learned aliases)
     4. Token-set exact match (e.g. "Mr and Mrs agent" == "Mr. & Mrs. Agent")
     5. Cleaned platform / season suffix match
-    6. High-confidence fuzzy match with length safety guard
+    6. Smart fuzzy match with 1-2 character typo tolerance and auto-learn
     """
     _get_cache()  # ensure cache is warm
     if not query:
@@ -125,10 +141,27 @@ def search_story_exact_or_alias(query):
     if qn and qn in _alias_cache:
         return _alias_cache[qn]
 
+    # Check learned aliases directly in case cache was refreshed
+    try:
+        learned = database.load_learned_aliases()
+        if qn in learned:
+            can = learned[qn]
+            match = _exact_cache.get(clean_story(can).lower()) or _norm_cache.get(normalize_text(can))
+            if match:
+                return match
+    except Exception:
+        pass
+
     # 4. Token-set match (handles word reordering & punctuation/symbol differences)
     q_tokens = frozenset(qn.split())
     if q_tokens and q_tokens in _token_cache:
-        return _token_cache[q_tokens]
+        matched_data = _token_cache[q_tokens]
+        # Auto-learn variant
+        try:
+            database.save_learned_alias(query, matched_data.get("text", matched_data.get("name", "")))
+        except Exception:
+            pass
+        return matched_data
 
     # 5. Clean platform tags from query: e.g. "Vashikaran Pocket FM" -> "Vashikaran"
     clean_q = q
@@ -155,8 +188,8 @@ def search_story_exact_or_alias(query):
     
     for norm_title, data in _norm_cache.items():
         t_len = len(norm_title)
-        # Length guard: title length must be close (within 4 chars or 30%)
-        if abs(t_len - qn_len) > max(4, int(0.30 * max(t_len, qn_len))):
+        # Length guard: title length must be close (within 5 chars or 35%)
+        if abs(t_len - qn_len) > max(5, int(0.35 * max(t_len, qn_len))):
             continue
             
         ratio = fuzz.ratio(qn, norm_title)
@@ -166,14 +199,21 @@ def search_story_exact_or_alias(query):
         # Token set ratio for multi-word titles with slight additions
         if len(q_tokens) >= 2 and len(norm_title.split()) >= 2:
             set_ratio = fuzz.token_set_ratio(qn, norm_title)
-            if set_ratio >= 92 and score < 85:
-                score = set_ratio
+            if set_ratio >= 88:
+                score = max(score, set_ratio)
                 
-        if score >= 84 and score > best_score:
+        # Typo threshold: 78 for multi-word/longer titles (allows 1-2 char typos), 84 for short 1-word
+        threshold = 78 if (len(q_tokens) >= 2 or qn_len >= 6) else 84
+        if score >= threshold and score > best_score:
             best_score = score
             best_match = data
             
     if best_match:
+        # Auto-learn successful typo correction permanently
+        try:
+            database.save_learned_alias(query, best_match.get("text", best_match.get("name", "")))
+        except Exception:
+            pass
         return best_match
 
     return None

@@ -6177,20 +6177,111 @@ async def inline_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not query:
         return
 
-    results = fast_search_contains(query, limit=10)
+    # 1. Search Local Database & Cached Aliases
+    matched_stories = []
+    seen_keys = set()
+
+    # Exact or alias match
+    from search_engine import search_story_exact_or_alias, search_stories_by_keyword
+    direct_match = search_story_exact_or_alias(query)
+    if direct_match:
+        k = clean_story(direct_match.get("text", direct_match.get("name", ""))).lower()
+        if k not in seen_keys:
+            seen_keys.add(k)
+            matched_stories.append(direct_match)
+
+    # Keyword search local DB
+    for item in search_stories_by_keyword(query, limit=8):
+        k = clean_story(item.get("text", item.get("name", ""))).lower()
+        if k not in seen_keys:
+            seen_keys.add(k)
+            matched_stories.append(item)
+
+    # Fast contains fallback from index
+    if len(matched_stories) < 10:
+        for s_title in fast_search_contains(query, limit=10 - len(matched_stories)):
+            res_obj = get_story(clean_story(s_title).lower())
+            if res_obj:
+                k = clean_story(res_obj.get("text", res_obj.get("name", ""))).lower()
+                if k not in seen_keys:
+                    seen_keys.add(k)
+                    matched_stories.append(res_obj)
+
+    # 2. Search MongoDB if fewer than 10 results
+    if len(matched_stories) < 10:
+        try:
+            from mongo_search import search_story_from_mongo_sync, search_mongo_stories_by_keyword_sync
+            m_direct = search_story_from_mongo_sync(query)
+            if m_direct:
+                k = clean_story(m_direct.get("text", m_direct.get("name", ""))).lower()
+                if k not in seen_keys:
+                    seen_keys.add(k)
+                    matched_stories.append(m_direct)
+
+            for m_item in search_mongo_stories_by_keyword_sync(query, limit=10 - len(matched_stories)):
+                k = clean_story(m_item.get("text", m_item.get("name", ""))).lower()
+                if k not in seen_keys:
+                    seen_keys.add(k)
+                    matched_stories.append(m_item)
+        except Exception as e_m_inline:
+            logger.debug(f"[InlineSearch Mongo] {e_m_inline}")
 
     articles = []
 
-    for story in results:
-        res = get_story(clean_story(story).lower())
-        link = res.get("link") if res else ""
+    for res in matched_stories:
+        title_str = clean_story(res.get("text", res.get("name", "Story")))
+        link = (res.get("link") or "").strip()
+        platform = res.get("platform", "Pocket FM")
+        status = res.get("status", "Completed")
+        genre = res.get("genre", "Drama")
+
+        # Extract story banner / poster image URL
+        banner_url = (
+            res.get("banner_url")
+            or res.get("banner")
+            or res.get("banner_image")
+            or res.get("poster_url")
+            or res.get("square_poster")
+            or res.get("photo")
+            or res.get("image")
+            or res.get("cover")
+        )
+        if banner_url and isinstance(banner_url, str):
+            banner_url = banner_url.strip()
+            if not banner_url.startswith(("http://", "https://")):
+                # Check for Telegram file_id resolution
+                try:
+                    from mongo_search import resolve_file_id_via_source_bot
+                    resolved = resolve_file_id_via_source_bot(banner_url)
+                    if resolved:
+                        banner_url = resolved
+                    else:
+                        banner_url = None
+                except Exception:
+                    banner_url = None
+        else:
+            banner_url = None
+
         keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("➔ Open Story", url=link)]]) if link else None
+
+        desc = f"{platform} • {status} • {genre}"
+        msg_text = (
+            f"<b>📖 {html.escape(title_str)}</b>\n"
+            f"<b>Platform:</b> {html.escape(str(platform))}\n"
+            f"<b>Status:</b> {html.escape(str(status))}\n"
+            f"<b>Genre:</b> {html.escape(str(genre))}\n"
+            + (f"\n🔗 <a href=\"{link}\">Open Story</a>" if link else "")
+        )
 
         articles.append(
             InlineQueryResultArticle(
-                id=clean_story(story).lower(),
-                title=clean_story(story),
-                input_message_content=InputTextMessageContent(clean_story(story)),
+                id=str(res.get("mongo_id") or clean_story(title_str).lower())[:64],
+                title=title_str,
+                description=desc,
+                thumbnail_url=banner_url,
+                thumbnail_width=100 if banner_url else None,
+                thumbnail_height=100 if banner_url else None,
+                input_message_content=InputTextMessageContent(msg_text, parse_mode="HTML"),
                 reply_markup=keyboard
             )
         )
@@ -6262,6 +6353,8 @@ async def chat_member_update(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 _CHAT_ADMIN_BOTS_CACHE: dict = {}
+_CHAT_RECENT_MESSAGES: dict = {}
+_GLOBAL_BANNED_BOTS: set = set()
 
 async def _get_chat_admin_bot_ids(chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> set:
     now = time.time()
@@ -6289,10 +6382,12 @@ async def anti_bot_addition_guard(update: Update, context: ContextTypes.DEFAULT_
     1. If any non-admin bot sends ANY message in a group:
        - Instantly delete its message.
        - Permanently ban the unauthorized bot & revoke all its messages.
+       - Purge any buffered recent messages from that bot.
        - Stop propagation.
     2. If any non-admin user adds a bot to a group:
        - Instantly delete the join service message.
        - Permanently ban the added bot from the group & revoke its messages.
+       - Instantly purge any messages posted by the bot via message buffer + active sweep.
        - Instantly mute the user who added the bot for 24 Hours (86,400s).
        - Send a clear warning alert in the group.
        - Stop propagation.
@@ -6303,12 +6398,20 @@ async def anti_bot_addition_guard(update: Update, context: ContextTypes.DEFAULT_
 
     eff_msg = update.effective_message
 
-    # ── Case A: Intercept any message sent by an unauthorized bot in the group ─
+    # Record message in recent chat sliding buffer for tracking and purging
+    if eff_msg and eff_msg.message_id:
+        from collections import deque
+        s_id = eff_msg.from_user.id if eff_msg.from_user else 0
+        dq = _CHAT_RECENT_MESSAGES.setdefault(chat.id, deque(maxlen=100))
+        dq.append((eff_msg.message_id, s_id, time.time()))
+
+    # ── Case A: Intercept any message sent by an unauthorized or blacklisted bot ─
     if eff_msg and eff_msg.from_user:
         msg_user = eff_msg.from_user
-        if msg_user.is_bot and (not context.bot or msg_user.id != context.bot.id):
+        if (msg_user.is_bot and (not context.bot or msg_user.id != context.bot.id)) or msg_user.id in _GLOBAL_BANNED_BOTS:
             admin_bot_ids = await _get_chat_admin_bot_ids(chat.id, context)
             if msg_user.id not in admin_bot_ids:
+                _GLOBAL_BANNED_BOTS.add(msg_user.id)
                 # 1. Instantly delete unauthorized bot's message
                 try:
                     await eff_msg.delete()
@@ -6321,6 +6424,15 @@ async def anti_bot_addition_guard(update: Update, context: ContextTypes.DEFAULT_
                     logger.warning(f"[AntiBot] Permanently banned non-admin bot @{msg_user.username or msg_user.id} and revoked messages in {chat.id}")
                 except Exception as _e_bban:
                     logger.debug(f"[AntiBot] Failed to ban posting bot {msg_user.id}: {_e_bban}")
+
+                # 3. Purge any other recent messages from this bot in buffer
+                dq = _CHAT_RECENT_MESSAGES.get(chat.id, [])
+                for m_id, sender_id, _ in list(dq):
+                    if sender_id == msg_user.id:
+                        try:
+                            await context.bot.delete_message(chat_id=chat.id, message_id=m_id)
+                        except Exception:
+                            pass
 
                 raise Application.StopPropagation
 
@@ -6369,6 +6481,7 @@ async def anti_bot_addition_guard(update: Update, context: ContextTypes.DEFAULT_
 
     # NON-ADMIN ADDED A BOT -> STRICT ENFORCEMENT
     # 1. Delete the service message immediately
+    base_mid = eff_msg.message_id if eff_msg else 0
     if eff_msg:
         try:
             await eff_msg.delete()
@@ -6376,6 +6489,7 @@ async def anti_bot_addition_guard(update: Update, context: ContextTypes.DEFAULT_
             pass
 
     for bot_user in new_bot_members:
+        _GLOBAL_BANNED_BOTS.add(bot_user.id)
         logger.warning(f"[AntiBot] Non-admin {adder.id if adder else 'unknown'} added bot @{bot_user.username or bot_user.id} in chat {chat.id}")
         
         # 1. Permanently ban the added bot and purge all its messages using revoke_messages=True
@@ -6384,7 +6498,45 @@ async def anti_bot_addition_guard(update: Update, context: ContextTypes.DEFAULT_
         except Exception as e_bot:
             logger.error(f"[AntiBot] Failed to ban bot {bot_user.id}: {e_bot}")
 
-        # 2. Mute the adder for 24 HOURS (86,400 seconds)
+        # 2. Immediately purge any buffered recent messages from this bot
+        dq = _CHAT_RECENT_MESSAGES.get(chat.id, [])
+        for m_id, sender_id, _ in list(dq):
+            if sender_id == bot_user.id:
+                try:
+                    await context.bot.delete_message(chat_id=chat.id, message_id=m_id)
+                except Exception:
+                    pass
+
+        # 3. Probe and delete message IDs around join event
+        if base_mid:
+            for probe_id in range(max(1, base_mid - 10), base_mid + 5):
+                if probe_id != base_mid:
+                    try:
+                        await context.bot.delete_message(chat_id=chat.id, message_id=probe_id)
+                    except Exception:
+                        pass
+
+        # 4. Asynchronous delayed sweep to kill any in-flight messages from this bot
+        async def _sweep_bot_messages(target_bot_id: int, c_id: int, b_mid: int):
+            for delay in (1.0, 2.5, 5.0):
+                await asyncio.sleep(delay)
+                buf_dq = _CHAT_RECENT_MESSAGES.get(c_id, [])
+                for mid_val, s_val, _ in list(buf_dq):
+                    if s_val == target_bot_id:
+                        try:
+                            await context.bot.delete_message(chat_id=c_id, message_id=mid_val)
+                        except Exception:
+                            pass
+                if b_mid:
+                    for probe_id in range(b_mid, b_mid + 8):
+                        try:
+                            await context.bot.delete_message(chat_id=c_id, message_id=probe_id)
+                        except Exception:
+                            pass
+
+        asyncio.create_task(_sweep_bot_messages(bot_user.id, chat.id, base_mid))
+
+        # 5. Mute the adder for 24 HOURS (86,400 seconds)
         if adder and (not context.bot or adder.id != context.bot.id):
             mute_until = int(time.time()) + 86400  # 24 Hours
             try:
@@ -6407,7 +6559,7 @@ async def anti_bot_addition_guard(update: Update, context: ContextTypes.DEFAULT_
             except Exception as e_mute:
                 logger.error(f"[AntiBot] Failed to mute adder {adder.id}: {e_mute}")
 
-        # 3. Send Security Alert in Group
+        # 6. Send Security Alert in Group
         adder_mention = adder.mention_html() if adder else "User"
         bot_display = f"@{bot_user.username}" if bot_user.username else f"<b>{html.escape(bot_user.first_name)}</b>"
         
@@ -11042,8 +11194,9 @@ def start_bot():
     app.add_handler(CommandHandler("schedview", sched_view))
     app.add_handler(CommandHandler(["addchannels", "addchannel"], add_storyfi_channels_cmd))
     app.add_handler(CommandHandler(["unlinkedstories", "unmatchedstories"], unlinked_stories_cmd))
-    from plugins.story_cleaner import clean_stories_command
+    from plugins.story_cleaner import clean_stories_command, realtime_story_cleaner_guard
     app.add_handler(CommandHandler(["cleanstories", "clean_stories"], clean_stories_command))
+    app.add_handler(MessageHandler(filters.ChatType.GROUPS & ~filters.COMMAND, realtime_story_cleaner_guard), group=25)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("menu", menu_cmd))
     app.add_handler(CommandHandler("scan", scan))
