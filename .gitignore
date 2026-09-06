@@ -4,6 +4,8 @@ story_index.json
 voting_db.json
 search_index.json
 learned_aliases.json
+auto_storyfi_config.json
+poster_settings.json
 
 # Python
 __pycache__/

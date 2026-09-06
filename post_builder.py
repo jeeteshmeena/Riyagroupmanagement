@@ -585,11 +585,15 @@ async def start_builder(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif cb.startswith("pb_mongo_prefill|"):
             story_id = cb.split("|")[1]
             try:
-                from plugins.poster_bot import get_story_by_id_from_mongo, load_poster_settings
+                from plugins.poster_bot import get_story_by_id_from_mongo, load_poster_settings, is_excluded_poster_platform
                 settings = load_poster_settings()
                 story = await get_story_by_id_from_mongo(story_id)
                 if not story:
                     await update.callback_query.message.reply_text("❌ Could not fetch story from MongoDB.")
+                    return ConversationHandler.END
+
+                if is_excluded_poster_platform(story):
+                    await update.callback_query.message.reply_text("❌ Stories from Kuku TV and Story TV are excluded from Paid Post Builder.")
                     return ConversationHandler.END
 
                 story_name = (

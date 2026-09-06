@@ -12,6 +12,7 @@ import io
 import json
 import logging
 import os
+import re
 import time
 from typing import Tuple, Dict, Any, Optional, List
 
@@ -88,6 +89,94 @@ def save_poster_settings(data: Dict[str, Any]) -> None:
 
 
 # ------------------------------------------------------------------------------
+# EXCLUDED PLATFORMS GUARD (Kuku TV & Story TV)
+# ------------------------------------------------------------------------------
+# Note: Kuku FM is an audio platform and is NOT excluded. Only Kuku TV and Story TV are excluded.
+EXCLUDED_POSTER_PLATFORMS = {"kukutv", "storytv"}
+
+
+def is_excluded_poster_platform(story: Optional[Dict[str, Any]]) -> bool:
+    """
+    Checks if a story originates from an excluded platform:
+    'Kuku TV' or 'Story TV'.
+    These platforms must be skipped by Poster Bot auto-posting,
+    Auto Storyfi, and automated paid post builders / suggestions,
+    but remain fully available for search (inline search & story search).
+    """
+    if not isinstance(story, dict):
+        return False
+
+    def _matches_excluded(text: Any) -> bool:
+        if text is None:
+            return False
+        if isinstance(text, (list, tuple, set)):
+            return any(_matches_excluded(item) for item in text)
+        if isinstance(text, dict):
+            return any(_matches_excluded(v) for v in text.values())
+        if not isinstance(text, str):
+            text = str(text)
+        
+        # 1. Normalized alphanumeric check
+        clean = re.sub(r"[^a-z0-9]", "", text.lower())
+        if any(p in clean for p in EXCLUDED_POSTER_PLATFORMS):
+            return True
+            
+        # 2. Regex check with word boundaries (e.g. "kuku tv", "kuku_tv", "story-tv")
+        if re.search(r"\b(kuku[\s\-_]*tv|story[\s\-_]*tv)\b", text, re.IGNORECASE):
+            return True
+            
+        return False
+
+    # 1. Check all direct and platform-like fields
+    check_keys = [
+        "platform", "Platform", "platform_name", "PlatformName",
+        "source", "Source", "source_name", "SourceName",
+        "app", "App", "app_name", "appName",
+        "channel", "Channel", "channel_name", "channel_title", "source_channel",
+        "channel_platform", "service", "provider", "category", "categories",
+        "ott", "ott_platform", "type", "series_type", "origin", "tag", "tags",
+        "link", "url", "story_url", "web_url", "post_url",
+    ]
+    for k in check_keys:
+        if k in story and _matches_excluded(story[k]):
+            return True
+
+    # 2. Check title / story name for explicit platform badges like [Kuku TV], (Story TV), etc.
+    for title_k in ["title", "name", "story_name", "story_name_en", "story_name_hi", "book_name"]:
+        val = story.get(title_k)
+        if val and isinstance(val, str):
+            if re.search(r"[\(\[\{\|\-\:\/]\s*(kuku[\s\-_]*tv|story[\s\-_]*tv)\b", val, re.IGNORECASE) or \
+               re.search(r"\b(kuku[\s\-_]*tv|story[\s\-_]*tv)\s*[\)\]\}\|\-\:\/]", val, re.IGNORECASE):
+                return True
+
+    # 3. Check smart field extract
+    try:
+        if "extract_smart_field" in globals():
+            s_plat = extract_smart_field(story, "platform", default="")
+            if s_plat and _matches_excluded(s_plat):
+                return True
+    except Exception:
+        pass
+
+    # 4. Check nested metadata / extra dictionaries
+    for meta_k in ["metadata", "meta", "extra", "info", "raw"]:
+        meta = story.get(meta_k)
+        if isinstance(meta, dict):
+            if _matches_excluded(meta):
+                return True
+
+    # 5. Check description if it explicitly states Platform: Kuku TV / Story TV
+    for desc_k in ["description", "desc", "synopsis", "about"]:
+        desc_val = story.get(desc_k)
+        if desc_val and isinstance(desc_val, str):
+            if re.search(r"(?:platform|source|app|channel)\s*[:=\-]\s*(?:kuku[\s\-_]*tv|story[\s\-_]*tv)", desc_val, re.IGNORECASE) or \
+               re.search(r"#(?:kukutv|storytv)\b", desc_val, re.IGNORECASE):
+                return True
+
+    return False
+
+
+# ------------------------------------------------------------------------------
 # 1. READ-ONLY MONGODB INTEGRATION
 # ------------------------------------------------------------------------------
 
@@ -95,6 +184,7 @@ def _fetch_mongo_story_sync(mongo_uri: str, db_name: str, col_name: str, rot_idx
     """
     Synchronously query MongoDB in STRICT READ-ONLY mode.
     Only count_documents({}) and find().skip().limit() are used.
+    Excludes stories from Kuku TV and Story TV.
     NO write, insert, update, or delete operations are ever performed.
     """
     if pymongo is None:
@@ -108,12 +198,26 @@ def _fetch_mongo_story_sync(mongo_uri: str, db_name: str, col_name: str, rot_idx
     try:
         db = client[db_name]
         col = db[col_name]
-        total = col.count_documents({})
+        mongo_filter = {
+            "$and": [
+                {"platform": {"$not": {"$regex": r"kuku[\s\-_]*tv|story[\s\-_]*tv", "$options": "i"}}},
+                {"Platform": {"$not": {"$regex": r"kuku[\s\-_]*tv|story[\s\-_]*tv", "$options": "i"}}},
+                {"source": {"$not": {"$regex": r"kuku[\s\-_]*tv|story[\s\-_]*tv", "$options": "i"}}},
+                {"app": {"$not": {"$regex": r"kuku[\s\-_]*tv|story[\s\-_]*tv", "$options": "i"}}},
+                {"channel": {"$not": {"$regex": r"kuku[\s\-_]*tv|story[\s\-_]*tv", "$options": "i"}}},
+            ]
+        }
+        total = col.count_documents(mongo_filter)
         if total == 0:
-            return None, 0
+            total = col.count_documents({})
+            if total == 0:
+                return None, 0
+            actual_idx = rot_idx % total
+            cursor = col.find().skip(actual_idx).limit(1)
+        else:
+            actual_idx = rot_idx % total
+            cursor = col.find(mongo_filter).skip(actual_idx).limit(1)
 
-        actual_idx = rot_idx % total
-        cursor = col.find().skip(actual_idx).limit(1)
         docs = list(cursor)
         story = docs[0] if docs else None
         return story, total
@@ -505,6 +609,23 @@ async def publish_next_story(app) -> Tuple[bool, str]:
     if not story or total == 0:
         return False, "No stories found in MongoDB collection 'premium_stories'."
 
+    # Skip stories from excluded platforms (Kuku TV / Story TV)
+    for _ in range(min(total, 50)):
+        if not story:
+            break
+        if is_excluded_poster_platform(story):
+            s_title = story.get("title") or story.get("story_name") or "Story"
+            logger.info(f"[PosterBot] Skipping excluded platform story in rotation: '{s_title}' (platform={story.get('platform')})")
+            next_rot = (settings.get("rot_idx", 0) + 1) % max(1, total)
+            settings["rot_idx"] = next_rot
+            save_poster_settings(settings)
+            story, total = await get_next_story_from_mongo(settings)
+            continue
+        break
+
+    if not story or is_excluded_poster_platform(story):
+        return False, "No eligible stories found (excluded platforms skipped)."
+
     # 1. Story Name Resolution Formula:
     story_name = (
         story.get("story_name_en") or
@@ -645,6 +766,12 @@ async def process_pending_deletions(app, settings: Dict[str, Any]) -> None:
 
 async def publish_story_doc(app, story: Dict[str, Any], target_channel: str) -> Tuple[bool, str]:
     """Publish a specific MongoDB story document to the target channel with watermark & buy button."""
+    if is_excluded_poster_platform(story):
+        story_name = extract_field(story, ["story_name_en", "story_name_hi", "name", "story_name", "title"], default="Story")
+        plat = story.get("platform") or story.get("source") or "Kuku TV / Story TV"
+        logger.info(f"[PosterBot] publish_story_doc skipped: '{story_name}' is from excluded platform ({plat})")
+        return False, f"Story '{story_name}' is from excluded platform ({plat}). Skipped."
+
     settings = load_poster_settings()
     
     # 1. Story Name
@@ -779,6 +906,15 @@ async def check_and_notify_new_mongo_stories(app) -> None:
     save_poster_settings(settings)
 
     for story in new_found:
+        if is_excluded_poster_platform(story):
+            s_name = (
+                story.get("story_name_en") or story.get("story_name_hi") or
+                story.get("story_name") or story.get("title") or "Story"
+            )
+            plat = story.get("platform") or story.get("source") or "Kuku TV / Story TV"
+            logger.info(f"[PosterBot] Skipping new MongoDB story from excluded platform: '{s_name}' (platform={plat})")
+            continue
+
         story_id = str(story.get("_id", ""))
         story_name = (
             story.get("story_name_en") or story.get("story_name_hi") or

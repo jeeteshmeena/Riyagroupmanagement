@@ -188,6 +188,7 @@ def _get_cached_story_catalog(force_refresh: bool = False) -> List[Dict[str, Any
     catalog: List[Dict[str, Any]] = []
     try:
         from mongo_search import _get_mongo_client
+        from plugins.poster_bot import is_excluded_poster_platform
         collection, client, _ = _get_mongo_client()
         if collection is not None:
             projection = {
@@ -197,10 +198,21 @@ def _get_cached_story_catalog(force_refresh: bool = False) -> List[Dict[str, Any
                 "story_name": 1,
                 "title": 1,
                 "name": 1,
-                "aliases": 1
+                "aliases": 1,
+                "platform": 1,
+                "Platform": 1,
+                "source": 1,
+                "Source": 1,
+                "app": 1,
+                "link": 1,
+                "url": 1,
             }
             cursor = collection.find({}, projection).limit(3000)
             for d in cursor:
+                # Skip stories from excluded platforms (Kuku TV / Story TV)
+                if is_excluded_poster_platform(d):
+                    continue
+
                 sid = str(d.get("_id"))
                 titles = []
                 for f in ["story_name_en", "story_name_hi", "story_name", "title", "name"]:
@@ -220,11 +232,12 @@ def _get_cached_story_catalog(force_refresh: bool = False) -> List[Dict[str, Any
                     "_id": sid,
                     "primary_name": primary_name,
                     "titles": titles,
-                    "titles_lower": [t.lower() for t in titles]
+                    "titles_lower": [t.lower() for t in titles],
+                    "platform": d.get("platform") or d.get("source") or ""
                 })
             _TITLE_CATALOG = catalog
             _TITLE_CATALOG_TIME = now
-            logger.info(f"[AutoStoryfi] Cached {len(catalog)} story titles from MongoDB.")
+            logger.info(f"[AutoStoryfi] Cached {len(catalog)} story titles from MongoDB (excluded platforms filtered).")
     except Exception as e:
         logger.debug(f"[AutoStoryfi] Title catalog fetch error: {e}")
     return catalog or []
@@ -340,9 +353,10 @@ def find_story_for_channel_sync(channel_title: str, config: Optional[Dict[str, A
     # 2. Fallback to search_story_from_mongo_sync
     try:
         from mongo_search import search_story_from_mongo_sync
+        from plugins.poster_bot import is_excluded_poster_platform
         for cand in candidates:
             res = search_story_from_mongo_sync(cand)
-            if res:
+            if res and not is_excluded_poster_platform(res):
                 return res
     except Exception:
         pass
@@ -351,18 +365,19 @@ def find_story_for_channel_sync(channel_title: str, config: Optional[Dict[str, A
     try:
         from database import load_db
         from search_engine import search_story_exact_or_alias, search_stories_by_keyword
+        from plugins.poster_bot import is_excluded_poster_platform
         for cand in candidates:
             res = search_story_exact_or_alias(cand)
-            if res:
+            if res and not is_excluded_poster_platform(res):
                 return res
             res_kw = search_stories_by_keyword(cand)
-            if res_kw:
+            if res_kw and not is_excluded_poster_platform(res_kw[0]):
                 return res_kw[0]
         db = load_db()
         for cand in candidates:
             c_low = cand.lower()
             for k, v in db.items():
-                if c_low == k.lower() or c_low in k.lower() or k.lower() in c_low:
+                if (c_low == k.lower() or c_low in k.lower() or k.lower() in c_low) and not is_excluded_poster_platform(v if isinstance(v, dict) else {}):
                     return v
     except Exception:
         pass
@@ -526,6 +541,19 @@ async def publish_story_to_channel(bot, chat_id: int, channel_info: Dict[str, An
             except Exception:
                 pass
         return False, f"No story found for '{clean_title}'"
+
+    from plugins.poster_bot import is_excluded_poster_platform
+    if is_excluded_poster_platform(story):
+        story_name = (
+            story.get("story_name_en") or
+            story.get("story_name_hi") or
+            story.get("story_name") or
+            story.get("title") or
+            "Story"
+        )
+        plat = story.get("platform") or story.get("source") or "Kuku TV / Story TV"
+        logger.info(f"[AutoStoryfi] Skipping post to channel {chat_id}: '{story_name}' is from excluded platform ({plat})")
+        return False, f"Story '{story_name}' is from excluded platform ({plat}). Skipped."
 
     story_name = (
         story.get("story_name_en") or
@@ -1062,6 +1090,9 @@ async def scan_and_sync_admin_channels(bot, context: ContextTypes.DEFAULT_TYPE) 
                         username = chat.username or ""
                         clean_title = clean_channel_title_for_story(title)
                         matched_story = find_story_for_channel_sync(title, config)
+                        from plugins.poster_bot import is_excluded_poster_platform
+                        if matched_story and is_excluded_poster_platform(matched_story):
+                            matched_story = None
 
                         m_stories = []
                         if matched_story:
@@ -1689,6 +1720,12 @@ async def handle_storyfi_callbacks(query, context: ContextTypes.DEFAULT_TYPE, pa
 
         if not matched_item:
             try: await query.answer("Story not found in catalog.", show_alert=True)
+            except Exception: pass
+            return
+
+        from plugins.poster_bot import is_excluded_poster_platform
+        if is_excluded_poster_platform(matched_item):
+            try: await query.answer("❌ Stories from Kuku TV / Story TV cannot be added to Auto Storyfi.", show_alert=True)
             except Exception: pass
             return
 
