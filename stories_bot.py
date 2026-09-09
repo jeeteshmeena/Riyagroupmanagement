@@ -2484,36 +2484,31 @@ async def check_story_request_validity(story_name: str, user_id: int, chat_id: s
 async def start_request_form(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Entry point for the interactive story request form in Private Chat."""
     chat = update.effective_chat
-    if chat.type in ("group", "supergroup"):
-        bot_user = context.bot.username
-        form_url = f"https://t.me/{bot_user}?start=request"
-        tutorial_kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("「 𝗥𝗲𝗾𝘂𝗲𝘀𝘁 𝗩𝗶𝗮 𝗗𝗠 」", url=form_url)]
-        ])
-        text = (
-            "<b>Story Requests Are Available Only in Private Chat</b>\n\n"
-            "Now Story Requests can't be submitted in groups.\n"
-            "Tap 「 𝗥𝗲𝗾𝘂𝗲𝘀𝘁 𝗩𝗶𝗮 𝗗𝗠 」 below to open a private chat with "
-            "<u>Riya Bot</u> and submit your Story Request there."
-        )
-        await chat.send_message(text=text, parse_mode="HTML", reply_markup=tutorial_kb)
-        return ConversationHandler.END
 
-    # Private chat flow
-    context.user_data["req_data"] = {}
-    
-    text = (
-        "◎ <b>𝗦𝗧𝗢𝗥𝗬 𝗥𝗘𝗤𝗨𝗘𝗦𝗧 𝗙𝗢𝗥𝗠</b>\n\n"
-        "◈ Step 1: Story Name\n\n"
-        "◑ Please enter the correct story name.\n\n"
-        "▸ You can type \"cancel\" anytime to exit."
+    down_text = (
+        "<blockquote>Request Story Feature is currently down by Team.\n"
+        "Please check back later — we will restore it as soon as possible.</blockquote>\n\n"
+        "<blockquote>Story Request Feature अभी Team द्वारा बंद है।\n"
+        "कृपया बाद में पुनः प्रयास करें — हम इसे जल्द से जल्द बहाल करेंगे।</blockquote>"
     )
-    await update.effective_chat.send_message(
-        text=text, 
-        parse_mode="HTML", 
-        reply_markup=ReplyKeyboardRemove()
+
+    sent = await chat.send_message(
+        text=down_text,
+        parse_mode="HTML",
+        disable_web_page_preview=True,
     )
-    return REQ_NAME
+
+    delay = 30 if chat.type in ("group", "supergroup") else 60
+
+    async def _delete_reply():
+        await asyncio.sleep(delay)
+        try:
+            await sent.delete()
+        except Exception:
+            pass
+
+    asyncio.create_task(_delete_reply())
+    return ConversationHandler.END
 
 
 async def handle_req_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2865,253 +2860,43 @@ async def request_story(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     chat = update.effective_chat
-    bot_user = context.bot.username
-    form_url = f"https://t.me/{bot_user}?start=request"
 
-    # Always delete the /request command message from the group after 5 seconds
-    async def _delete_cmd_msg():
+    down_text = (
+        "<blockquote>Request Story Feature is currently down by Team.\n"
+        "Please check back later — we will restore it as soon as possible.</blockquote>\n\n"
+        "<blockquote>Story Request Feature अभी Team द्वारा बंद है।\n"
+        "कृपया बाद में पुनः प्रयास करें — हम इसे जल्द से जल्द बहाल करेंगे।</blockquote>"
+    )
+
+    sent = await update.effective_chat.send_message(
+        text=down_text,
+        parse_mode="HTML",
+        disable_web_page_preview=True,
+    )
+
+    # Auto-delete command message from group
+    async def _delete_cmd():
         await asyncio.sleep(5)
         try:
             await update.message.delete()
         except Exception:
             pass
 
-    if update.message and chat.type in ("group", "supergroup"):
-        asyncio.create_task(_delete_cmd_msg())
+    # Auto-delete reply after 30s in groups, 60s in private
+    delay = 30 if chat.type in ("group", "supergroup") else 60
 
-    # ── GROUP CHAT ROUTING: Redirect to PM request form ────────────────────────
-    if chat.type in ("group", "supergroup"):
-        lang = get_chat_lang(chat.id)
-        tutorial_kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("「 𝗥𝗲𝗾𝘂𝗲𝘀𝘁 𝗩𝗶𝗮 𝗗𝗠 」", url=form_url)],
-            [get_tutorial_inline_button()]
-        ])
-
-        if lang == "hi":
-            warn_text = (
-                "<b>Story Requests Are Available Only in Private Chat</b>\n\n"
-                "Now Story Requests can't be submitted in groups.\n"
-                "Tap 「 𝗥𝗲𝗾𝘂𝗲𝘀𝘁 𝗩𝗶𝗮 𝗗𝗠 」 below to open a private chat with "
-                "<u>Riya Bot</u> and submit your Story Request there."
-            )
-        else:
-            warn_text = (
-                "<b>Story Requests Are Available Only in Private Chat</b>\n\n"
-                "Now Story Requests can't be submitted in groups.\n"
-                "Tap 「 𝗥𝗲𝗾𝘂𝗲𝘀𝘁 𝗩𝗶𝗮 𝗗𝗠 」 below to open a private chat with "
-                "<u>Riya Bot</u> and submit your Story Request there."
-            )
-
-        warn_msg = await update.effective_chat.send_message(warn_text, parse_mode="HTML", reply_markup=tutorial_kb)
-
-        async def _delete_warn():
-            await asyncio.sleep(30)
-            try:
-                await warn_msg.delete()
-            except Exception:
-                pass
-
-        asyncio.create_task(_delete_warn())
-        return ConversationHandler.END
-
-    # ── PRIVATE CHAT ROUTING: Redirect to Form conversation entry ──────────────
-    if chat.type == "private":
-        if not context.args:
-            return await start_request_form(update, context)
-
-    # Parse story name and optional platform from args
-    # Format: /request <story name> [platform] — platform is last word if it looks like a platform name
-    raw_args = " ".join(context.args).strip()
-    story_raw = raw_args
-    platform_name = ""
-    # Detect platform: check if last word(s) match known platform names or slash-separated names
-    _platform_keywords = ["mastar", "pratilipi", "wattpad", "shabd", "novelcat", "inkitt", "webnovel", "funlipi", "storymirror", "kavyanjali"]
-    _parts = raw_args.rsplit(None, 1)
-    if len(_parts) == 2 and any(kw in _parts[1].lower() for kw in _platform_keywords + ["/"]):
-        story_raw = _parts[0].strip()
-        platform_name = _parts[1].strip()
-    # Also handle slash-separated: "Name Platform/Platform2" — check whole last token
-    if not platform_name and "/" in raw_args:
-        _slash_parts = raw_args.split("/", 1)
-        if len(_slash_parts) == 2 and len(_slash_parts[0].split()) >= 1:
-            # The part before slash is story, after is platform
-            # Only treat as platform if it looks like one word (no spaces)
-            after = _slash_parts[1].strip()
-            if after and " " not in after:
-                story_raw = _slash_parts[0].strip()
-                platform_name = f"{_slash_parts[0].strip().split()[-1]}/{after}" if False else raw_args.rsplit(None, 1)[0] if False else raw_args
-                # Reset — keep full name as story_raw, no platform split by slash in story name
-                story_raw = raw_args
-                platform_name = ""
-
-    if not story_raw or len(story_raw) < 2:
-        lang = get_chat_lang(update.effective_chat.id)
-        tutorial_kb = InlineKeyboardMarkup([[get_tutorial_inline_button()]])
-        if lang == "hi":
-            warn_text = "<b>✮ कृपया स्टोरी का सही नाम लिखें</b>\n\n<i>➔ उदाहरण:</i>\n▪ /request Vashikaran\n▪ /request Saaya Mastar"
-        else:
-            warn_text = "<b>✮ Please enter a valid story name</b>\n\n<i>➔ Examples:</i>\n▪ /request Vashikaran\n▪ /request Saaya Mastar"
-        warn_msg = await update.effective_chat.send_message(warn_text, parse_mode="HTML", reply_markup=tutorial_kb)
-        async def _del_warn():
-            await asyncio.sleep(30)
-            try: await warn_msg.delete()
-            except: pass
-        asyncio.create_task(_del_warn())
-        return
-    user = update.effective_user
-    mention = user.mention_html() if user else ""
-    chat_id = str(update.effective_chat.id)
-    story = clean_story(story_raw).lower()
-
-    # Strict validation: check already available or duplicate
-    is_valid, reason, err_msg = await check_story_request_validity(story_raw, user.id if user else 0, chat_id)
-    if not is_valid:
-        if chat.type == "private":
-            await update.effective_chat.send_message(text=f"<b>{mention}</b>\n\n{err_msg}", parse_mode="HTML")
-        else:
-            await context.bot.send_message(chat_id=user.id, text=f"<b>{mention}</b>\n\n{err_msg}", parse_mode="HTML")
+    async def _delete_reply():
+        await asyncio.sleep(delay)
         try:
-            await update.message.delete()
+            await sent.delete()
         except Exception:
             pass
-        return
 
-    request_db[story][chat_id].add(user.id)
+    if update.message and chat.type in ("group", "supergroup"):
+        asyncio.create_task(_delete_cmd())
 
-    # total count across all chats
-    count = sum(len(uids) for uids in request_db[story].values())
-
-    username = f"@{user.username}" if user.username else "No username"
-    full_name = html.escape(user.full_name or user.first_name or str(user.id))
-
-    # Format story key safely for callback
-    safe_story = story[:40] # Prevent callback data from exceeding 64 bytes
-    kb = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("✖ REJECT", callback_data=f"req_rej|{user.id}|{safe_story}"),
-            InlineKeyboardButton("◌ WARN", callback_data=f"req_warn|{user.id}|{safe_story}")
-        ]
-    ])
-
-    platform_line = f"\n▪ Platform: {platform_name}" if platform_name else ""
-    sent_req = await context.bot.send_message(
-        chat_id=REQUEST_GROUP,
-        text=(
-            f"✶ <b>Story Request</b>\n\n"
-            f"▪ <b>Name:</b> {html.escape(story)}\n"
-            f"▪ <b>User:</b> <a href='tg://user?id={user.id}'>{full_name}</a> ({username})"
-            f"{platform_line}\n"
-            f"▪ <b>Total Requests:</b> {count}"
-        ),
-        parse_mode="HTML"
-    )
-    
-    # Store the message ID so we can aggressively delete it later if REJECT is pressed
-    # We use a memory cache
-    global _req_msg_cache
-    if "_req_msg_cache" not in globals():
-        _req_msg_cache = {}
-    _req_msg_cache[safe_story] = sent_req.message_id
-
-    if count == 1:
-
-        lang = get_chat_lang(update.effective_chat.id)
-        if lang == "hi":
-            text = f"""
-<b>{mention}</b>
-
-<b>✦ आपकी <i>{story}</i> की रिक्वेस्ट भेज दी गई है।
-➔ हम इसे उपलब्ध कराने की पूरी कोशिश करेंगे।
-➔ जैसे ही मिलेगी, जल्द अपलोड कर दी जाएगी।</b>
-"""
-        else:
-            text = f"""
-<b>{mention}</b>
-
-<b>✦ Your request for <i>{story}</i> has been sent.
-➔ We will try our best to provide this story.
-➔ If we find it, it will be uploaded soon.</b>
-"""
-
-    else:
-
-        others = count - 1
-
-        lang = get_chat_lang(update.effective_chat.id)
-        if lang == "hi":
-            text = f"""
-<b>{mention}</b>
-
-<b>✦ आपके साथ {others} और लोगों ने भी <i>{story}</i> रिक्वेस्ट की है।
-➔ हम इसे उपलब्ध कराने की पूरी कोशिश करेंगे।
-➔ जैसे ही मिलेगी, जल्द अपलोड कर दी जाएगी।</b>
-"""
-        else:
-            text = f"""
-<b>{mention}</b>
-
-<b>✦ You and {others} others also requested <i>{story}</i>.
-➔ We will try our best to provide this story.
-➔ If we find it, it will be uploaded soon.</b>
-"""
-
-    save_requests({"requests": request_db})
-
-    # --- Voting Queue Integration ---
-    # story is already clean_story(story_raw).lower()
-    in_queue = any(q["name"] == story for q in voting_queue)
-    in_polls = any(story in p["options"] for p in active_polls.values())
-
-    if not in_queue and not in_polls:
-        voting_queue.append({
-            "name": story,
-            "photo_id": "",   # /request cmd path has no image
-            "requesters": {chat_id: [user.id]}
-        })
-    elif in_queue:
-        # Update existing queue entry with new requester
-        for q in voting_queue:
-            if q["name"] == story:
-                chat_reqs = q.get("requesters", {})
-                chat_reqs.setdefault(chat_id, [])
-                if user.id not in chat_reqs[chat_id]:
-                    chat_reqs[chat_id].append(user.id)
-                q["requesters"] = chat_reqs
-                break
-    
-    save_voting_db({"queue": voting_queue, "polls": active_polls})
-
-    queue_len = len(voting_queue)
-    
-    # Append queue status to reply text
-    if lang == "hi":
-        if queue_len < VOTING_SIZE_FOR_POLL:
-            text += f"\n\n<b>📊 वोटिंग कतार:</b> <code>{queue_len}/{VOTING_SIZE_FOR_POLL}</code> स्टोरीज़\n<i>(कम्युनिटी वोटिंग शुरू होने के लिए {VOTING_SIZE_FOR_POLL} अलग-अलग स्टोरीज़ चाहिए।)</i>"
-        else:
-            text += f"\n\n<b>🎉 वोटिंग कतार फुल हो गई है!</b>\n<i>जल्द ही रिक्वेस्ट चैनल में एक नया पोल शुरू होगा।</i>"
-    else:
-        if queue_len < VOTING_SIZE_FOR_POLL:
-            text += f"\n\n<b>📊 Voting Queue:</b> <code>{queue_len}/{VOTING_SIZE_FOR_POLL}</code> Stories\n<i>(A poll will start once {VOTING_SIZE_FOR_POLL} unique stories are requested.)</i>"
-        else:
-            text += f"\n\n<b>🎉 Voting Queue is full!</b>\n<i>A new poll will start shortly in the request channel.</i>"
-
-    # Always reply to user's DM to keep the channel/group clean
-    await context.bot.send_message(
-        chat_id=user.id,
-        text=text,
-        parse_mode="HTML",
-        reply_markup=kb
-    )
-
-
-    # Trigger poll creation if threshold reached
-    if queue_len >= VOTING_SIZE_FOR_POLL:
-        asyncio.create_task(trigger_community_poll(context, int(chat_id)))
-
-    await log(
-        context,
-        f"REQUEST | user_id={user.id} username={user.username} story={story}"
-    )
+    asyncio.create_task(_delete_reply())
+    return ConversationHandler.END
 
 # ── Request Form Conversation Handler ──────────────────────────────────────────
 request_form_handler = ConversationHandler(
@@ -4213,6 +3998,7 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
     story_type_line = f"\n<b>✽ Story Type:-</b> <i>{html.escape(str(story_type))}</i>" if story_type != "Not specified" else ""
 
     is_paid = result.get("is_paid", False) or result.get("from_mongo", False) or _is_story_paid_indicator(result, story_name)
+    paid_premium_emoji = '<tg-emoji emoji-id="6007983438294949171">💎</tg-emoji> ' if is_paid else ''
     story_emoji = '<tg-emoji emoji-id="5296790785981718487">♨️</tg-emoji>' if is_paid else '<tg-emoji emoji-id="5465432711218863135">♨️</tg-emoji>'
 
     if result.get("format") in ("LIGHT", "LIGHT_PRO") or result.get("from_mongo"):
@@ -4223,7 +4009,7 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
         caption = (
             f"Hey {target_mention} 👋\n"
             f"<b>✫ I found this story</b> ➴\n\n"
-            f'{story_emoji} <b>Story :</b> <b>{html.escape(str(light_name))}</b>\n'
+            f'{story_emoji} <b>Story :</b> {paid_premium_emoji}<b>{html.escape(str(light_name))}</b>\n'
             f'<tg-emoji emoji-id="6019118553326689234">🔰</tg-emoji> <b>Status :</b> <b>{html.escape(str(light_status))}</b>\n'
             f'<tg-emoji emoji-id="6019455905827920171">🖥</tg-emoji> <b>Platform :</b> <b>{html.escape(str(light_platform))}</b>\n'
             f'<tg-emoji emoji-id="6024065724291488135">🧩</tg-emoji> <b>Genre :</b> <b>{html.escape(str(light_genre))}</b>\n'
@@ -4236,7 +4022,7 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
         caption = (
             f"Hey {target_mention} 👋\n"
             f"<b>✫ I found this story</b> ➴\n\n"
-            f"<i>❁ Name:-</i> <b>{html.escape(str(story_name))}</b>{story_type_line}\n\n"
+            f"<i>❁ Name:-</i> {paid_premium_emoji}<b>{html.escape(str(story_name))}</b>{story_type_line}\n\n"
             f"<tg-spoiler>◒ This reply will be deleted automatically in 24 hours.</tg-spoiler>"
         )
 
@@ -5336,6 +5122,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         story_type = result.get("story_type") or extract_story_type(result.get("caption", "")) or "Not specified"
 
         is_paid = result.get("is_paid", False) or result.get("from_mongo", False) or _is_story_paid_indicator(result, story_name)
+        paid_premium_emoji = '<tg-emoji emoji-id="6007983438294949171">💎</tg-emoji> ' if is_paid else ''
         story_emoji = '<tg-emoji emoji-id="5296790785981718487">♨️</tg-emoji>' if is_paid else '<tg-emoji emoji-id="5465432711218863135">♨️</tg-emoji>'
 
         # Light Pro / Light format caption
@@ -5347,7 +5134,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             caption = (
                 f"Hey {mention} 👋\n"
                 f"<b>✫ I found this story</b> ➴\n\n"
-                f'{story_emoji} <b>Story :</b> <b>{html.escape(str(light_name))}</b>\n'
+                f'{story_emoji} <b>Story :</b> {paid_premium_emoji}<b>{html.escape(str(light_name))}</b>\n'
                 f'<tg-emoji emoji-id="6019118553326689234">🔰</tg-emoji> <b>Status :</b> <b>{html.escape(str(light_status))}</b>\n'
                 f'<tg-emoji emoji-id="6019455905827920171">🖥</tg-emoji> <b>Platform :</b> <b>{html.escape(str(light_platform))}</b>\n'
                 f'<tg-emoji emoji-id="6024065724291488135">🧩</tg-emoji> <b>Genre :</b> <b>{html.escape(str(light_genre))}</b>\n'
@@ -5363,7 +5150,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             caption = (
                 f"Hey {mention} 👋\n"
                 f"<b>✫ I found this story</b> ➴\n\n"
-                f"<i>❁ Name:-</i> <b>{html.escape(str(story_name))}</b>{story_type_line}\n\n"
+                f"<i>❁ Name:-</i> {paid_premium_emoji}<b>{html.escape(str(story_name))}</b>{story_type_line}\n\n"
             )
 
         caption += "\n<tg-spoiler>◒ This reply will be deleted automatically in 24 hours.</tg-spoiler>"
