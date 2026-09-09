@@ -3998,7 +3998,7 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
     story_type_line = f"\n<b>✽ Story Type:-</b> <i>{html.escape(str(story_type))}</i>" if story_type != "Not specified" else ""
 
     is_paid = result.get("is_paid", False) or result.get("from_mongo", False) or _is_story_paid_indicator(result, story_name)
-    paid_premium_emoji = '<tg-emoji emoji-id="6007983438294949171">💎</tg-emoji> ' if is_paid else ''
+    paid_premium_emoji = '<tg-emoji emoji-id="6007983438294949171">\u200b</tg-emoji>' if is_paid else ''
     story_emoji = '<tg-emoji emoji-id="5296790785981718487">♨️</tg-emoji>' if is_paid else '<tg-emoji emoji-id="5465432711218863135">♨️</tg-emoji>'
 
     if result.get("format") in ("LIGHT", "LIGHT_PRO") or result.get("from_mongo"):
@@ -4009,7 +4009,7 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
         caption = (
             f"Hey {target_mention} 👋\n"
             f"<b>✫ I found this story</b> ➴\n\n"
-            f'{story_emoji} <b>Story :</b> {paid_premium_emoji}<b>{html.escape(str(light_name))}</b>\n'
+            f'{story_emoji} <b>Story :</b> {paid_premium_emoji} <b>{html.escape(str(light_name))}</b>\n'
             f'<tg-emoji emoji-id="6019118553326689234">🔰</tg-emoji> <b>Status :</b> <b>{html.escape(str(light_status))}</b>\n'
             f'<tg-emoji emoji-id="6019455905827920171">🖥</tg-emoji> <b>Platform :</b> <b>{html.escape(str(light_platform))}</b>\n'
             f'<tg-emoji emoji-id="6024065724291488135">🧩</tg-emoji> <b>Genre :</b> <b>{html.escape(str(light_genre))}</b>\n'
@@ -4022,7 +4022,7 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
         caption = (
             f"Hey {target_mention} 👋\n"
             f"<b>✫ I found this story</b> ➴\n\n"
-            f"<i>❁ Name:-</i> {paid_premium_emoji}<b>{html.escape(str(story_name))}</b>{story_type_line}\n\n"
+            f"<i>❁ Name:-</i> {paid_premium_emoji} <b>{html.escape(str(story_name))}</b>{story_type_line}\n\n"
             f"<tg-spoiler>◒ This reply will be deleted automatically in 24 hours.</tg-spoiler>"
         )
 
@@ -5122,7 +5122,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         story_type = result.get("story_type") or extract_story_type(result.get("caption", "")) or "Not specified"
 
         is_paid = result.get("is_paid", False) or result.get("from_mongo", False) or _is_story_paid_indicator(result, story_name)
-        paid_premium_emoji = '<tg-emoji emoji-id="6007983438294949171">💎</tg-emoji> ' if is_paid else ''
+        paid_premium_emoji = '<tg-emoji emoji-id="6007983438294949171">\u200b</tg-emoji>' if is_paid else ''
         story_emoji = '<tg-emoji emoji-id="5296790785981718487">♨️</tg-emoji>' if is_paid else '<tg-emoji emoji-id="5465432711218863135">♨️</tg-emoji>'
 
         # Light Pro / Light format caption
@@ -5134,7 +5134,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             caption = (
                 f"Hey {mention} 👋\n"
                 f"<b>✫ I found this story</b> ➴\n\n"
-                f'{story_emoji} <b>Story :</b> {paid_premium_emoji}<b>{html.escape(str(light_name))}</b>\n'
+                f'{story_emoji} <b>Story :</b> {paid_premium_emoji} <b>{html.escape(str(light_name))}</b>\n'
                 f'<tg-emoji emoji-id="6019118553326689234">🔰</tg-emoji> <b>Status :</b> <b>{html.escape(str(light_status))}</b>\n'
                 f'<tg-emoji emoji-id="6019455905827920171">🖥</tg-emoji> <b>Platform :</b> <b>{html.escape(str(light_platform))}</b>\n'
                 f'<tg-emoji emoji-id="6024065724291488135">🧩</tg-emoji> <b>Genre :</b> <b>{html.escape(str(light_genre))}</b>\n'
@@ -5150,7 +5150,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             caption = (
                 f"Hey {mention} 👋\n"
                 f"<b>✫ I found this story</b> ➴\n\n"
-                f"<i>❁ Name:-</i> {paid_premium_emoji}<b>{html.escape(str(story_name))}</b>{story_type_line}\n\n"
+                f"<i>❁ Name:-</i> {paid_premium_emoji} <b>{html.escape(str(story_name))}</b>{story_type_line}\n\n"
             )
 
         caption += "\n<tg-spoiler>◒ This reply will be deleted automatically in 24 hours.</tg-spoiler>"
