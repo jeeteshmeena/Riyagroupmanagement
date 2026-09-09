@@ -3998,7 +3998,7 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
     story_type_line = f"\n<b>✽ Story Type:-</b> <i>{html.escape(str(story_type))}</i>" if story_type != "Not specified" else ""
 
     is_paid = result.get("is_paid", False) or result.get("from_mongo", False) or _is_story_paid_indicator(result, story_name)
-    paid_premium_emoji = '<tg-emoji emoji-id="6007983438294949171">\u200b</tg-emoji>' if is_paid else ''
+    paid_premium_emoji = '<tg-emoji emoji-id="6007983438294949171">💎</tg-emoji>' if is_paid else ''
     story_emoji = '<tg-emoji emoji-id="5296790785981718487">♨️</tg-emoji>' if is_paid else '<tg-emoji emoji-id="5465432711218863135">♨️</tg-emoji>'
 
     if result.get("format") in ("LIGHT", "LIGHT_PRO") or result.get("from_mongo"):
@@ -5122,7 +5122,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         story_type = result.get("story_type") or extract_story_type(result.get("caption", "")) or "Not specified"
 
         is_paid = result.get("is_paid", False) or result.get("from_mongo", False) or _is_story_paid_indicator(result, story_name)
-        paid_premium_emoji = '<tg-emoji emoji-id="6007983438294949171">\u200b</tg-emoji>' if is_paid else ''
+        paid_premium_emoji = '<tg-emoji emoji-id="6007983438294949171">💎</tg-emoji>' if is_paid else ''
         story_emoji = '<tg-emoji emoji-id="5296790785981718487">♨️</tg-emoji>' if is_paid else '<tg-emoji emoji-id="5465432711218863135">♨️</tg-emoji>'
 
         # Light Pro / Light format caption
