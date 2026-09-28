@@ -17,7 +17,7 @@ def clean_story(name):
 _exact_cache = {}    # exact clean name -> data
 _norm_cache = {}     # normalized_name -> data
 _alias_cache = {}    # clean_alias -> data
-_token_cache = {}    # frozenset(normalized_tokens) -> data
+_token_cache = {}    # frozenset(normalized_tokens) -> data  (ONLY for 2+ token titles)
 _list_cache = []     # for partial/did_you_mean containing original titles
 _search_cache_mtime = None
 
@@ -51,7 +51,9 @@ def _get_cache():
         if norm_name:
             new_norm[norm_name] = data
             tokens = frozenset(norm_name.split())
-            if len(tokens) >= 1:
+            # ONLY index token-sets with 2+ tokens to avoid single-word collisions
+            # where "malang" matches "malang returns", "malang ki yaadein", etc.
+            if len(tokens) >= 2:
                 new_tokens[tokens] = data
             
         new_list.append(raw_title)
@@ -66,7 +68,8 @@ def _get_cache():
             if al_norm:
                 new_alias[al_norm] = data
                 al_tokens = frozenset(al_norm.split())
-                if len(al_tokens) >= 1:
+                # Same guard: only index 2+ token alias sets
+                if len(al_tokens) >= 2:
                     new_tokens[al_tokens] = data
 
     # Integrate learned aliases from persistent storage
@@ -80,7 +83,7 @@ def _get_cache():
                 if target_data:
                     new_alias[al_norm] = target_data
                     toks = frozenset(al_norm.split())
-                    if len(toks) >= 1:
+                    if len(toks) >= 2:
                         new_tokens[toks] = target_data
     except Exception:
         pass
@@ -114,9 +117,9 @@ def search_story_exact_or_alias(query):
     1. Exact story title match (case-insensitive)
     2. Normalized story title match (bypassing punctuation, symbols like &, +, @)
     3. Alias exact and normalized match (including persistent learned aliases)
-    4. Token-set exact match (e.g. "Mr and Mrs agent" == "Mr. & Mrs. Agent")
+    4. Token-set exact match (ONLY for 2+ word queries: e.g. "Mr and Mrs agent" == "Mr. & Mrs. Agent")
     5. Cleaned platform / season suffix match
-    6. Smart fuzzy match with 1-2 character typo tolerance and auto-learn
+    6. Smart fuzzy match with strict thresholds and auto-learn
     """
     _get_cache()  # ensure cache is warm
     if not query:
@@ -152,16 +155,19 @@ def search_story_exact_or_alias(query):
     except Exception:
         pass
 
-    # 4. Token-set match (handles word reordering & punctuation/symbol differences)
-    q_tokens = frozenset(qn.split())
-    if q_tokens and q_tokens in _token_cache:
-        matched_data = _token_cache[q_tokens]
-        # Auto-learn variant
-        try:
-            database.save_learned_alias(query, matched_data.get("text", matched_data.get("name", "")))
-        except Exception:
-            pass
-        return matched_data
+    # 4. Token-set match — ONLY for queries with 2+ meaningful words
+    #    Prevents single-word like "malang" matching "malang returns" via token-set
+    q_tokens = frozenset(qn.split()) if qn else frozenset()
+    meaningful_tokens = q_tokens - SEARCH_STOP_WORDS
+    if len(q_tokens) >= 2 and len(meaningful_tokens) >= 1:
+        if q_tokens in _token_cache:
+            matched_data = _token_cache[q_tokens]
+            # Auto-learn variant
+            try:
+                database.save_learned_alias(query, matched_data.get("text", matched_data.get("name", "")))
+            except Exception:
+                pass
+            return matched_data
 
     # 5. Clean platform tags from query: e.g. "Vashikaran Pocket FM" -> "Vashikaran"
     clean_q = q
@@ -176,20 +182,31 @@ def search_story_exact_or_alias(query):
             return _norm_cache[clean_qn]
         if clean_q in _alias_cache:
             return _alias_cache[clean_q]
-        clean_tokens = frozenset(clean_qn.split())
-        if clean_tokens and clean_tokens in _token_cache:
+        # Token-set for cleaned query — again only for 2+ tokens
+        clean_tokens = frozenset(clean_qn.split()) if clean_qn else frozenset()
+        if len(clean_tokens) >= 2 and clean_tokens in _token_cache:
             return _token_cache[clean_tokens]
 
     # 6. Strict high-precision fuzzy match (Typo correction for VERY similar names)
-    # E.g. "Vashikarn" -> "Vashikaran", "Asli Warish" -> "Asli Waris", "Mr and Mrs agnet" -> "Mr. & Mrs. Agent"
+    #    E.g. "Vashikarn" -> "Vashikaran", "Asli Warish" -> "Asli Waris", "Mr and Mrs agnet" -> "Mr. & Mrs. Agent"
     best_match = None
     best_score = 0
-    qn_len = len(qn)
+    qn_len = len(qn) if qn else 0
+    q_words = qn.split() if qn else []
     
     for norm_title, data in _norm_cache.items():
         t_len = len(norm_title)
-        # Length guard: title length must be close (within 5 chars or 35%)
-        if abs(t_len - qn_len) > max(5, int(0.35 * max(t_len, qn_len))):
+        t_words = norm_title.split()
+        
+        # Strict length guard: title length must be close (within 4 chars or 30%)
+        if abs(t_len - qn_len) > max(4, int(0.30 * max(t_len, qn_len))):
+            continue
+
+        # Word count guard: do NOT match a 1-word query against a 3+ word title via fuzzy
+        # (prevents "malang" fuzzy-matching "malang ki yaadein" or similar)
+        if len(q_words) == 1 and len(t_words) >= 2:
+            continue
+        if len(t_words) == 1 and len(q_words) >= 2:
             continue
             
         ratio = fuzz.ratio(qn, norm_title)
@@ -197,13 +214,21 @@ def search_story_exact_or_alias(query):
         score = max(ratio, sort_ratio)
         
         # Token set ratio for multi-word titles with slight additions
-        if len(q_tokens) >= 2 and len(norm_title.split()) >= 2:
+        if len(q_tokens) >= 2 and len(t_words) >= 2:
             set_ratio = fuzz.token_set_ratio(qn, norm_title)
-            if set_ratio >= 88:
+            if set_ratio >= 90:  # Raised from 88 to 90 for stricter matching
                 score = max(score, set_ratio)
                 
-        # Typo threshold: 78 for multi-word/longer titles (allows 1-2 char typos), 84 for short 1-word
-        threshold = 78 if (len(q_tokens) >= 2 or qn_len >= 6) else 84
+        # Raised thresholds significantly to prevent wrong results:
+        # - Single-word query: must be 90%+ match (was 84)
+        # - Multi-word query: must be 85%+ match (was 78)
+        if len(q_words) == 1:
+            threshold = 90
+        elif qn_len >= 10:
+            threshold = 83
+        else:
+            threshold = 85
+
         if score >= threshold and score > best_score:
             best_score = score
             best_match = data
@@ -268,6 +293,12 @@ def search_stories_by_keyword(query: str, limit: int = 10) -> list:
     """
     Search stories by keyword (e.g. 1-word or partial word like "mahabali", "waris", "fauji", "vampire").
     Returns a list of matching story data dicts (up to limit).
+
+    CRITICAL: This function must return PRECISE results only.
+    - Exact match: always returned
+    - Word-boundary match: returns if query word appears as a complete word in the title
+    - Substring match: ONLY for queries 5+ chars long to prevent garbage matches
+      (e.g. "man" should NOT match "romance", "ek" should NOT match "ek villain")
     """
     _get_cache()
     if not query:
@@ -293,7 +324,8 @@ def search_stories_by_keyword(query: str, limit: int = 10) -> list:
         matched.append(_norm_cache[qn])
         seen_keys.add(clean_story(_norm_cache[qn].get("text", _norm_cache[qn].get("name", ""))).lower())
 
-    # 2. Word boundary substring match on normalized names: e.g. "mahabali" in "Mahabali Mayank", "Mahabali Veer"
+    # 2. Word boundary match on normalized names: e.g. "mahabali" in "Mahabali Mayank", "Mahabali Veer"
+    #    This is SAFE because it requires the query to match as a complete word (not substring).
     try:
         pattern = re.compile(rf"\b{re.escape(qn)}\b", re.IGNORECASE)
         for norm_name, data in _norm_cache.items():
@@ -307,8 +339,11 @@ def search_stories_by_keyword(query: str, limit: int = 10) -> list:
     except Exception:
         pass
 
-    # 3. Substring match if qn is 3+ chars: e.g. "waris" in "asli waris"
-    if len(qn) >= 3:
+    # 3. Substring match — ONLY if query is 5+ chars long.
+    #    Short queries (3-4 chars) like "man", "ek", "yeh", "war" create too many false positives.
+    #    E.g. "waris" (5 chars) in "asli waris" is fine.
+    #    But "man" (3 chars) would match "romance", "mandir", "mannat", etc. — wrong results.
+    if len(qn) >= 5:
         for norm_name, data in _norm_cache.items():
             t_name = clean_story(data.get("text", data.get("name", norm_name)))
             t_key = t_name.lower()
@@ -327,6 +362,11 @@ def extract_story_from_text(text: str) -> tuple:
     E.g. In "kisi ke pas Mr and Mrs agent story h kya free wali",
     detects "mr and mrs agent" and returns (story_data, matched_title).
     Returns (None, None) if no story found.
+
+    CRITICAL PRECISION RULES to prevent wrong results:
+    - Only match story titles that are 2+ words OR 5+ chars long when single-word.
+    - Single-word story names MUST appear as a standalone word (not embedded in other words).
+    - The matched portion must be at least 60% of the query length to avoid tiny fragments matching.
     """
     _get_cache()
     if not text or len(text.strip()) < 3:
@@ -343,6 +383,26 @@ def extract_story_from_text(text: str) -> tuple:
     for norm_key, data in sorted_titles:
         if len(norm_key) < 3 or norm_key in SEARCH_STOP_WORDS:
             continue
+
+        key_words = norm_key.split()
+
+        # PRECISION GUARD 1: Single-word story names shorter than 5 chars are too ambiguous.
+        # "ek" (2 chars), "war" (3 chars), "love" (4 chars) — too common to reliably extract.
+        if len(key_words) == 1 and len(norm_key) < 5:
+            continue
+
+        # PRECISION GUARD 2: If query itself is short (≤ 4 words), and the matched story name
+        # length is close to the full query length, it's likely a direct story name search —
+        # let the exact/keyword search handle it, not this text-extraction function.
+        # This prevents: user types "malang" → extract_story_from_text returns "Malang Returns"
+        # because "malang" is a word-boundary match inside the text "malang".
+        query_words = tn.split()
+        if len(query_words) <= 4 and len(key_words) == 1:
+            # For short queries, only match if the story name exactly equals the query
+            if norm_key.strip() == tn.strip():
+                return data, data.get("text", data.get("name", norm_key))
+            continue
+
         # Check whole word boundary match in normalized sentence
         pattern = rf"\b{re.escape(norm_key)}\b"
         if re.search(pattern, tn, re.IGNORECASE):
@@ -352,6 +412,9 @@ def extract_story_from_text(text: str) -> tuple:
         for al in data.get("aliases", []):
             al_norm = normalize_text(al)
             if len(al_norm) >= 3 and al_norm not in SEARCH_STOP_WORDS:
+                al_words = al_norm.split()
+                if len(al_words) == 1 and len(al_norm) < 5:
+                    continue
                 if re.search(rf"\b{re.escape(al_norm)}\b", tn, re.IGNORECASE):
                     return data, data.get("text", data.get("name", al))
                     
