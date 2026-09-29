@@ -234,30 +234,37 @@ def add_story(story):
         new_q = _story_link_quality(story)
         old_q = _story_link_quality(existing)
 
-        new_link = story.get("link", "")
-        old_link = existing.get("link", "")
+        new_msg_id = story.get("message_id", 0) or 0
+        old_msg_id = existing.get("message_id", 0) or 0
+
+        # Preserve aliases across any update
+        existing_aliases = existing.get("aliases", [])
 
         # Decision tree:
-        # • New link is BETTER quality → always replace (even if older msg)
-        # • Same quality → replace only if newer message_id (fresher post)
-        # • New link is WORSE quality → keep existing, only update non-link fields
-        if new_q > old_q:
-            # Better link wins regardless of message age
-            existing_aliases = existing.get("aliases", [])
+        # • Newer message_id (story was deleted & reposted) → ALWAYS fully replace.
+        #   This wipes stale links, photos, and captions from the old deleted post.
+        # • Same message_id, better link quality → replace
+        # • Same message_id, same link quality → keep existing
+        # • Older message_id → keep existing, only fill missing link
+        if new_msg_id > old_msg_id:
+            # Story was reposted — fully replace; inherit aliases only
             if existing_aliases:
                 story["aliases"] = existing_aliases
+            # If new post has no link but old had one, preserve it temporarily
+            # unless the old post's message is gone (i.e. link is now stale).
+            # Since we can't verify from here, trust the new post completely.
             db[name] = story
-        elif new_q == old_q and story.get("message_id", 0) > existing.get("message_id", 0):
-            # Same quality, newer message → update everything
-            existing_aliases = existing.get("aliases", [])
-            if existing_aliases:
-                story["aliases"] = existing_aliases
-            if not new_link:
-                story["link"] = old_link
-            db[name] = story
+        elif new_msg_id == old_msg_id:
+            # Same post — only update if better link quality
+            if new_q > old_q:
+                if existing_aliases:
+                    story["aliases"] = existing_aliases
+                db[name] = story
+            # else: same post, same/worse quality → keep existing
         else:
-            # New entry is worse or same+older — keep existing link but maybe store
-            # other metadata if existing has no link at all
+            # Older message_id — keep existing link but fill empty link if any
+            old_link = existing.get("link", "")
+            new_link = story.get("link", "")
             if not old_link and new_link:
                 existing["link"] = new_link
                 db[name] = existing

@@ -9321,26 +9321,23 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     from search_engine import extract_story_from_text, search_stories_by_keyword, search_story_exact_or_alias
 
-    # ── 2. Scan Conversational Sentence for known Story Titles (Local DB Priority) ────
-    extracted_story, _ = extract_story_from_text(text_content)
-    if extracted_story:
-        return await send_story_result_card(update, context, extracted_story, user=user, user_query_msg=update.message)
-
-    # ── 3. Local Scanned DB Search First (Exact & Keyword Matches - 100% Free) ────
+    # ── 2. Exact / Alias / Keyword Search First (highest precision) ───────────────
+    #    MUST run before extract_story_from_text to prevent word-boundary matches
+    #    in conversational sentences from overriding an exact story name query.
     if len(text_content.split()) <= 10:
-        # Step A: Exact / Alias match in Local DB
+        # Step A: Exact / Alias match — fastest and most accurate
         direct_story = search_story_exact_or_alias(text_content)
         if direct_story:
             return await send_story_result_card(update, context, direct_story, user=user, user_query_msg=update.message)
 
-        # Step B: Keyword / Fuzzy match in Local DB
+        # Step B: Keyword / multi-result match
         kw_matches = search_stories_by_keyword(text_content, limit=10)
         if len(kw_matches) == 1:
             return await send_story_result_card(update, context, kw_matches[0], user=user, user_query_msg=update.message)
         elif len(kw_matches) > 1 and not is_private:
             return await send_story_suggestions_card(update.effective_chat.id, text_content, kw_matches, context, user=user)
 
-        # Step C: ONLY IF Local DB has ZERO matches -> Fallback to MongoDB (Paid Stories)
+        # Step C: MongoDB fallback (only when local DB has ZERO matches)
         if not direct_story and not kw_matches:
             try:
                 from mongo_search import async_search_story_from_mongo
@@ -9350,6 +9347,13 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     return await send_story_result_card(update, context, mongo_story, user=user, user_query_msg=update.message)
             except Exception as _m_err:
                 logger.error(f"[TextHandler Mongo Error] {_m_err}")
+
+    # ── 3. Scan Conversational Sentence for known Story Titles ───────────────────
+    #    Only runs if exact/keyword/mongo searches all failed.
+    #    Handles patterns like "kisi ke pas Mr and Mrs Agent story h kya?"
+    extracted_story, _ = extract_story_from_text(text_content)
+    if extracted_story:
+        return await send_story_result_card(update, context, extracted_story, user=user, user_query_msg=update.message)
 
     # ── 4. Routing: Private Chat (DM) vs Group Chat ───────────────────────────
     is_reply_to_search = bool(replied_msg and _bot_search_replies.get((update.effective_chat.id, replied_msg.message_id)))

@@ -221,7 +221,12 @@ async def scan_channel(channel_id, bot=None, log_channel=None, progress_cb=None,
                 # First check if this story is already in database and has a photo
                 db = load_db()
                 existing_story = db.get(story["name"])
-                if existing_story and existing_story.get("photo"):
+                # Only reuse existing photo if the message_id is the same post.
+                # If message_id is newer (story was deleted & reposted), the old
+                # file_id is stale/invalid — let scanner download a fresh one.
+                if (existing_story
+                        and existing_story.get("photo")
+                        and existing_story.get("message_id") == msg.id):
                     story["photo"] = existing_story["photo"]
                 else:
                     try:
