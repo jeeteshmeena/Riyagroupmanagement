@@ -235,7 +235,9 @@ from filters_text import is_valid_query, is_conversational_text
 import ai_security
 
 from link_checker import start_link_checker
+from colored_buttons import CBtn, GREEN, RED, BLUE
 from database import (
+
     get_story,
     load_db,
     save_db,
@@ -3955,9 +3957,9 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
             story_link = "https://" + story_link.lstrip("/")
         
         if result.get("is_paid"):
-            keyboard.append([InlineKeyboardButton("Buy Now", url=story_link, api_kwargs={"icon_custom_emoji_id": "5456343263340405032"})])
+            keyboard.append([CBtn("Buy Now", url=story_link, color=GREEN, api_kwargs={"icon_custom_emoji_id": "5456343263340405032"})])
         else:
-            keyboard.append([InlineKeyboardButton("Open Story", url=story_link, api_kwargs={"icon_custom_emoji_id": "5429633836684157942"})])
+            keyboard.append([CBtn("Open Story", url=story_link, color=GREEN, api_kwargs={"icon_custom_emoji_id": "5429633836684157942"})])
 
     # Safeguard for callback_data: Telegram strictly limits callback_data to 64 BYTES (not characters)
     def _make_safe_cb(prefix: str, key_val: str, max_bytes: int = 64) -> str:
@@ -3981,18 +3983,19 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
             InlineKeyboardButton(" ", callback_data=fav_data, api_kwargs={"icon_custom_emoji_id": "6217662152547766453"})
         ])
         keyboard.append([
-            InlineKeyboardButton(" ", callback_data="delete", api_kwargs={"icon_custom_emoji_id": "6021413766669801212"}),
-            InlineKeyboardButton(guide_title, url=guide_url, api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})
+            CBtn(" ", callback_data="delete", color=BLUE, api_kwargs={"icon_custom_emoji_id": "6021413766669801212"}),
+            CBtn(guide_title, url=guide_url, color=BLUE, api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})
         ])
     else:
         keyboard.append([
             InlineKeyboardButton(" ", callback_data=fav_data, api_kwargs={"icon_custom_emoji_id": "6217662152547766453"}),
-            InlineKeyboardButton("Broken ?", callback_data=lnw_data, api_kwargs={"icon_custom_emoji_id": "5350695039318114023"})
+            CBtn("Broken ?", callback_data=lnw_data, color=RED, api_kwargs={"icon_custom_emoji_id": "5350695039318114023"})
         ])
         keyboard.append([
-            InlineKeyboardButton(" ", callback_data="delete", api_kwargs={"icon_custom_emoji_id": "6021413766669801212"}),
-            InlineKeyboardButton(guide_title, url=guide_url, api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})
+            CBtn(" ", callback_data="delete", color=BLUE, api_kwargs={"icon_custom_emoji_id": "6021413766669801212"}),
+            CBtn(guide_title, url=guide_url, color=BLUE, api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})
         ])
+
 
     photo = result.get("photo") or result.get("image")
     story_type_line = f"\n<b>✽ Story Type:-</b> <i>{html.escape(str(story_type))}</i>" if story_type != "Not specified" else ""
@@ -5208,28 +5211,28 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if is_paid:
             keyboard = [
-                [InlineKeyboardButton("Buy Now", url=result["link"], api_kwargs={"icon_custom_emoji_id": "5456343263340405032"})]
+                [CBtn("Buy Now", url=result["link"], color=GREEN, api_kwargs={"icon_custom_emoji_id": "5456343263340405032"})]
             ]
         else:
             keyboard = [
-                [InlineKeyboardButton("Open Story", url=result["link"], api_kwargs={"icon_custom_emoji_id": "5429633836684157942"})]
+                [CBtn("Open Story", url=result["link"], color=GREEN, api_kwargs={"icon_custom_emoji_id": "5429633836684157942"})]
             ]
         if is_paid:
             keyboard.append([
                 InlineKeyboardButton(" ", callback_data=fav_data, api_kwargs={"icon_custom_emoji_id": "6217662152547766453"})
             ])
             keyboard.append([
-                InlineKeyboardButton(" ", callback_data="delete", api_kwargs={"icon_custom_emoji_id": "6021413766669801212"}),
-                InlineKeyboardButton(guide_title, url=guide_url, api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})
+                CBtn(" ", callback_data="delete", color=BLUE, api_kwargs={"icon_custom_emoji_id": "6021413766669801212"}),
+                CBtn(guide_title, url=guide_url, color=BLUE, api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})
             ])
         else:
             keyboard.append([
                 InlineKeyboardButton(" ", callback_data=fav_data, api_kwargs={"icon_custom_emoji_id": "6217662152547766453"}),
-                InlineKeyboardButton("Broken ?", callback_data=lnw_data, api_kwargs={"icon_custom_emoji_id": "5350695039318114023"})
+                CBtn("Broken ?", callback_data=lnw_data, color=RED, api_kwargs={"icon_custom_emoji_id": "5350695039318114023"})
             ])
             keyboard.append([
-                InlineKeyboardButton(" ", callback_data="delete", api_kwargs={"icon_custom_emoji_id": "6021413766669801212"}),
-                InlineKeyboardButton(guide_title, url=guide_url, api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})
+                CBtn(" ", callback_data="delete", color=BLUE, api_kwargs={"icon_custom_emoji_id": "6021413766669801212"}),
+                CBtn(guide_title, url=guide_url, color=BLUE, api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})
             ])
 
 
@@ -5512,14 +5515,15 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         kb = InlineKeyboardMarkup(
             [
                 [
-                    InlineKeyboardButton("Confirm", callback_data=f"lnw_confirm|{story_key}|{reporter_id}", api_kwargs={"icon_custom_emoji_id": "6123181698193559460"}),
-                    InlineKeyboardButton(" ", callback_data=f"lnw_cancel|{reporter_id}", api_kwargs={"icon_custom_emoji_id": "5774077015388852135"}),
+                    CBtn("Confirm", callback_data=f"lnw_confirm|{story_key}|{reporter_id}", color=GREEN, api_kwargs={"icon_custom_emoji_id": "6123181698193559460"}),
+                    CBtn(" ", callback_data=f"lnw_cancel|{reporter_id}", color=RED, api_kwargs={"icon_custom_emoji_id": "5774077015388852135"}),
                 ],
                 [
-                    InlineKeyboardButton("Punish User", callback_data=f"punish|fake|{reporter_id}", api_kwargs={"icon_custom_emoji_id": "5014950810065307273"})
+                    CBtn("Punish User", callback_data=f"punish|fake|{reporter_id}", color=RED, api_kwargs={"icon_custom_emoji_id": "5014950810065307273"})
                 ]
             ]
         )
+
         conf = await query.message.reply_text(text=text, parse_mode="HTML", reply_markup=kb)
 
         async def _del_conf():
@@ -5666,12 +5670,12 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         kb = InlineKeyboardMarkup(
             [
                 [
-                    InlineKeyboardButton("Broken", callback_data=f"lnwv_broken|{vote_id}", api_kwargs={"icon_custom_emoji_id": "5350695039318114023"}),
-                    InlineKeyboardButton("Working", callback_data=f"lnwv_ok|{vote_id}", api_kwargs={"icon_custom_emoji_id": "5350695039318114023"}),
+                    CBtn("Broken", callback_data=f"lnwv_broken|{vote_id}", color=RED, api_kwargs={"icon_custom_emoji_id": "5350695039318114023"}),
+                    CBtn("Working", callback_data=f"lnwv_ok|{vote_id}", color=GREEN, api_kwargs={"icon_custom_emoji_id": "5350695039318114023"}),
                 ],
                 [
-                    InlineKeyboardButton("Dismiss", callback_data=f"lnwv_dismiss|{vote_id}", api_kwargs={"icon_custom_emoji_id": "5834670998116376536"}),
-                    InlineKeyboardButton("Punish User", callback_data=f"punish|fake|{vote['reporter_id']}", api_kwargs={"icon_custom_emoji_id": "5014950810065307273"})
+                    CBtn("Dismiss", callback_data=f"lnwv_dismiss|{vote_id}", color=RED, api_kwargs={"icon_custom_emoji_id": "5834670998116376536"}),
+                    CBtn("Punish User", callback_data=f"punish|fake|{vote['reporter_id']}", color=RED, api_kwargs={"icon_custom_emoji_id": "5014950810065307273"})
                 ]
             ]
         )
@@ -5832,12 +5836,12 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         kb = InlineKeyboardMarkup(
             [
                 [
-                    InlineKeyboardButton("Broken", callback_data=f"lnwv_broken|{vote_id}", api_kwargs={"icon_custom_emoji_id": "5350695039318114023"}),
-                    InlineKeyboardButton("Working", callback_data=f"lnwv_ok|{vote_id}", api_kwargs={"icon_custom_emoji_id": "5350695039318114023"}),
+                    CBtn("Broken", callback_data=f"lnwv_broken|{vote_id}", color=RED, api_kwargs={"icon_custom_emoji_id": "5350695039318114023"}),
+                    CBtn("Working", callback_data=f"lnwv_ok|{vote_id}", color=GREEN, api_kwargs={"icon_custom_emoji_id": "5350695039318114023"}),
                 ],
                 [
-                    InlineKeyboardButton("Dismiss", callback_data=f"lnwv_dismiss|{vote_id}", api_kwargs={"icon_custom_emoji_id": "5834670998116376536"}),
-                    InlineKeyboardButton("Punish User", callback_data=f"punish|fake|{vote['reporter_id']}", api_kwargs={"icon_custom_emoji_id": "5014950810065307273"})
+                    CBtn("Dismiss", callback_data=f"lnwv_dismiss|{vote_id}", color=RED, api_kwargs={"icon_custom_emoji_id": "5834670998116376536"}),
+                    CBtn("Punish User", callback_data=f"punish|fake|{vote['reporter_id']}", color=RED, api_kwargs={"icon_custom_emoji_id": "5014950810065307273"})
                 ]
             ]
         )

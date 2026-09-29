@@ -28,6 +28,8 @@ from telegram import (
     InlineKeyboardMarkup,
     Update,
 )
+from colored_buttons import CBtn, GREEN, RED, BLUE
+
 from telegram.ext import (
     ContextTypes,
     CommandHandler,
@@ -658,9 +660,10 @@ async def publish_next_story(app) -> Tuple[bool, str]:
     tutorial_url = "https://t.me/StoriesFinderBot?start=guide"
 
     markup = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🛍️ Buy Via App", url=buy_app_url, api_kwargs={"icon_custom_emoji_id": "5456343263340405032"})],
-        [InlineKeyboardButton("🛍️ Buy Via Bot", url=buy_bot_url, api_kwargs={"icon_custom_emoji_id": "5456343263340405032"})],
-        [InlineKeyboardButton("📖 Tutorial", url=tutorial_url, api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})]
+        [CBtn("🛍️ Buy Via App", url=buy_app_url, color=GREEN, api_kwargs={"icon_custom_emoji_id": "5456343263340405032"})],
+        [CBtn("🛍️ Buy Via Bot", url=buy_bot_url, color=RED, api_kwargs={"icon_custom_emoji_id": "5456343263340405032"})],
+        [CBtn("📖 Tutorial", url=tutorial_url, color=BLUE, api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})]
+
     ])
 
     # Handle Photo & Watermark
@@ -798,9 +801,10 @@ async def publish_story_doc(app, story: Dict[str, Any], target_channel: str) -> 
     tutorial_url = "https://t.me/StoriesFinderBot?start=guide"
 
     markup = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🛍️ Buy Via App", url=buy_app_url, api_kwargs={"icon_custom_emoji_id": "5456343263340405032"})],
-        [InlineKeyboardButton("🛍️ Buy Via Bot", url=buy_bot_url, api_kwargs={"icon_custom_emoji_id": "5456343263340405032"})],
-        [InlineKeyboardButton("📖 Tutorial", url=tutorial_url, api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})]
+        [CBtn("🛍️ Buy Via App", url=buy_app_url, color=GREEN, api_kwargs={"icon_custom_emoji_id": "5456343263340405032"})],
+        [CBtn("🛍️ Buy Via Bot", url=buy_bot_url, color=RED, api_kwargs={"icon_custom_emoji_id": "5456343263340405032"})],
+        [CBtn("📖 Tutorial", url=tutorial_url, color=BLUE, api_kwargs={"icon_custom_emoji_id": "6266794310671275367"})]
+
     ])
 
     wm_settings = settings.get("watermark", {})
