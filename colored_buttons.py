@@ -1,52 +1,41 @@
 """
 colored_buttons.py — Colored Inline Keyboard Buttons for Telegram Bot
 
-Telegram's official Bot API does not support a `color` field for inline
-buttons in standard clients. Instead, we use colored circle emoji prefixed
-to the button text to visually indicate button type — this works 100%
-on all Telegram clients without any special API support.
+Telegram supports colored inline buttons via the `color` field in the
+InlineKeyboardButton JSON payload.
 
-Color indicators:
-  GREEN  = 🟢 (Success / Open / Confirm)
-  RED    = 🔴 (Danger  / Broken / Cancel / Punish)
-  BLUE   = 🔵 (Info    / Tutorial / Delete / Guide)
+Color values:
+  GREEN (Success) = 2
+  RED   (Danger)  = 3
+  BLUE  (Primary) = 1
 
 Usage:
     from colored_buttons import CBtn, GREEN, RED, BLUE
     btn = CBtn("Open Story", url="https://...", color=GREEN)
-    # Renders as: "🟢 Open Story"
-
-    # Buttons with single space text (icon-only) — no emoji prefix added:
-    btn = CBtn(" ", callback_data="delete", color=BLUE)
-    # Renders as: " " (unchanged — icon-only buttons keep their look)
 """
 
 from telegram import InlineKeyboardButton
 
-# Color constants — emoji prefix indicators
-GREEN = "🟢"
-RED   = "🔴"
-BLUE  = "🔵"
+
+# Color constants
+GREEN = 2   # Success — green button
+RED   = 3   # Danger  — red button
+BLUE  = 1   # Primary — blue button
 
 
 class CBtn(InlineKeyboardButton):
     """
     Colored InlineKeyboardButton.
-    Prepends a colored circle emoji to the button text so users can
-    visually distinguish button types (green=action, red=danger, blue=info).
-
-    Buttons with blank/single-space text (icon-only emoji buttons) are
-    left unchanged — we don't add prefix to those.
+    Adds an optional `color` field to the button JSON so Telegram
+    renders it in the specified color.
     """
 
-    def __init__(self, text: str, *args, color: str = None, **kwargs):
-        # Only add color prefix to buttons that have visible text
-        # Skip icon-only buttons (single space or empty)
-        if color and text and text.strip():
-            colored_text = f"{color} {text}"
-        else:
-            colored_text = text
-        super().__init__(colored_text, *args, **kwargs)
+    def __init__(self, *args, color: int = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._btn_color = color
 
     def to_dict(self, **kwargs) -> dict:
-        return super().to_dict(**kwargs)
+        data = super().to_dict(**kwargs)
+        if self._btn_color is not None:
+            data["color"] = self._btn_color
+        return data
