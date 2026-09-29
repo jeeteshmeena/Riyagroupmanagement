@@ -37,8 +37,8 @@ class CBtn(InlineKeyboardButton):
         super().__init__(*args, **kwargs)
         self._btn_color = color
 
-    def to_dict(self) -> dict:
-        data = super().to_dict()
+    def to_dict(self, **kwargs) -> dict:
+        data = super().to_dict(**kwargs)
         if self._btn_color is not None:
             data["color"] = self._btn_color
         return data
