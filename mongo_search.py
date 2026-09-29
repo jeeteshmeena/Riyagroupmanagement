@@ -509,6 +509,11 @@ def search_story_from_mongo_sync(query: str) -> Optional[Dict[str, Any]]:
                 return res
 
         # Pass 5: RapidFuzz In-Memory Candidate Fallback (Smart Typo Tolerance)
+        # CRITICAL: Candidates are fetched by individual words, so we MUST verify
+        # that ALL significant query tokens are present in the candidate title
+        # before accepting a fuzzy match. Without this check, "Immortal Doctor Warrior"
+        # would match "The Immortal Warrior" because "immortal" and "warrior" are shared
+        # and token_set_ratio ignores the missing "doctor".
         try:
             from rapidfuzz import fuzz
             sig_words = [w for w in tokens if len(w) >= 3 and w not in ("and", "the", "for", "with", "story", "audiobook")]
@@ -535,18 +540,31 @@ def search_story_from_mongo_sync(query: str) -> Optional[Dict[str, Any]]:
                     c_norm = normalize_text(c_title)
                     if not c_norm:
                         continue
+
+                    # TOKEN COVERAGE GUARD: every significant query token must be
+                    # present in the candidate title. If "doctor" is in the query
+                    # but "the immortal warrior" doesn't contain "doctor" → skip.
+                    if sig_words and not all(sw in c_norm for sw in sig_words):
+                        continue
+
+                    # Use ratio + token_sort_ratio only — NOT token_set_ratio.
+                    # token_set_ratio ignores missing tokens by design (scores on
+                    # the intersection), which causes false matches.
                     r_ratio = fuzz.ratio(qn, c_norm)
                     r_sort = fuzz.token_sort_ratio(qn, c_norm)
-                    r_set = fuzz.token_set_ratio(qn, c_norm)
-                    score = max(r_ratio, r_sort, r_set if len(tokens) >= 2 else 0)
+                    score = max(r_ratio, r_sort)
 
                     for al in c_doc.get("aliases", []):
                         al_norm = normalize_text(al)
                         if al_norm:
-                            al_score = max(fuzz.ratio(qn, al_norm), fuzz.token_sort_ratio(qn, al_norm), fuzz.token_set_ratio(qn, al_norm))
+                            # Same token coverage check for aliases
+                            if sig_words and not all(sw in al_norm for sw in sig_words):
+                                continue
+                            al_score = max(fuzz.ratio(qn, al_norm), fuzz.token_sort_ratio(qn, al_norm))
                             score = max(score, al_score)
 
-                    threshold = 75 if (len(tokens) >= 2 or len(qn) >= 6) else 82
+                    # Strict threshold: 80% for multi-word, 85% for single-word
+                    threshold = 85 if len(tokens) <= 1 else 80
                     if score >= threshold and score > best_s:
                         best_s = score
                         best_c = c_doc
@@ -564,6 +582,7 @@ def search_story_from_mongo_sync(query: str) -> Optional[Dict[str, Any]]:
             logger.debug(f"[MongoSearch] Typo search error: {e_fuzz}")
 
         return None
+
     except Exception as e:
         logger.error(f"[MongoSearch] Error querying MongoDB for '{query}': {e}")
         return None
