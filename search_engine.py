@@ -188,16 +188,25 @@ def search_story_exact_or_alias(query):
             return _token_cache[clean_tokens]
 
     # 6. Strict high-precision fuzzy match (Typo correction for VERY similar names)
-    #    E.g. "Vashikarn" -> "Vashikaran", "Asli Warish" -> "Asli Waris", "Mr and Mrs agnet" -> "Mr. & Mrs. Agent"
+    #    E.g. "Vashikarn" -> "Vashikaran", "Asli Warish" -> "Asli Waris"
+    #
+    #    CRITICAL: We do NOT use fuzz.token_set_ratio here because it is designed to
+    #    ignore missing tokens (it scores on the intersection only). This would cause
+    #    "Immortal Doctor Warrior" to match "The Immortal Warrior" with a very high
+    #    score because "immortal" and "warrior" are shared — ignoring that "doctor"
+    #    is completely absent. Instead we use ratio + token_sort_ratio only.
     best_match = None
     best_score = 0
     qn_len = len(qn) if qn else 0
     q_words = qn.split() if qn else []
-    
+
+    # Significant tokens: non-stopword, 3+ chars — these MUST all be present in title
+    q_sig_tokens = [t for t in q_words if t not in SEARCH_STOP_WORDS and len(t) >= 3]
+
     for norm_title, data in _norm_cache.items():
         t_len = len(norm_title)
         t_words = norm_title.split()
-        
+
         # Strict length guard: title length must be close (within 4 chars or 30%)
         if abs(t_len - qn_len) > max(4, int(0.30 * max(t_len, qn_len))):
             continue
@@ -208,20 +217,26 @@ def search_story_exact_or_alias(query):
             continue
         if len(t_words) == 1 and len(q_words) >= 2:
             continue
-            
+
+        # TOKEN COVERAGE GUARD (most important fix):
+        # Every significant query token must appear in the candidate title.
+        # If even one key word is missing, it's the wrong story — skip immediately.
+        # E.g. "Immortal Doctor Warrior" vs "The Immortal Warrior":
+        #   "doctor" is NOT in "the immortal warrior" → skip ✓
+        # E.g. "Vashikarn" vs "Vashikaran":
+        #   "vashikarn" IS a substring of "vashikaran" → allow ✓
+        if q_sig_tokens:
+            if not all(qt in norm_title for qt in q_sig_tokens):
+                continue
+
         ratio = fuzz.ratio(qn, norm_title)
         sort_ratio = fuzz.token_sort_ratio(qn, norm_title)
         score = max(ratio, sort_ratio)
-        
-        # Token set ratio for multi-word titles with slight additions
-        if len(q_tokens) >= 2 and len(t_words) >= 2:
-            set_ratio = fuzz.token_set_ratio(qn, norm_title)
-            if set_ratio >= 90:  # Raised from 88 to 90 for stricter matching
-                score = max(score, set_ratio)
-                
-        # Raised thresholds significantly to prevent wrong results:
-        # - Single-word query: must be 90%+ match (was 84)
-        # - Multi-word query: must be 85%+ match (was 78)
+
+        # Raised thresholds to prevent weak matches:
+        # - Single-word: 90%+ (handles "Vashikarn" -> "Vashikaran")
+        # - Multi-word long (10+ chars): 83%+
+        # - Multi-word short: 85%+
         if len(q_words) == 1:
             threshold = 90
         elif qn_len >= 10:
@@ -232,7 +247,7 @@ def search_story_exact_or_alias(query):
         if score >= threshold and score > best_score:
             best_score = score
             best_match = data
-            
+
     if best_match:
         # Auto-learn successful typo correction permanently
         try:
@@ -242,6 +257,7 @@ def search_story_exact_or_alias(query):
         return best_match
 
     return None
+
 
 def get_suggestions(query, limit=5):
     """
