@@ -80,14 +80,31 @@ def load_learned_aliases() -> dict:
 
 def save_learned_alias(alias: str, canonical_name: str, story_data: dict = None) -> None:
     """
-    Save learned alias mapping so future queries hit immediately.
-    Also propagates to local stories_db.json or MongoDB if applicable.
+    Save learned alias mapping.
+    Guarded so conversational phrases, stopwords, and conflicting titles are NEVER saved.
     """
     if not alias or not canonical_name:
         return
     a_norm = normalize_text(alias)
-    if not a_norm or len(a_norm) < 2 or a_norm == normalize_text(canonical_name):
+    c_norm = normalize_text(canonical_name)
+    if not a_norm or len(a_norm) < 4 or a_norm == c_norm:
         return
+
+    # Strictly block common chatter
+    BAD_ALIAS_WORDS = {
+        "ok", "bro", "nhi", "koi nhi", "this is paid", "this is paid story",
+        "thanks", "thank you", "hello", "hi", "hey", "paid available", "bhai",
+        "story", "kya", "hai", "episode", "full story", "audiobook"
+    }
+    if a_norm in BAD_ALIAS_WORDS or any(w == a_norm for w in a_norm.split() if len(a_norm.split()) == 1 and len(w) < 4):
+        return
+
+    db = load_db()
+    # If alias is literally the exact title of ANOTHER story, never save it!
+    for k, v in db.items():
+        v_title = normalize_text(v.get("text", k))
+        if a_norm == v_title and v_title != c_norm:
+            return
 
     aliases = load_learned_aliases()
     if aliases.get(a_norm) == canonical_name:
@@ -103,31 +120,6 @@ def save_learned_alias(alias: str, canonical_name: str, story_data: dict = None)
     except Exception:
         pass
 
-    # If story is in local DB, also append to story["aliases"]
-    try:
-        db = load_db()
-        key = canonical_name.lower().strip()
-        matched_key = None
-        for k, v in db.items():
-            if k == key or normalize_text(v.get("text", k)) == normalize_text(canonical_name):
-                matched_key = k
-                break
-        if matched_key:
-            st = db[matched_key]
-            st_aliases = st.setdefault("aliases", [])
-            if alias not in st_aliases:
-                st_aliases.append(alias)
-            if a_norm not in st_aliases:
-                st_aliases.append(a_norm)
-            save_db(db)
-    except Exception:
-        pass
-
-    # If MongoDB story, propagate to MongoDB document
-    try:
-        from mongo_search import save_mongo_alias_sync
-        save_mongo_alias_sync(canonical_name, alias)
-    except Exception:
         pass
 _DB_MTIME = None
 

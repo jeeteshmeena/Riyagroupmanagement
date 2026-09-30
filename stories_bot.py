@@ -9328,34 +9328,47 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if digit_res:
                 return await send_story_result_card(update, context, digit_res, user=user, user_query_msg=update.message)
 
-    from search_engine import extract_story_from_text, search_stories_by_keyword, search_story_exact_or_alias
+    from search_engine import extract_story_from_text, search_stories_by_keyword, search_story_exact_or_alias, search_story_fuzzy
 
-    # ── 2. Exact / Alias / Keyword Search First (highest precision) ───────────────
-    #    MUST run before extract_story_from_text to prevent word-boundary matches
-    #    in conversational sentences from overriding an exact story name query.
-    if len(text_content.split()) <= 10:
-        # Step A: Exact / Alias match — fastest and most accurate
+    # ── Ignore pure conversational phrases so they NEVER trigger false story cards
+    GENERIC_IGNORE_PHRASES = {
+        "this is paid", "is this paid", "this is paid story", "paid story",
+        "free story", "ok", "bro", "nhi", "thanks", "thank you", "hello",
+        "hi", "hey", "good morning", "good night", "kya haal hai", "kaise ho",
+        "paid available", "bhai", "story", "kya", "hai", "haan", "nahi"
+    }
+
+    # ── 2. Exact / Alias Search First (highest precision) ─────────────────────────
+    if text_content.lower().strip() not in GENERIC_IGNORE_PHRASES and len(text_content.split()) <= 10:
+        # Step A: Local DB Exact / Clean / Alias match — fastest and most accurate
         direct_story = search_story_exact_or_alias(text_content)
         if direct_story:
             return await send_story_result_card(update, context, direct_story, user=user, user_query_msg=update.message)
 
-        # Step B: Keyword / multi-result match
+        # Step B: MongoDB Exact Title match (PRIORITY OVER LOCAL KEYWORD GUESSING!)
+        # If user searches "Born to Rule" or "Immortal Doctor Warrior", MongoDB has the EXACT title!
+        # Checking Mongo here prevents local DB keyword matches (like 'Reborn to Rule') from stealing it.
+        try:
+            from mongo_search import async_search_story_from_mongo
+            mongo_story = await async_search_story_from_mongo(text_content)
+            if mongo_story:
+                logger.info(f"[TextHandler Mongo Hit] ✅ Found story '{mongo_story.get('text')}' for '{text_content}'")
+                return await send_story_result_card(update, context, mongo_story, user=user, user_query_msg=update.message)
+        except Exception as _m_err:
+            logger.error(f"[TextHandler Mongo Error] {_m_err}")
+
+        # Step C: Keyword / multi-result match in Local DB
         kw_matches = search_stories_by_keyword(text_content, limit=10)
         if len(kw_matches) == 1:
             return await send_story_result_card(update, context, kw_matches[0], user=user, user_query_msg=update.message)
         elif len(kw_matches) > 1 and not is_private:
             return await send_story_suggestions_card(update.effective_chat.id, text_content, kw_matches, context, user=user)
 
-        # Step C: MongoDB fallback (only when local DB has ZERO matches)
-        if not direct_story and not kw_matches:
-            try:
-                from mongo_search import async_search_story_from_mongo
-                mongo_story = await async_search_story_from_mongo(text_content)
-                if mongo_story:
-                    logger.info(f"[TextHandler Mongo Hit] ✅ Found story '{mongo_story.get('text')}' for '{text_content}'")
-                    return await send_story_result_card(update, context, mongo_story, user=user, user_query_msg=update.message)
-            except Exception as _m_err:
-                logger.error(f"[TextHandler Mongo Error] {_m_err}")
+        # Step D: Strict Typo / Fuzzy fallback (Only for genuine typos)
+        fuzzy_match = search_story_fuzzy(text_content)
+        if fuzzy_match:
+            return await send_story_result_card(update, context, fuzzy_match, user=user, user_query_msg=update.message)
+
 
     # ── 3. Scan Conversational Sentence for known Story Titles ───────────────────
     #    Only runs if exact/keyword/mongo searches all failed.

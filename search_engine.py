@@ -161,13 +161,7 @@ def search_story_exact_or_alias(query):
     meaningful_tokens = q_tokens - SEARCH_STOP_WORDS
     if len(q_tokens) >= 2 and len(meaningful_tokens) >= 1:
         if q_tokens in _token_cache:
-            matched_data = _token_cache[q_tokens]
-            # Auto-learn variant
-            try:
-                database.save_learned_alias(query, matched_data.get("text", matched_data.get("name", "")))
-            except Exception:
-                pass
-            return matched_data
+            return _token_cache[q_tokens]
 
     # 5. Clean platform tags from query: e.g. "Vashikaran Pocket FM" -> "Vashikaran"
     clean_q = q
@@ -182,81 +176,63 @@ def search_story_exact_or_alias(query):
             return _norm_cache[clean_qn]
         if clean_q in _alias_cache:
             return _alias_cache[clean_q]
-        # Token-set for cleaned query — again only for 2+ tokens
         clean_tokens = frozenset(clean_qn.split()) if clean_qn else frozenset()
         if len(clean_tokens) >= 2 and clean_tokens in _token_cache:
             return _token_cache[clean_tokens]
 
-    # 6. Strict high-precision fuzzy match (Typo correction for VERY similar names)
-    #    E.g. "Vashikarn" -> "Vashikaran", "Asli Warish" -> "Asli Waris"
-    #
-    #    CRITICAL: We do NOT use fuzz.token_set_ratio here because it is designed to
-    #    ignore missing tokens (it scores on the intersection only). This would cause
-    #    "Immortal Doctor Warrior" to match "The Immortal Warrior" with a very high
-    #    score because "immortal" and "warrior" are shared — ignoring that "doctor"
-    #    is completely absent. Instead we use ratio + token_sort_ratio only.
+    return None
+
+
+def search_story_fuzzy(query: str):
+    """
+    Strict typo correction fallback for genuinely misspelled titles.
+    Runs ONLY when all exact, clean, and MongoDB searches fail.
+    Requires word-boundary token coverage so partial words like 'born'
+    never match 'reborn'.
+    """
+    _get_cache()
+    if not query:
+        return None
+    qn = normalize_text(query)
+    if not qn or len(qn) < 3:
+        return None
+
     best_match = None
     best_score = 0
-    qn_len = len(qn) if qn else 0
-    q_words = qn.split() if qn else []
-
-    # Significant tokens: non-stopword, 3+ chars — these MUST all be present in title
+    qn_len = len(qn)
+    q_words = qn.split()
     q_sig_tokens = [t for t in q_words if t not in SEARCH_STOP_WORDS and len(t) >= 3]
 
     for norm_title, data in _norm_cache.items():
         t_len = len(norm_title)
         t_words = norm_title.split()
 
-        # Strict length guard: title length must be close (within 4 chars or 30%)
-        if abs(t_len - qn_len) > max(4, int(0.30 * max(t_len, qn_len))):
+        # Strict length guard
+        if abs(t_len - qn_len) > max(4, int(0.25 * max(t_len, qn_len))):
             continue
 
-        # Word count guard: do NOT match a 1-word query against a 3+ word title via fuzzy
-        # (prevents "malang" fuzzy-matching "malang ki yaadein" or similar)
-        if len(q_words) == 1 and len(t_words) >= 2:
-            continue
-        if len(t_words) == 1 and len(q_words) >= 2:
+        # Word count must match
+        if len(q_words) != len(t_words):
             continue
 
-        # TOKEN COVERAGE GUARD (most important fix):
-        # Every significant query token must appear in the candidate title.
-        # If even one key word is missing, it's the wrong story — skip immediately.
-        # E.g. "Immortal Doctor Warrior" vs "The Immortal Warrior":
-        #   "doctor" is NOT in "the immortal warrior" → skip ✓
-        # E.g. "Vashikarn" vs "Vashikaran":
-        #   "vashikarn" IS a substring of "vashikaran" → allow ✓
+        # Strict word-boundary coverage: every query word must match as a whole word
+        # (prevents "born" matching "reborn"!)
         if q_sig_tokens:
-            if not all(qt in norm_title for qt in q_sig_tokens):
+            if not all(re.search(rf"\b{re.escape(qt)}\b", norm_title) for qt in q_sig_tokens):
                 continue
 
         ratio = fuzz.ratio(qn, norm_title)
         sort_ratio = fuzz.token_sort_ratio(qn, norm_title)
         score = max(ratio, sort_ratio)
 
-        # Raised thresholds to prevent weak matches:
-        # - Single-word: 90%+ (handles "Vashikarn" -> "Vashikaran")
-        # - Multi-word long (10+ chars): 83%+
-        # - Multi-word short: 85%+
-        if len(q_words) == 1:
-            threshold = 90
-        elif qn_len >= 10:
-            threshold = 83
-        else:
-            threshold = 85
-
+        # High threshold: 90% for typos
+        threshold = 90
         if score >= threshold and score > best_score:
             best_score = score
             best_match = data
 
-    if best_match:
-        # Auto-learn successful typo correction permanently
-        try:
-            database.save_learned_alias(query, best_match.get("text", best_match.get("name", "")))
-        except Exception:
-            pass
-        return best_match
+    return best_match
 
-    return None
 
 
 def get_suggestions(query, limit=5):
@@ -355,21 +331,8 @@ def search_stories_by_keyword(query: str, limit: int = 10) -> list:
     except Exception:
         pass
 
-    # 3. Substring match — ONLY if query is 5+ chars long.
-    #    Short queries (3-4 chars) like "man", "ek", "yeh", "war" create too many false positives.
-    #    E.g. "waris" (5 chars) in "asli waris" is fine.
-    #    But "man" (3 chars) would match "romance", "mandir", "mannat", etc. — wrong results.
-    if len(qn) >= 5:
-        for norm_name, data in _norm_cache.items():
-            t_name = clean_story(data.get("text", data.get("name", norm_name)))
-            t_key = t_name.lower()
-            if t_key not in seen_keys and (qn in norm_name or any(qn in normalize_text(al) for al in data.get("aliases", []))):
-                matched.append(data)
-                seen_keys.add(t_key)
-                if len(matched) >= limit:
-                    return matched
-
     return matched
+
 
 
 def extract_story_from_text(text: str) -> tuple:

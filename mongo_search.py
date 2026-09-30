@@ -414,7 +414,10 @@ def search_story_from_mongo_sync(query: str) -> Optional[Dict[str, Any]]:
             flexible_exact = rf"^{re.escape(base_q)}(?:[\s\.\-_,:;'/\\!*?\"~|].*)?$"
             flexible_wb = rf"\b{re.escape(base_q)}\b"
 
-        # Pass 1: Flexible Exact / Prefix Match (Bypasses punctuation, maps & <-> and)
+        # Pass 1: Flexible Exact Title Match ONLY (Bypasses punctuation, maps & <-> and)
+        # CRITICAL: We do NOT include 'aliases' in Pass 1. If a story's real title
+        # is "Immortal Doctor Warrior" or "Born to Rule", it MUST match its own real document,
+        # never be hijacked by another story that has a loose alias.
         exact_filter = {
             "$or": [
                 {"story_name_en": {"$regex": flexible_exact, "$options": "i"}},
@@ -422,20 +425,21 @@ def search_story_from_mongo_sync(query: str) -> Optional[Dict[str, Any]]:
                 {"story_name": {"$regex": flexible_exact, "$options": "i"}},
                 {"title": {"$regex": flexible_exact, "$options": "i"}},
                 {"name": {"$regex": flexible_exact, "$options": "i"}},
-                {"aliases": {"$regex": flexible_exact, "$options": "i"}},
             ]
         }
         doc = col.find_one(exact_filter)
         if doc:
-            res = format_mongo_story_to_result(doc, settings)
-            try:
-                from database import save_learned_alias
-                save_learned_alias(query, res["text"])
-            except Exception:
-                pass
-            return res
+            return format_mongo_story_to_result(doc, settings)
 
-        # Pass 2: Word-boundary Regex Match (e.g. "Mr and Mrs Agent" in "Mr. & Mrs. Agent: Complete Series")
+        # Pass 1B: Exact Alias Match (Only checked after all exact title checks fail)
+        alias_filter = {
+            "aliases": {"$regex": flexible_exact, "$options": "i"}
+        }
+        doc_alias = col.find_one(alias_filter)
+        if doc_alias:
+            return format_mongo_story_to_result(doc_alias, settings)
+
+        # Pass 2: Word-boundary Regex Match on Title (e.g. "Mr and Mrs Agent" in "Mr. & Mrs. Agent: Complete Series")
         if len(tokens) >= 1:
             wb_filter = {
                 "$or": [
@@ -444,18 +448,11 @@ def search_story_from_mongo_sync(query: str) -> Optional[Dict[str, Any]]:
                     {"story_name": {"$regex": flexible_wb, "$options": "i"}},
                     {"title": {"$regex": flexible_wb, "$options": "i"}},
                     {"name": {"$regex": flexible_wb, "$options": "i"}},
-                    {"aliases": {"$regex": flexible_wb, "$options": "i"}},
                 ]
             }
             doc = col.find_one(wb_filter)
             if doc:
-                res = format_mongo_story_to_result(doc, settings)
-                try:
-                    from database import save_learned_alias
-                    save_learned_alias(query, res["text"])
-                except Exception:
-                    pass
-                return res
+                return format_mongo_story_to_result(doc, settings)
 
         # Pass 3: Multi-word AND lookahead match with & / and tolerance
         if len(tokens) > 1:
@@ -473,18 +470,12 @@ def search_story_from_mongo_sync(query: str) -> Optional[Dict[str, Any]]:
                     {"story_name": {"$regex": lookahead_pattern, "$options": "i"}},
                     {"title": {"$regex": lookahead_pattern, "$options": "i"}},
                     {"name": {"$regex": lookahead_pattern, "$options": "i"}},
-                    {"aliases": {"$regex": lookahead_pattern, "$options": "i"}},
                 ]
             }
             doc = col.find_one(multi_filter)
             if doc:
-                res = format_mongo_story_to_result(doc, settings)
-                try:
-                    from database import save_learned_alias
-                    save_learned_alias(query, res["text"])
-                except Exception:
-                    pass
-                return res
+                return format_mongo_story_to_result(doc, settings)
+
 
         # Pass 4: Substring Match
         if len(base_q) >= 4:
@@ -500,20 +491,12 @@ def search_story_from_mongo_sync(query: str) -> Optional[Dict[str, Any]]:
             }
             doc = col.find_one(sub_filter)
             if doc:
-                res = format_mongo_story_to_result(doc, settings)
-                try:
-                    from database import save_learned_alias
-                    save_learned_alias(query, res["text"])
-                except Exception:
-                    pass
-                return res
+                return format_mongo_story_to_result(doc, settings)
 
         # Pass 5: RapidFuzz In-Memory Candidate Fallback (Smart Typo Tolerance)
         # CRITICAL: Candidates are fetched by individual words, so we MUST verify
         # that ALL significant query tokens are present in the candidate title
-        # before accepting a fuzzy match. Without this check, "Immortal Doctor Warrior"
-        # would match "The Immortal Warrior" because "immortal" and "warrior" are shared
-        # and token_set_ratio ignores the missing "doctor".
+        # before accepting a fuzzy match.
         try:
             from rapidfuzz import fuzz
             sig_words = [w for w in tokens if len(w) >= 3 and w not in ("and", "the", "for", "with", "story", "audiobook")]
@@ -524,7 +507,6 @@ def search_story_from_mongo_sync(query: str) -> Optional[Dict[str, Any]]:
                         {"story_name_en": {"$regex": re.escape(sw), "$options": "i"}},
                         {"title": {"$regex": re.escape(sw), "$options": "i"}},
                         {"name": {"$regex": re.escape(sw), "$options": "i"}},
-                        {"aliases": {"$regex": re.escape(sw), "$options": "i"}},
                     ])
             if not or_clauses and tokens:
                 for tok in tokens[:2]:
@@ -542,44 +524,25 @@ def search_story_from_mongo_sync(query: str) -> Optional[Dict[str, Any]]:
                         continue
 
                     # TOKEN COVERAGE GUARD: every significant query token must be
-                    # present in the candidate title. If "doctor" is in the query
-                    # but "the immortal warrior" doesn't contain "doctor" → skip.
-                    if sig_words and not all(sw in c_norm for sw in sig_words):
+                    # present in the candidate title.
+                    if sig_words and not all(re.search(rf"\b{re.escape(sw)}\b", c_norm) for sw in sig_words):
                         continue
 
-                    # Use ratio + token_sort_ratio only — NOT token_set_ratio.
-                    # token_set_ratio ignores missing tokens by design (scores on
-                    # the intersection), which causes false matches.
                     r_ratio = fuzz.ratio(qn, c_norm)
                     r_sort = fuzz.token_sort_ratio(qn, c_norm)
                     score = max(r_ratio, r_sort)
 
-                    for al in c_doc.get("aliases", []):
-                        al_norm = normalize_text(al)
-                        if al_norm:
-                            # Same token coverage check for aliases
-                            if sig_words and not all(sw in al_norm for sw in sig_words):
-                                continue
-                            al_score = max(fuzz.ratio(qn, al_norm), fuzz.token_sort_ratio(qn, al_norm))
-                            score = max(score, al_score)
-
-                    # Strict threshold: 80% for multi-word, 85% for single-word
-                    threshold = 85 if len(tokens) <= 1 else 80
+                    # Strict threshold: 85% for multi-word, 90% for single-word
+                    threshold = 90 if len(tokens) <= 1 else 85
                     if score >= threshold and score > best_s:
                         best_s = score
                         best_c = c_doc
 
                 if best_c:
-                    res = format_mongo_story_to_result(best_c, settings)
-                    try:
-                        save_mongo_alias_sync(str(best_c.get("_id") or res["text"]), query)
-                        from database import save_learned_alias
-                        save_learned_alias(query, res["text"])
-                    except Exception:
-                        pass
-                    return res
+                    return format_mongo_story_to_result(best_c, settings)
         except Exception as e_fuzz:
             logger.debug(f"[MongoSearch] Typo search error: {e_fuzz}")
+
 
         return None
 
