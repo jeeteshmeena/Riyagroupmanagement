@@ -870,6 +870,7 @@ async def auto_scan_loop(bot=None):
 
             all_names = []
             all_keys = set()
+            auto_scan_errors = []
             formats_by_channel = bot_config.get("formats", {})
 
             for cid in sources:
@@ -898,10 +899,21 @@ async def auto_scan_loop(bot=None):
                     all_keys.update(result.get("keys", []))
                     logger.info("Auto-scan channel %s: found %d stories", cid, result.get("stories", 0))
                 except Exception as ce:
+                    auto_scan_errors.append(cid)
                     logger.error("Auto-scan failed for channel %s: %s", cid, ce)
+
 
             # Only update if we got results
             if all_names:
+                # Clean up deleted stories if no channel errors occurred
+                if all_keys and not auto_scan_errors:
+                    from database import remove_stories_not_in
+                    try:
+                        remove_stories_not_in(all_keys)
+                        logger.info("Auto-scan: deleted posts removed from DB")
+                    except Exception as _cl_err:
+                        logger.error("Auto-scan DB cleanup error: %s", _cl_err)
+
                 seen = set()
                 uniq = []
                 for n in all_names:
@@ -925,6 +937,7 @@ async def auto_scan_loop(bot=None):
                     save_link_flags(link_flags)
             else:
                 logger.warning("Auto scan returned no stories, keeping existing index")
+
         except Exception as e:
             logger.error("Auto scan error: %s", e)
         finally:
