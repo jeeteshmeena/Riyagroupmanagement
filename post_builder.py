@@ -427,15 +427,16 @@ def get_light_pro_kb(data, is_alt=False):
     
     if is_alt:
         return InlineKeyboardMarkup([[
-            InlineKeyboardButton("Mᴏʀᴇ ‽", url="https://t.me/StoriesLightX"),
-            InlineKeyboardButton(second_btn_text,   url=second_btn_url),
+            CBtn("Mᴏʀᴇ ‽", url="https://t.me/StoriesLightX", color=GREEN),
+            CBtn(second_btn_text, url=second_btn_url, color=RED),
         ]])
-    
+
     play_text = "ʙᴜʏ ɴᴏᴡ" if is_paid else "ᴘʟᴀʏ ɴᴏᴡ"
     return InlineKeyboardMarkup([[
-        InlineKeyboardButton(play_text, url=link),
-        InlineKeyboardButton(second_btn_text,   url=second_btn_url),
+        CBtn(play_text, url=link, color=GREEN),
+        CBtn(second_btn_text, url=second_btn_url, color=RED),
     ]])
+
 
 
 def _build_previews(data):
