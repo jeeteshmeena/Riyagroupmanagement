@@ -163,75 +163,78 @@ def search_story_exact_or_alias(query):
         if q_tokens in _token_cache:
             return _token_cache[q_tokens]
 
-    # 5. Clean platform tags from query: e.g. "Vashikaran Pocket FM" -> "Vashikaran"
-    clean_q = q
-    for tag in ["pocket fm", "kuku fm", "kuku tv", "pratilipi", "headfone", "eight fm", "audiobook", "full story", "all episodes", "season 1", "season 2", "part 1", "part 2"]:
-        clean_q = clean_q.replace(tag, "").strip()
-    clean_qn = normalize_text(clean_q)
+    # 5. Clean platform tags and noise from query
+    from smart_matcher import clean_noise, normalize_hinglish, score_match, GENERIC_CHATTER
+    if q in GENERIC_CHATTER:
+        return None
+
+    clean_q = clean_noise(query).lower().strip()
+    norm_q = normalize_hinglish(clean_q)
     
     if clean_q and clean_q != q:
         if clean_q in _exact_cache:
             return _exact_cache[clean_q]
-        if clean_qn in _norm_cache:
-            return _norm_cache[clean_qn]
+        if clean_q in _norm_cache:
+            return _norm_cache[clean_q]
         if clean_q in _alias_cache:
             return _alias_cache[clean_q]
-        clean_tokens = frozenset(clean_qn.split()) if clean_qn else frozenset()
+        clean_tokens = frozenset(clean_q.split())
         if len(clean_tokens) >= 2 and clean_tokens in _token_cache:
             return _token_cache[clean_tokens]
+
+    if norm_q and norm_q != q and norm_q != clean_q:
+        if norm_q in _exact_cache:
+            return _exact_cache[norm_q]
+        if norm_q in _norm_cache:
+            return _norm_cache[norm_q]
+        if norm_q in _alias_cache:
+            return _alias_cache[norm_q]
+        norm_tokens = frozenset(norm_q.split())
+        if len(norm_tokens) >= 2 and norm_tokens in _token_cache:
+            return _token_cache[norm_tokens]
 
     return None
 
 
 def search_story_fuzzy(query: str):
     """
-    Strict typo correction fallback for genuinely misspelled titles.
-    Runs ONLY when all exact, clean, and MongoDB searches fail.
-    Requires word-boundary token coverage so partial words like 'born'
-    never match 'reborn'.
+    Intelligent fuzzy & phonetic typo matching for Local DB.
+    Handles typos, colloquial Hinglish, and minor word variations.
     """
     _get_cache()
     if not query:
         return None
-    qn = normalize_text(query)
-    if not qn or len(qn) < 3:
+        
+    from smart_matcher import clean_noise, normalize_hinglish, score_match, GENERIC_CHATTER
+    
+    clean_q = clean_noise(query).lower().strip()
+    if not clean_q or len(clean_q) < 3 or clean_q in GENERIC_CHATTER:
         return None
-
+        
+    norm_q = normalize_hinglish(clean_q)
+    
+    # 1. First check if Hinglish-normalized query directly hits _norm_cache
+    if norm_q in _norm_cache:
+        return _norm_cache[norm_q]
+    if norm_q in _alias_cache:
+        return _alias_cache[norm_q]
+        
+    # 2. Token-level smart similarity match across all cached titles
     best_match = None
-    best_score = 0
-    qn_len = len(qn)
-    q_words = qn.split()
-    q_sig_tokens = [t for t in q_words if t not in SEARCH_STOP_WORDS and len(t) >= 3]
-
+    best_score = 0.0
+    
     for norm_title, data in _norm_cache.items():
-        t_len = len(norm_title)
-        t_words = norm_title.split()
-
-        # Strict length guard
-        if abs(t_len - qn_len) > max(4, int(0.25 * max(t_len, qn_len))):
-            continue
-
-        # Word count must match
-        if len(q_words) != len(t_words):
-            continue
-
-        # Strict word-boundary coverage: every query word must match as a whole word
-        # (prevents "born" matching "reborn"!)
-        if q_sig_tokens:
-            if not all(re.search(rf"\b{re.escape(qt)}\b", norm_title) for qt in q_sig_tokens):
-                continue
-
-        ratio = fuzz.ratio(qn, norm_title)
-        sort_ratio = fuzz.token_sort_ratio(qn, norm_title)
-        score = max(ratio, sort_ratio)
-
-        # High threshold: 90% for typos
-        threshold = 90
-        if score >= threshold and score > best_score:
+        score = score_match(clean_q, norm_title)
+        if score > best_score:
             best_score = score
             best_match = data
-
-    return best_match
+            
+    # Threshold: 78.0 is high enough to block chatter/unrelated titles
+    # while matching legitimate typos like 'Commandar vikram chouhan', 'Parimodial god'
+    if best_score >= 78.0:
+        return best_match
+        
+    return None
 
 
 

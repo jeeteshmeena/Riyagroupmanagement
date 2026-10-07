@@ -41,6 +41,9 @@ _log = logging.getLogger(__name__)
 # ── States ─────────────────────────────────────────────────────────────────────
 (
     STATE_MODE,
+    STATE_SOURCE_CHOICE,
+    STATE_MONGO_SEARCH,
+    STATE_MONGO_LINK,
     STATE_EDIT_LINK,
     STATE_FORMAT,
     STATE_NAME,
@@ -61,7 +64,7 @@ _log = logging.getLogger(__name__)
     STATE_DEST_TOPIC,
     STATE_CONFIRM,
     STATE_IS_PAID,
-) = range(21)
+) = range(24)
 
 _LIGHT_GENRES = ["Fantasy", "Suspense", "Romance", "Thriller", "Action", "Horror", "Mystery"]
 
@@ -642,8 +645,16 @@ async def start_builder(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.callback_query.message.reply_text(f"❌ Error loading MongoDB story: {pe}")
                 return ConversationHandler.END
 
-    kb = _kb([["[ New ]", "[ Edit ]"], ["/cancel"]])
-    await (update.effective_message).reply_text("★ <b>Post Builder</b>\n\nSelect mode:", reply_markup=kb, parse_mode="HTML")
+    kb = _kb([["[ From MongoDB ]", "[ Manual New ]"], ["[ Edit ]", "/cancel"]])
+    await (update.effective_message).reply_text(
+        "★ <b>Post Builder</b>\n\n"
+        "Select mode:\n"
+        "• <b>[ From MongoDB ]</b> — Auto-fill details from MongoDB (Fast & Easy)\n"
+        "• <b>[ Manual New ]</b> — Create story post manually\n"
+        "• <b>[ Edit ]</b> — Edit an existing Telegram post",
+        reply_markup=kb,
+        parse_mode="HTML"
+    )
     return STATE_MODE
 
 # ── Mode ───────────────────────────────────────────────────────────────────────
@@ -653,14 +664,223 @@ async def handle_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["pb_data"]["post_mode"] = "edit"
         await update.effective_message.reply_text("Paste the Telegram post link:", reply_markup=ReplyKeyboardRemove())
         return STATE_EDIT_LINK
-    elif text == "[ New ]":
+    elif text in ("[ From MongoDB ]", "From MongoDB", "MongoDB"):
         context.user_data["pb_data"]["post_mode"] = "new"
+        context.user_data["pb_data"]["is_from_mongo"] = True
+        await update.effective_message.reply_text(
+            "🔍 <b>Send story name to search in MongoDB:</b>\n<i>(e.g. Born to Rule, Tu Jahan, Immortal Doctor)</i>",
+            parse_mode="HTML",
+            reply_markup=_kb([["/cancel"]])
+        )
+        return STATE_MONGO_SEARCH
+    elif text in ("[ New ]", "New"):
+        kb = _kb([["[ From MongoDB ]", "[ Manual New ]"], ["/cancel"]])
+        await update.effective_message.reply_text("¤ Create post from MongoDB or Manually?", reply_markup=kb)
+        return STATE_SOURCE_CHOICE
+    elif text in ("[ Manual New ]", "Manual New", "Manual"):
+        context.user_data["pb_data"]["post_mode"] = "new"
+        kb = _kb([["Format 1", "Format 2"], ["Post", "Intro"], ["Light", "Light Pro"], ["/cancel"]])
+        await update.effective_message.reply_text("¤ Select format:", reply_markup=kb)
+        return STATE_FORMAT
     else:
-        await update.effective_message.reply_text("❌ Use the buttons.", reply_markup=_kb([["[ New ]", "[ Edit ]"], ["/cancel"]]))
+        await update.effective_message.reply_text(
+            "❌ Use the buttons.",
+            reply_markup=_kb([["[ From MongoDB ]", "[ Manual New ]"], ["[ Edit ]", "/cancel"]])
+        )
         return STATE_MODE
-    kb = _kb([["Format 1", "Format 2"], ["Post", "Intro"], ["Light", "Light Pro"], ["/cancel"]])
-    await update.effective_message.reply_text("¤ Select format:", reply_markup=kb)
-    return STATE_FORMAT
+
+# ── Source Choice ───────────────────────────────────────────────────────────────
+async def handle_source_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    if text in ("[ From MongoDB ]", "From MongoDB", "MongoDB", "Yes", "[ Yes ]"):
+        context.user_data["pb_data"]["post_mode"] = "new"
+        context.user_data["pb_data"]["is_from_mongo"] = True
+        await update.effective_message.reply_text(
+            "🔍 <b>Send story name to search in MongoDB:</b>\n<i>(e.g. Born to Rule, Tu Jahan, Immortal Doctor)</i>",
+            parse_mode="HTML",
+            reply_markup=_kb([["/cancel"]])
+        )
+        return STATE_MONGO_SEARCH
+    elif text in ("[ Manual New ]", "Manual New", "Manual", "No", "[ No ]"):
+        context.user_data["pb_data"]["post_mode"] = "new"
+        kb = _kb([["Format 1", "Format 2"], ["Post", "Intro"], ["Light", "Light Pro"], ["/cancel"]])
+        await update.effective_message.reply_text("¤ Select format:", reply_markup=kb)
+        return STATE_FORMAT
+    else:
+        await update.effective_message.reply_text(
+            "❌ Use the buttons.",
+            reply_markup=_kb([["[ From MongoDB ]", "[ Manual New ]"], ["/cancel"]])
+        )
+        return STATE_SOURCE_CHOICE
+
+# ── MongoDB Story Search ────────────────────────────────────────────────────────
+async def handle_mongo_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.message.text.strip()
+    if query in ("/cancel", "Cancel"):
+        return await cancel_handler(update, context)
+
+    wait_msg = await update.effective_message.reply_text("· Searching in MongoDB...")
+    try:
+        from mongo_search import search_stories_in_mongo
+        stories = await asyncio.to_thread(search_stories_in_mongo, query, 8)
+    except Exception as e:
+        _log.error(f"[POST_BUILDER] Mongo search failed: {e}")
+        stories = []
+
+    try:
+        await wait_msg.delete()
+    except Exception:
+        pass
+
+    if not stories:
+        await update.effective_message.reply_text(
+            f"❌ No story found in MongoDB matching '<b>{html.escape(query)}</b>'.\n\n"
+            "Try another name or send /cancel:",
+            parse_mode="HTML",
+            reply_markup=_kb([["/cancel"]])
+        )
+        return STATE_MONGO_SEARCH
+
+    # Cache search results
+    context.user_data["pb_data"]["mongo_search_results"] = {str(s["_id"]): s for s in stories}
+
+    rows = []
+    for s in stories:
+        sid = str(s["_id"])
+        name = s.get("story_name_en") or s.get("story_name_hi") or s.get("story_name") or s.get("title") or s.get("name") or "Story"
+        platform = s.get("platform") or "Pocket FM"
+        btn_text = f"{name} ({platform})"[:42]
+        rows.append([InlineKeyboardButton(btn_text, callback_data=f"pb_msel|{sid}")])
+
+    rows.append([
+        InlineKeyboardButton("🔍 Search Again", callback_data="pb_msearch_again"),
+        InlineKeyboardButton("❌ Cancel", callback_data="pb_msearch_cancel")
+    ])
+
+    await update.effective_message.reply_text(
+        f"★ <b>Found {len(stories)} stories in MongoDB:</b>\n\n"
+        "Select a story to auto-fill details:",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(rows)
+    )
+    return STATE_MONGO_SEARCH
+
+
+async def handle_mongo_search_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    data_str = query.data
+    try:
+        await query.answer()
+    except Exception:
+        pass
+
+    if data_str == "pb_msearch_cancel":
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+        context.user_data.pop("pb_data", None)
+        await query.message.reply_text("· Cancelled.", reply_markup=ReplyKeyboardRemove())
+        return ConversationHandler.END
+
+    if data_str == "pb_msearch_again":
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+        await query.message.reply_text(
+            "🔍 <b>Send story name to search in MongoDB:</b>",
+            parse_mode="HTML",
+            reply_markup=_kb([["/cancel"]])
+        )
+        return STATE_MONGO_SEARCH
+
+    if data_str.startswith("pb_msel|"):
+        story_id = data_str.split("|")[1]
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+
+        cached = context.user_data.get("pb_data", {}).get("mongo_search_results", {}).get(story_id)
+        if cached:
+            story = cached
+        else:
+            try:
+                from plugins.poster_bot import get_story_by_id_from_mongo
+                story = await get_story_by_id_from_mongo(story_id)
+            except Exception:
+                from mongo_search import _get_mongo_client
+                from bson import ObjectId
+                col, _, _ = _get_mongo_client()
+                story = col.find_one({"_id": ObjectId(story_id)}) if col is not None else None
+
+        if not story:
+            await query.message.reply_text("❌ Could not load story details. Try again:")
+            return STATE_MONGO_SEARCH
+
+        story_name = (
+            story.get("story_name_en") or story.get("story_name_hi") or
+            story.get("story_name") or story.get("title") or "Story"
+        )
+        story_desc = story.get("story_description") or story.get("description") or ""
+        platform = story.get("platform") or "Pocket FM"
+        genre = story.get("genre") or "Drama"
+        if isinstance(genre, list) and genre:
+            genre = str(genre[0]).strip()
+        status = story.get("status") or "Ongoing"
+        episodes = str(story.get("episodes") or story.get("total_episodes") or "1")
+        buy_url = f"https://t.me/UseAryaBot/apminibyarya?startapp=story_{story_id}"
+
+        img_url = ""
+        for field in ["poster_url", "poster", "square_poster", "image_url", "cover", "image", "cover_url", "photo_url", "photo"]:
+            val = str(story.get(field) or "").strip()
+            if val.startswith("http://") or val.startswith("https://"):
+                img_url = val
+                break
+
+        context.user_data["pb_data"].update({
+            "post_mode": "new",
+            "format": "light_pro",
+            "is_paid": True,
+            "is_from_mongo": True,
+            "name": story_name,
+            "desc": story_desc,
+            "platform": platform,
+            "genre": genre,
+            "status": status,
+            "episodes": episodes,
+            "link": buy_url,
+            "photo_ids": [{"type": "photo", "id": img_url}] if img_url else [],
+        })
+
+        summary = (
+            f"✅ <b>Story Details Loaded from MongoDB!</b>\n\n"
+            f"♨️ <b>Story :</b> {html.escape(story_name)}\n"
+            f"🔰 <b>Status :</b> {html.escape(status)}\n"
+            f"🖥 <b>Platform :</b> {html.escape(platform)}\n"
+            f"🧩 <b>Genre :</b> {html.escape(genre)}\n"
+            f"🎬 <b>Episodes :</b> {html.escape(episodes)}\n\n"
+            f"🔗 <b>Current Link :</b>\n<code>{html.escape(buy_url)}</code>\n\n"
+            f"» <b>Paste new link to update</b>, or tap <b>[ Keep Current Link ]</b> / send /skip:"
+        )
+        kb = _kb([["[ Keep Current Link ]"], ["/cancel"]])
+        await query.message.reply_text(summary, parse_mode="HTML", reply_markup=kb)
+        return STATE_MONGO_LINK
+
+    return STATE_MONGO_SEARCH
+
+
+# ── MongoDB Link Handler ────────────────────────────────────────────────────────
+async def handle_mongo_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    data = context.user_data["pb_data"]
+    if text not in ("[ Keep Current Link ]", "/skip", "skip", "Keep Current Link"):
+        data["link"] = text
+
+    kb = _kb([["Hindi", "English"], ["/cancel"]])
+    await update.effective_message.reply_text("¤ Select Story Language:", reply_markup=kb)
+    return STATE_BACKUP_LINK
 
 # ── Edit link ──────────────────────────────────────────────────────────────────
 async def handle_edit_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -988,6 +1208,8 @@ async def handle_backup_link(update: Update, context: ContextTypes.DEFAULT_TYPE)
             
         # Transition after backup link
         if fmt == "light_pro":
+            if data.get("is_from_mongo") and data.get("episodes"):
+                return await _go_to_dest(update, context)
             await update.effective_message.reply_text("» Current episode count (e.g. 12):", reply_markup=ReplyKeyboardRemove())
             return STATE_EPISODES
         return await _go_to_dest(update, context)
@@ -1458,7 +1680,16 @@ post_builder_handler = ConversationHandler(
         CallbackQueryHandler(start_builder, pattern=r"^pb_mongo_prefill\|"),
     ],
     states={
-        STATE_MODE:        [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_mode)],
+        STATE_MODE:          [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_mode)],
+        STATE_SOURCE_CHOICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_source_choice)],
+        STATE_MONGO_SEARCH:  [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, handle_mongo_search),
+            CallbackQueryHandler(handle_mongo_search_callback, pattern=r"^pb_m"),
+        ],
+        STATE_MONGO_LINK:    [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, handle_mongo_link),
+            CommandHandler("skip", handle_mongo_link),
+        ],
         STATE_EDIT_LINK:   [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_edit_link)],
         STATE_FORMAT:      [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_format)],
         STATE_NAME:        [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_name)],

@@ -9377,10 +9377,19 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif len(kw_matches) > 1 and not is_private:
             return await send_story_suggestions_card(update.effective_chat.id, text_content, kw_matches, context, user=user)
 
-        # Step D: Strict Typo / Fuzzy fallback (Only for genuine typos)
+        # Step D: Smart Typo / Fuzzy fallback (Local DB + MongoDB)
         fuzzy_match = search_story_fuzzy(text_content)
         if fuzzy_match:
             return await send_story_result_card(update, context, fuzzy_match, user=user, user_query_msg=update.message)
+
+        try:
+            from mongo_search import async_search_story_from_mongo
+            mongo_fuzzy = await async_search_story_from_mongo(text_content)
+            if mongo_fuzzy:
+                logger.info(f"[TextHandler Mongo Fuzzy Hit] ✅ Found story '{mongo_fuzzy.get('text')}' for '{text_content}'")
+                return await send_story_result_card(update, context, mongo_fuzzy, user=user, user_query_msg=update.message)
+        except Exception as _m_fuzz_err:
+            logger.debug(f"[TextHandler Mongo Fuzzy Error] {_m_fuzz_err}")
 
 
     # ── 3. Scan Conversational Sentence for known Story Titles ───────────────────

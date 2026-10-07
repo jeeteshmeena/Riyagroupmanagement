@@ -493,12 +493,13 @@ def search_story_from_mongo_sync(query: str) -> Optional[Dict[str, Any]]:
             if doc:
                 return format_mongo_story_to_result(doc, settings)
 
-        # Pass 5: RapidFuzz In-Memory Candidate Fallback (Smart Typo Tolerance)
-        # CRITICAL: Candidates are fetched by individual words, so we MUST verify
-        # that ALL significant query tokens are present in the candidate title
-        # before accepting a fuzzy match.
+        # Pass 5: Smart Token-Level Fuzzy Fallback (Phonetic & Typo Tolerance)
         try:
-            from rapidfuzz import fuzz
+            from smart_matcher import score_match
+            best_c = None
+            best_s = 0.0
+
+            # First check quick candidates via word regex
             sig_words = [w for w in tokens if len(w) >= 3 and w not in ("and", "the", "for", "with", "story", "audiobook")]
             or_clauses = []
             if sig_words:
@@ -508,41 +509,34 @@ def search_story_from_mongo_sync(query: str) -> Optional[Dict[str, Any]]:
                         {"title": {"$regex": re.escape(sw), "$options": "i"}},
                         {"name": {"$regex": re.escape(sw), "$options": "i"}},
                     ])
-            if not or_clauses and tokens:
-                for tok in tokens[:2]:
-                    or_clauses.append({"story_name_en": {"$regex": re.escape(tok), "$options": "i"}})
-                    or_clauses.append({"title": {"$regex": re.escape(tok), "$options": "i"}})
-
             if or_clauses:
                 candidates = list(col.find({"$or": or_clauses}).limit(50))
-                best_c = None
-                best_s = 0
                 for c_doc in candidates:
                     c_title = extract_smart_field(c_doc, "name", "")
-                    c_norm = normalize_text(c_title)
-                    if not c_norm:
+                    if not c_title:
                         continue
-
-                    # TOKEN COVERAGE GUARD: every significant query token must be
-                    # present in the candidate title.
-                    if sig_words and not all(re.search(rf"\b{re.escape(sw)}\b", c_norm) for sw in sig_words):
-                        continue
-
-                    r_ratio = fuzz.ratio(qn, c_norm)
-                    r_sort = fuzz.token_sort_ratio(qn, c_norm)
-                    score = max(r_ratio, r_sort)
-
-                    # Strict threshold: 85% for multi-word, 90% for single-word
-                    threshold = 90 if len(tokens) <= 1 else 85
-                    if score >= threshold and score > best_s:
+                    score = score_match(base_q, c_title)
+                    if score >= 78.0 and score > best_s:
                         best_s = score
                         best_c = c_doc
 
-                if best_c:
-                    return format_mongo_story_to_result(best_c, settings)
+            # If no candidate found above, scan all MongoDB titles
+            if not best_c:
+                all_candidates = list(col.find({}, {"story_name_en": 1, "story_name_hi": 1, "story_name": 1, "title": 1, "name": 1}))
+                for c_doc in all_candidates:
+                    c_title = extract_smart_field(c_doc, "name", "")
+                    if not c_title:
+                        continue
+                    score = score_match(base_q, c_title)
+                    if score >= 78.0 and score > best_s:
+                        best_s = score
+                        best_c = c_doc
+
+            if best_c:
+                full_doc = col.find_one({"_id": best_c["_id"]}) or best_c
+                return format_mongo_story_to_result(full_doc, settings)
         except Exception as e_fuzz:
             logger.debug(f"[MongoSearch] Typo search error: {e_fuzz}")
-
 
         return None
 
@@ -627,3 +621,62 @@ def search_mongo_stories_by_keyword_sync(query: str, limit: int = 10) -> List[Di
 async def async_search_mongo_stories_by_keyword(query: str, limit: int = 10) -> List[Dict[str, Any]]:
     """Asynchronously search MongoDB for multiple stories by keyword."""
     return await asyncio.to_thread(search_mongo_stories_by_keyword_sync, query, limit)
+
+
+def search_stories_in_mongo(query: str, limit: int = 8) -> List[Dict[str, Any]]:
+    """
+    Search MongoDB for matching stories (for Post Builder /JeetX).
+    Returns list of raw MongoDB story documents.
+    """
+    col, client, settings = _get_mongo_client()
+    if col is None or not query:
+        return []
+
+    from smart_matcher import clean_noise, normalize_hinglish, score_match
+    clean_q = clean_noise(query).strip()
+    norm_q = normalize_hinglish(clean_q).strip()
+    if not norm_q or len(norm_q) < 2:
+        return []
+
+    tokens = [re.escape(t) for t in norm_q.split() if len(t) > 1]
+    regex_str = ".*".join(tokens) if tokens else re.escape(norm_q)
+
+    docs = list(col.find({
+        "$or": [
+            {"story_name_en": {"$regex": regex_str, "$options": "i"}},
+            {"story_name_hi": {"$regex": regex_str, "$options": "i"}},
+            {"story_name": {"$regex": regex_str, "$options": "i"}},
+            {"title": {"$regex": regex_str, "$options": "i"}},
+            {"name": {"$regex": regex_str, "$options": "i"}},
+        ]
+    }).limit(limit))
+
+    # Exact title match always sorted first
+    docs.sort(key=lambda d: 0 if (extract_smart_field(d, "name", "")).strip().lower() == norm_q else 1)
+
+    if len(docs) < limit:
+        existing_ids = {str(d["_id"]) for d in docs}
+        all_candidates = list(col.find({}, {
+            "story_name_en": 1, "story_name_hi": 1, "story_name": 1, "title": 1, "name": 1,
+            "platform": 1, "genre": 1, "status": 1, "episodes": 1, "total_episodes": 1,
+            "story_description": 1, "description": 1, "poster_url": 1, "poster": 1,
+            "square_poster": 1, "image_url": 1, "cover": 1
+        }))
+        scored = []
+        for d in all_candidates:
+            if str(d["_id"]) in existing_ids:
+                continue
+            title = extract_smart_field(d, "name", "")
+            s = score_match(query, title)
+            if s >= 75.0:
+                scored.append((s, d))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        for _, d in scored[:limit - len(docs)]:
+            docs.append(d)
+
+    return docs
+
+
+async def async_search_stories_in_mongo(query: str, limit: int = 8) -> List[Dict[str, Any]]:
+    return await asyncio.to_thread(search_stories_in_mongo, query, limit)
+
