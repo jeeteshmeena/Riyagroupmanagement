@@ -842,7 +842,6 @@ async def handle_mongo_search_callback(update: Update, context: ContextTypes.DEF
         context.user_data["pb_data"].update({
             "post_mode": "new",
             "format": "light_pro",
-            "is_paid": True,
             "is_from_mongo": True,
             "name": story_name,
             "desc": story_desc,
@@ -1209,7 +1208,9 @@ async def handle_backup_link(update: Update, context: ContextTypes.DEFAULT_TYPE)
         # Transition after backup link
         if fmt == "light_pro":
             if data.get("is_from_mongo") and data.get("episodes"):
-                return await _go_to_dest(update, context)
+                kb = _kb([["Paid", "Free"], ["/cancel"]])
+                await update.effective_message.reply_text("¤ Is this a Paid post or Free post?", reply_markup=kb)
+                return STATE_IS_PAID
             await update.effective_message.reply_text("» Current episode count (e.g. 12):", reply_markup=ReplyKeyboardRemove())
             return STATE_EPISODES
         return await _go_to_dest(update, context)
@@ -1230,18 +1231,26 @@ async def handle_episodes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["pb_data"]["episodes"] = update.message.text.strip()
     fmt = context.user_data["pb_data"].get("format", "1")
     if fmt == "light_pro":
-        kb = _kb([["Yes", "No"], ["/cancel"]])
-        await update.effective_message.reply_text("¤ Is this a Paid post?", reply_markup=kb)
+        kb = _kb([["Paid", "Free"], ["/cancel"]])
+        await update.effective_message.reply_text("¤ Is this a Paid post or Free post?", reply_markup=kb)
         return STATE_IS_PAID
     return await _go_to_status(update, context)
 
 # ── Paid ───────────────────────────────────────────────────────────────────────
 async def handle_is_paid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip().lower()
-    if text in ["yes", "y", "paid"]:
+    if text in ["/cancel", "cancel"]:
+        return await cancel_handler(update, context)
+
+    if text in ["yes", "y", "paid", "[ paid ]"]:
         context.user_data["pb_data"]["is_paid"] = True
-    else:
+    elif text in ["no", "n", "free", "[ free ]"]:
         context.user_data["pb_data"]["is_paid"] = False
+    else:
+        kb = _kb([["Paid", "Free"], ["/cancel"]])
+        await update.effective_message.reply_text("❌ Please select Paid or Free:", reply_markup=kb)
+        return STATE_IS_PAID
+
     return await _go_to_dest(update, context)
 
 # ── Status ─────────────────────────────────────────────────────────────────────
