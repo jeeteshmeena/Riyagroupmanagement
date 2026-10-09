@@ -684,5 +684,137 @@ def remove_gban_user(user_id: int) -> bool:
     return False
 
 
+# --- Permanent Bot Ban Persistent Database ---
+BANNED_USERS_FILE = _data_path("banned_users.json")
+_BANNED_CACHE = None
 
+def load_banned_db() -> dict:
+    global _BANNED_CACHE
+    if _BANNED_CACHE is not None:
+        return _BANNED_CACHE
+    raw = _load_json(BANNED_USERS_FILE, {"users": {}, "usernames": {}})
+    if not isinstance(raw, dict):
+        raw = {"users": {}, "usernames": {}}
+    if "users" not in raw or not isinstance(raw["users"], dict):
+        raw["users"] = {}
+    if "usernames" not in raw or not isinstance(raw["usernames"], dict):
+        raw["usernames"] = {}
+    _BANNED_CACHE = raw
+    return _BANNED_CACHE
 
+def save_banned_db(data: dict):
+    global _BANNED_CACHE
+    _save_json(BANNED_USERS_FILE, data)
+    _BANNED_CACHE = data
+
+def is_user_banned(user_id: int = 0, username: str = "") -> bool:
+    if not user_id and not username:
+        return False
+    data = load_banned_db()
+    users = data.get("users", {})
+    usernames = data.get("usernames", {})
+
+    # Check by user_id
+    if user_id:
+        if str(user_id) in users:
+            return True
+        # Check in legacy/parallel gban_db as well
+        if is_gban_user(user_id):
+            return True
+
+    # Check by username
+    if username:
+        clean_user = username.strip().lower().lstrip("@")
+        if clean_user and clean_user in usernames:
+            # If user_id is now known, bind it to users for instant fast lookup
+            if user_id and str(user_id) not in users:
+                import time
+                u_entry = usernames[clean_user]
+                users[str(user_id)] = {
+                    "id": user_id,
+                    "username": clean_user,
+                    "name": u_entry.get("name", ""),
+                    "banned_by": u_entry.get("banned_by", 0),
+                    "reason": u_entry.get("reason", "Banned by username"),
+                    "time": time.time(),
+                }
+                save_banned_db(data)
+            return True
+
+    return False
+
+def ban_bot_user(user_id: int = 0, username: str = "", banned_by: int = 0, reason: str = "", name: str = "") -> bool:
+    import time
+    data = load_banned_db()
+    now = time.time()
+    clean_username = (username or "").strip().lower().lstrip("@")
+
+    changed = False
+    if user_id:
+        data["users"][str(user_id)] = {
+            "id": user_id,
+            "username": clean_username,
+            "name": name or "",
+            "banned_by": banned_by,
+            "reason": reason or "No reason provided",
+            "time": now
+        }
+        # Also sync to gban_db
+        add_gban_user(user_id, username=clean_username, reason=reason, by_admin=banned_by)
+        changed = True
+
+    if clean_username:
+        data["usernames"][clean_username] = {
+            "username": clean_username,
+            "user_id": user_id or 0,
+            "name": name or "",
+            "banned_by": banned_by,
+            "reason": reason or "No reason provided",
+            "time": now
+        }
+        changed = True
+
+    if changed:
+        save_banned_db(data)
+        return True
+    return False
+
+def unban_bot_user(user_id: int = 0, username: str = "") -> bool:
+    data = load_banned_db()
+    changed = False
+    clean_username = (username or "").strip().lower().lstrip("@")
+
+    if user_id:
+        uid_str = str(user_id)
+        if uid_str in data["users"]:
+            u_info = data["users"].pop(uid_str)
+            u_name = (u_info.get("username") or "").strip().lower().lstrip("@")
+            if u_name and u_name in data["usernames"]:
+                del data["usernames"][u_name]
+            changed = True
+        if remove_gban_user(user_id):
+            changed = True
+
+    if clean_username:
+        if clean_username in data["usernames"]:
+            u_info = data["usernames"].pop(clean_username)
+            u_id = u_info.get("user_id")
+            if u_id and str(u_id) in data["users"]:
+                del data["users"][str(u_id)]
+            changed = True
+        to_del = []
+        for uid_k, u_val in data["users"].items():
+            if (u_val.get("username") or "").strip().lower().lstrip("@") == clean_username:
+                to_del.append(uid_k)
+        for uid_k in to_del:
+            del data["users"][uid_k]
+            remove_gban_user(int(uid_k))
+            changed = True
+
+    if changed:
+        save_banned_db(data)
+        return True
+    return False
+
+def get_all_banned_bot_users() -> dict:
+    return load_banned_db()

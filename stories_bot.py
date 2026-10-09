@@ -191,6 +191,7 @@ def to_small_caps(text: str) -> str:
 
 from telegram import (
     Update,
+    User,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     InlineQueryResultArticle,
@@ -5974,7 +5975,13 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # -----------------------
 
 async def inline_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    
+    user = update.inline_query.from_user
+    if user and not is_admin(user.id):
+        from database import is_user_banned
+        if is_user_banned(user.id, user.username or ""):
+            await update.inline_query.answer([], cache_time=1)
+            return
+
     # Maintenance mode block (non-admins)
     if MAINTENANCE_MODE and not is_admin(update.inline_query.from_user.id):
         if MAINTENANCE_UNTIL > 0 and time.time() >= MAINTENANCE_UNTIL:
@@ -10593,10 +10600,11 @@ async def auto_channel_react(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await _try_react(context.bot, chat_id, msg_id, random.choice(emojis), big=True)
 
 
-async def gban_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def banned_user_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
-    Universal Early GBan Guard Handler (group=-2).
-    Intercepts any update from a globally banned user and enforces instant bans.
+    Universal Early Ban & GBan Guard Handler (group=-5).
+    Intercepts any update from a banned or globally banned user and enforces COMPLETE SILENCE.
+    Bot gives ZERO response, zero replies, and zero alerts to banned users.
     """
     user = update.effective_user
     if not user:
@@ -10606,19 +10614,19 @@ async def gban_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if is_admin(user.id):
         return
 
-    from database import is_gban_user
-    if not is_gban_user(user.id):
+    from database import is_user_banned
+    if not is_user_banned(user.id, user.username or ""):
         return
 
     chat = update.effective_chat
     chat_type = chat.type if chat else "private"
 
-    # Group / Supergroup: Ban user instantly from group and delete their message
+    # Group / Supergroup / Channel: Silent kick/ban and delete message if bot has admin rights
     if chat and chat_type in ("group", "supergroup", "channel"):
         try:
             await context.bot.ban_chat_member(chat_id=chat.id, user_id=user.id)
         except Exception as _e:
-            logger.debug(f"[GBan Guard] Ban failed in {chat.id}: {_e}")
+            logger.debug(f"[Ban Guard] Ban failed in {chat.id}: {_e}")
 
         if update.message:
             try:
@@ -10627,26 +10635,26 @@ async def gban_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
                 pass
         elif update.callback_query:
             try:
-                await update.callback_query.answer("⛔ You are globally banned from Riya Bot.", show_alert=True)
+                await update.callback_query.answer()
                 await update.callback_query.message.delete()
             except Exception:
                 pass
 
-    # Private DM: Reject interactions
+    # Private DM: COMPLETE SILENCE. Zero response!
     elif chat_type == "private":
         if update.callback_query:
             try:
-                await update.callback_query.answer("⛔ You are globally banned from using Riya Bot.", show_alert=True)
+                # Answer empty callback so spinner stops silently, NO alert text shown
+                await update.callback_query.answer()
             except Exception:
                 pass
-        elif update.message:
-            try:
-                await update.message.reply_text("⛔ <b>Access Denied</b>\n\nYou are globally banned from using Riya Bot.", parse_mode="HTML")
-            except Exception:
-                pass
+        # If update.message: Absolutely NO reply! Complete silence.
 
     # Stop propagation so no other handlers run for this banned user
     raise Application.StopPropagation
+
+gban_guard = banned_user_guard
+
 
 
 async def get_all_managed_chat_ids(bot=None) -> Set[int]:
@@ -10963,6 +10971,314 @@ async def gbanlist_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, parse_mode="HTML")
 
 
+def parse_user_targets(text: str, reply_to_user: Optional[User] = None) -> Tuple[List[Dict[str, Any]], str]:
+    """
+    Parses user IDs, usernames, and an optional trailing reason from command input and reply.
+    Supports:
+      - Reply to user
+      - Single / Multiple IDs (e.g. 123456789 987654321)
+      - Single / Multiple usernames (e.g. @spammer1 @spammer2)
+      - Comma or whitespace separated
+      - Trailing text as reason
+    Returns: (targets_list, reason_string)
+    """
+    targets = []
+    seen = set()
+
+    # If replying to a user, include them first
+    if reply_to_user:
+        u_key = f"id:{reply_to_user.id}"
+        seen.add(u_key)
+        targets.append({
+            "id": reply_to_user.id,
+            "username": (reply_to_user.username or "").strip().lower().lstrip("@"),
+            "name": reply_to_user.full_name or "",
+            "raw": str(reply_to_user.id)
+        })
+
+    # Remove the command token itself (/ban, /unban, etc.)
+    tokens = text.split()
+    if tokens and tokens[0].startswith("/"):
+        tokens = tokens[1:]
+
+    # Normalize tokens by splitting on commas as well
+    clean_tokens = []
+    for t in tokens:
+        sub = [s.strip() for s in t.split(",") if s.strip()]
+        clean_tokens.extend(sub)
+
+    reason_tokens = []
+    parsing_targets = True
+
+    for t in clean_tokens:
+        clean = t.strip()
+        if not clean:
+            continue
+
+        if parsing_targets:
+            # Numeric User ID
+            if clean.isdigit() or (clean.startswith("-100") and clean[4:].isdigit()):
+                uid = int(clean)
+                ukey = f"id:{uid}"
+                if ukey not in seen:
+                    seen.add(ukey)
+                    targets.append({
+                        "id": uid,
+                        "username": "",
+                        "name": "",
+                        "raw": clean
+                    })
+                continue
+            # @username or t.me/username link
+            elif clean.startswith("@") or "t.me/" in clean:
+                uname = clean.split("/")[-1].lstrip("@").strip().lower()
+                ukey = f"name:{uname}"
+                if ukey not in seen:
+                    seen.add(ukey)
+                    targets.append({
+                        "id": 0,
+                        "username": uname,
+                        "name": "",
+                        "raw": clean
+                    })
+                continue
+            else:
+                # Non-target token indicates reason starts
+                parsing_targets = False
+                reason_tokens.append(clean)
+        else:
+            reason_tokens.append(clean)
+
+    reason_str = " ".join(reason_tokens).strip() or "Violation of bot rules"
+    return targets, reason_str
+
+
+async def ban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Permanently bans one or multiple users from Riya Bot by ID, username, or reply.
+    Once banned, the bot remains COMPLETELY SILENT to them (zero response).
+    Usage:
+      /ban <id or @username> [reason]
+      /ban 123456 @user1 789012 [reason]
+      (or reply to message with /ban [reason])
+    """
+    user = update.effective_user
+    if not user or not is_admin(user.id):
+        # Allow group admins to fall back to GCP group moderation if inside group
+        if update.effective_chat and update.effective_chat.type in ("group", "supergroup"):
+            try:
+                from plugins.group.moderation import ban_cmd as gcp_ban_cmd
+                return await gcp_ban_cmd(update, context)
+            except Exception:
+                pass
+        await update.message.reply_text("⛔ Admin only.")
+        return
+
+    reply_user = update.message.reply_to_message.from_user if (update.message and update.message.reply_to_message) else None
+    cmd_text = update.message.text or ""
+    targets, reason = parse_user_targets(cmd_text, reply_user)
+
+    if not targets:
+        await update.message.reply_text(
+            "<b>🔨 Ban Command Usage:</b>\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            "• <b>Single User:</b> <code>/ban &lt;user_id or @username&gt; [reason]</code>\n"
+            "• <b>Multiple Users:</b> <code>/ban 123456 @user1 789012 [reason]</code>\n"
+            "• <b>Reply to Message:</b> Reply to user's message with <code>/ban [reason]</code>\n\n"
+            "<i>Banned users are permanently blocked from Riya Bot and the bot will remain completely silent to them.</i>",
+            parse_mode="HTML"
+        )
+        return
+
+    from database import ban_bot_user
+    results = []
+    banned_ids_for_chat = []
+
+    for t in targets:
+        t_id = t["id"]
+        t_username = t["username"]
+        t_name = t["name"]
+
+        # Check if trying to ban admin or owner
+        if t_id and is_admin(t_id):
+            results.append(f"• <code>{t_id}</code> — ❌ Cannot ban bot owner/admin!")
+            continue
+
+        # If username given without ID, try resolving via get_chat
+        if not t_id and t_username:
+            try:
+                chat_info = await context.bot.get_chat(f"@{t_username}")
+                t_id = chat_info.id
+                t_name = chat_info.full_name or chat_info.title or ""
+                if is_admin(t_id):
+                    results.append(f"• @{t_username} (<code>{t_id}</code>) — ❌ Cannot ban bot owner/admin!")
+                    continue
+            except Exception:
+                pass
+
+        # Permanently save to database
+        ban_bot_user(
+            user_id=t_id,
+            username=t_username,
+            banned_by=user.id,
+            reason=reason,
+            name=t_name
+        )
+
+        display = f"<code>{t_id}</code>" if t_id else f"@{t_username}"
+        if t_id and t_username:
+            display = f"<code>{t_id}</code> (@{t_username})"
+        results.append(f"• {display} — Permanently Banned ✅")
+
+        if t_id:
+            banned_ids_for_chat.append(t_id)
+
+    # If in group, also ban from current group & delete replied message
+    if update.effective_chat and update.effective_chat.type in ("group", "supergroup"):
+        for bid in banned_ids_for_chat:
+            try:
+                await context.bot.ban_chat_member(chat_id=update.effective_chat.id, user_id=bid)
+            except Exception:
+                pass
+        if update.message and update.message.reply_to_message:
+            try:
+                await update.message.reply_to_message.delete()
+            except Exception:
+                pass
+
+    report = (
+        f"<b>🔨 Riya Bot Ban Report</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"<b>Admin:</b> <code>{user.id}</code>\n"
+        f"<b>Reason:</b> {html.escape(reason)}\n"
+        f"<b>Total Processed:</b> {len(targets)}\n\n"
+        + "\n".join(results) + "\n\n"
+        f"<i>Banned users are permanently blocked. The bot will give zero response to them.</i>"
+    )
+
+    await update.message.reply_text(report, parse_mode="HTML")
+    await log(context, f"BOT BAN | Admin={user.id} Targets={[t['raw'] for t in targets]} Reason={reason}")
+
+
+async def unban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Unbans one or multiple users from Riya Bot by ID, username, or reply.
+    Usage:
+      /unban <id or @username>
+      /unban 123456 @user1 789012
+      (or reply to message with /unban)
+    """
+    user = update.effective_user
+    if not user or not is_admin(user.id):
+        if update.effective_chat and update.effective_chat.type in ("group", "supergroup"):
+            try:
+                from plugins.group.moderation import unban_cmd as gcp_unban_cmd
+                return await gcp_unban_cmd(update, context)
+            except Exception:
+                pass
+        await update.message.reply_text("⛔ Admin only.")
+        return
+
+    reply_user = update.message.reply_to_message.from_user if (update.message and update.message.reply_to_message) else None
+    cmd_text = update.message.text or ""
+    targets, _ = parse_user_targets(cmd_text, reply_user)
+
+    if not targets:
+        await update.message.reply_text(
+            "<b>✅ Unban Command Usage:</b>\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            "• <b>Single User:</b> <code>/unban &lt;user_id or @username&gt;</code>\n"
+            "• <b>Multiple Users:</b> <code>/unban 123456 @user1 789012</code>\n"
+            "• <b>Reply to Message:</b> Reply to user's message with <code>/unban</code>\n\n"
+            "<i>Permanently unbans users and restores their access to Riya Bot.</i>",
+            parse_mode="HTML"
+        )
+        return
+
+    from database import unban_bot_user
+    results = []
+
+    for t in targets:
+        t_id = t["id"]
+        t_username = t["username"]
+
+        if not t_id and t_username:
+            try:
+                chat_info = await context.bot.get_chat(f"@{t_username}")
+                t_id = chat_info.id
+            except Exception:
+                pass
+
+        unban_bot_user(user_id=t_id, username=t_username)
+
+        # If in group, also unban from group
+        if t_id and update.effective_chat and update.effective_chat.type in ("group", "supergroup"):
+            try:
+                await context.bot.unban_chat_member(chat_id=update.effective_chat.id, user_id=t_id, only_if_banned=False)
+            except Exception:
+                pass
+
+        display = f"<code>{t_id}</code>" if t_id else f"@{t_username}"
+        if t_id and t_username:
+            display = f"<code>{t_id}</code> (@{t_username})"
+        results.append(f"• {display} — Unbanned ✅")
+
+    report = (
+        f"<b>✅ Riya Bot Unban Report</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"<b>Admin:</b> <code>{user.id}</code>\n"
+        f"<b>Total Unbanned:</b> {len(targets)}\n\n"
+        + "\n".join(results) + "\n\n"
+        f"<i>These users can now interact with Riya Bot again.</i>"
+    )
+
+    await update.message.reply_text(report, parse_mode="HTML")
+    await log(context, f"BOT UNBAN | Admin={user.id} Targets={[t['raw'] for t in targets]}")
+
+
+async def banlist_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Lists all permanently banned users and usernames.
+    Usage: /banlist or /banned
+    """
+    user = update.effective_user
+    if not user or not is_admin(user.id):
+        return
+
+    from database import get_all_banned_bot_users
+    data = get_all_banned_bot_users()
+    users = data.get("users", {})
+    usernames = data.get("usernames", {})
+
+    if not users and not usernames:
+        await update.message.reply_text("<b>🚫 Ban List</b>\n\nNo users are currently banned from Riya Bot.", parse_mode="HTML")
+        return
+
+    lines = []
+    # User IDs
+    for uid, info in users.items():
+        uname = f" (@{info['username']})" if info.get("username") else ""
+        reason = info.get("reason", "No reason")
+        lines.append(f"• <code>{uid}</code>{uname} — <i>{html.escape(reason)}</i>")
+
+    # Usernames not yet resolved to numeric IDs
+    for uname, info in usernames.items():
+        if not info.get("user_id"):
+            reason = info.get("reason", "No reason")
+            lines.append(f"• @{uname} (Username) — <i>{html.escape(reason)}</i>")
+
+    joined = "\n".join(lines)
+    total = len(lines)
+    report = (
+        f"<b>🚫 Permanently Banned Users ({total})</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n\n"
+        f"<blockquote expandable>{joined}</blockquote>\n\n"
+        f"<i>Use <code>/unban &lt;user_id or @username&gt;</code> to unban.</i>"
+    )
+    await update.message.reply_text(report, parse_mode="HTML")
+
+
+
 async def add_storyfi_channels_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin command to add multiple channels to Auto Storyfi: /addchannels @ch1 @ch2 -100123456789"""
     user = update.effective_user
@@ -11104,6 +11420,9 @@ def start_bot():
     app.add_handler(CommandHandler("addsource", addsource_cmd))
     app.add_handler(CommandHandler("removesource", removesource_cmd))
     app.add_handler(CommandHandler("addalias", addalias_cmd))
+    app.add_handler(CommandHandler(["ban", "Ban"], ban_cmd))
+    app.add_handler(CommandHandler(["unban", "Unban"], unban_cmd))
+    app.add_handler(CommandHandler(["banlist", "banned"], banlist_cmd))
     app.add_handler(CommandHandler("gban", gban_cmd))
     app.add_handler(CommandHandler("gunban", gunban_cmd))
     app.add_handler(CommandHandler("gbanlist", gbanlist_cmd))
@@ -11114,10 +11433,11 @@ def start_bot():
     from plugins.broadcast import clean_broadcast_cmd
     app.add_handler(CommandHandler("clean_broadcast", clean_broadcast_cmd))
 
-    # ── Universal Early GBan Enforcement Guard (Highest Priority group=-2) ─────
-    app.add_handler(MessageHandler(filters.ALL, gban_guard), group=-2)
-    app.add_handler(CallbackQueryHandler(gban_guard), group=-2)
-    app.add_handler(ChatMemberHandler(gban_guard, ChatMemberHandler.CHAT_MEMBER), group=-2)
+    # ── Universal Silent Ban Guard (Highest Priority group=-5) ────────────────
+    app.add_handler(MessageHandler(filters.ALL, banned_user_guard), group=-5)
+    app.add_handler(CallbackQueryHandler(banned_user_guard), group=-5)
+    app.add_handler(ChatMemberHandler(banned_user_guard, ChatMemberHandler.CHAT_MEMBER), group=-5)
+
 
     # ── Strict Anti-Bot Security Layer (High Priority group=-1) ───────────────
     app.add_handler(MessageHandler(filters.ChatType.GROUPS & (filters.StatusUpdate.NEW_CHAT_MEMBERS | filters.ALL), anti_bot_addition_guard), group=-1)
