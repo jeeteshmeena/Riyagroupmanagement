@@ -2093,8 +2093,14 @@ async def scan(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     formats_by_channel=formats_by_channel,
                 )
                 all_names.extend(result.get("names", []))
-                all_keys.update(result.get("keys", []))
+                channel_keys = set(result.get("keys", []))
+                all_keys.update(channel_keys)
                 total_stories_found += result.get("stories", 0)
+                # Purge stories deleted from this channel
+                from database import cleanup_channel_deleted_stories
+                del_ch = cleanup_channel_deleted_stories(cid, channel_keys)
+                if del_ch:
+                    logger.info(f"Channel {cid}: cleaned {len(del_ch)} deleted stories from DB: {del_ch[:5]}")
                 logger.info(f"Channel {cid}: found {result.get('stories', 0)} stories")
             except Exception as ch_err:
                 error_msg = f"Channel {cid}: {ch_err}"
@@ -10081,16 +10087,20 @@ async def rescan_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             bot=context.bot,
             log_channel=LOG_CHANNEL,
             progress_cb=_progress_cb,
-            cleanup=False,
+            cleanup=True,
             formats_by_channel=formats
         )
         count = result.get("stories", 0)
+        from database import cleanup_channel_deleted_stories
+        deleted_posts = cleanup_channel_deleted_stories(target_channel, set(result.get("keys", [])))
+        del_info = f"\n🗑 *Deleted Posts Removed:* *{len(deleted_posts)}*" if deleted_posts else ""
+
         try:
             await msg.edit_text(
                 text=(
                     "✅ *Rescan Completed*\n\n"
                     f"*Channel:* `{safe_ch}`\n"
-                    f"*Stories Indexed:* *{count}*\n\n"
+                    f"*Stories Indexed:* *{count}*{del_info}\n\n"
                     "_Your story database has been updated._"
                 ),
                 parse_mode="Markdown"
@@ -10559,11 +10569,61 @@ async def check_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"External check error: {e}")
         await wait_msg.edit_text(text="<b>☆ Verification Failed</b>\n\n✧ Check command encountered an error.\n➤ Try again later", parse_mode="HTML")
 
+
+def is_teleprotector_spam(text: str) -> bool:
+    """
+    Checks if a message text or caption matches @teleprotectorbot8911 report spam.
+    Strictly targets messages containing @teleprotectorbot8911 or report blocks.
+    """
+    if not text:
+        return False
+    t_lower = text.lower()
+    if "teleprotectorbot8911" in t_lower:
+        return True
+    from database import normalize_text
+    norm = normalize_text(text)
+    if "teleprotectorbot8911" in norm:
+        return True
+    if "reports are blocked by" in norm or ("reports are blocked" in norm and "channels are saved" in norm):
+        return True
+    return False
+
+
+async def teleprotector_spam_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    High-priority guard (group=-4):
+    Instantly detects and deletes any message in channels or groups containing @teleprotectorbot8911.
+    """
+    msg = update.effective_message or update.channel_post
+    if not msg:
+        return
+
+    text = msg.text or msg.caption or ""
+    if is_teleprotector_spam(text):
+        chat = update.effective_chat
+        try:
+            await msg.delete()
+            logger.info(f"[SpamGuard] Instantly deleted @teleprotectorbot8911 message {msg.message_id} in chat {chat.id if chat else 'unknown'}")
+        except Exception as e:
+            logger.warning(f"[SpamGuard] Failed to delete teleprotector message: {e}")
+        raise ApplicationHandlerStop
+
+
 async def auto_channel_react(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Automatically reacts to new posts in channels and indexes them live."""
     if not update.channel_post:
         return
-        
+
+    # Delete any teleprotector spam instantly if posted in channel
+    post = update.channel_post
+    if is_teleprotector_spam(post.text or post.caption or ""):
+        try:
+            await post.delete()
+            logger.info(f"[SpamGuard] Instantly deleted @teleprotectorbot8911 channel post {post.message_id} in {update.effective_chat.id}")
+        except Exception:
+            pass
+        return
+
     # ── Live Channel Indexing Hook ──
     try:
         from database import load_config, add_story
@@ -11384,7 +11444,7 @@ def start_bot():
     app.add_handler(CommandHandler(["addchannels", "addchannel"], add_storyfi_channels_cmd))
     app.add_handler(CommandHandler(["unlinkedstories", "unmatchedstories"], unlinked_stories_cmd))
     from plugins.story_cleaner import clean_stories_command, realtime_story_cleaner_guard
-    app.add_handler(CommandHandler(["cleanstories", "clean_stories"], clean_stories_command))
+    app.add_handler(CommandHandler(["cleanstories", "clean_stories", "cleanup", "clean"], clean_stories_command))
     app.add_handler(MessageHandler(filters.ChatType.GROUPS & ~filters.COMMAND, realtime_story_cleaner_guard), group=25)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("menu", menu_cmd))
@@ -11449,6 +11509,10 @@ def start_bot():
     app.add_handler(MessageHandler(filters.ALL, banned_user_guard), group=-5)
     app.add_handler(CallbackQueryHandler(banned_user_guard), group=-5)
     app.add_handler(ChatMemberHandler(banned_user_guard, ChatMemberHandler.CHAT_MEMBER), group=-5)
+
+    # ── Teleprotector Spam Auto-Deleter Guard (Priority group=-4) ─────────────
+    app.add_handler(MessageHandler(filters.ALL, teleprotector_spam_guard), group=-4)
+
 
 
     # ── Strict Anti-Bot Security Layer (High Priority group=-1) ───────────────

@@ -163,7 +163,15 @@ class BackgroundLinkChecker:
             message = await self.client.get_messages(entity, ids=message_id)
             
             if message is None:
-                # Message deleted or inaccessible
+                # Message deleted or inaccessible - purge completely from stories_db
+                logger.warning(f"Message {message_id} in {entity} deleted. Purging story '{story_key}' from database.")
+                try:
+                    from database import delete_story
+                    delete_story(story_key)
+                except Exception as e_del:
+                    logger.error(f"Failed to delete story {story_key} from database: {e_del}")
+                if story_key in link_flags:
+                    link_flags.pop(story_key, None)
                 await self._mark_link_broken(story_key, story, link_flags, "Message deleted/not found")
             else:
                 # Message exists, check if previously marked as broken
@@ -174,7 +182,15 @@ class BackgroundLinkChecker:
             # Channel is private or restricted
             await self._mark_link_broken(story_key, story, link_flags, "Channel private/restricted")
         except (MessageDeleteForbiddenError, MessageIdInvalidError):
-            # Message deleted or invalid
+            # Message deleted or invalid - purge completely from stories_db
+            logger.warning(f"Message {message_id} invalid/forbidden. Purging story '{story_key}' from database.")
+            try:
+                from database import delete_story
+                delete_story(story_key)
+            except Exception as e_del:
+                logger.error(f"Failed to delete story {story_key} from database: {e_del}")
+            if story_key in link_flags:
+                link_flags.pop(story_key, None)
             await self._mark_link_broken(story_key, story, link_flags, "Message deleted/invalid")
         except ValueError as e:
             # Username/Channel entity not found in Telegram

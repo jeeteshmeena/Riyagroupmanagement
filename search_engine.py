@@ -40,7 +40,17 @@ def _get_cache():
     new_tokens = {}
     new_list = []
     
+    # Load link_flags to filter out broken / deleted stories
+    try:
+        from database import load_link_flags
+        link_flags = load_link_flags() or {}
+    except Exception:
+        link_flags = {}
+
     for name, data in db.items():
+        # Skip broken / deleted stories
+        if link_flags.get(name, {}).get("broken"):
+            continue
         # name is already clean and lowered in DB key
         story_name_clean = name 
         new_exact[story_name_clean] = data

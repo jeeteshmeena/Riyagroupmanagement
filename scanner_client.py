@@ -278,6 +278,8 @@ async def scan_channel(channel_id, bot=None, log_channel=None, progress_cb=None,
                         logger.debug(f"Photo extraction failed for msg {msg.id}: {_pe}")
                         pass
 
+            story["channel_id"] = channel_id
+            story["message_id"] = getattr(msg, "id", 0)
             add_story(story)
             names.append(story["text"])
             keys_seen.append(story["name"])
@@ -309,7 +311,8 @@ async def scan_channel(channel_id, bot=None, log_channel=None, progress_cb=None,
 
     # Remove stories that no longer exist in channel (deleted posts)
     if cleanup:
-        remove_stories_not_in(keys_seen)
+        from database import cleanup_channel_deleted_stories
+        cleanup_channel_deleted_stories(channel_id, set(keys_seen))
 
     try:
         build_genre_index()

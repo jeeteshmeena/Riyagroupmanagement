@@ -2,6 +2,7 @@ import json
 import os
 import re
 import unicodedata
+from typing import List, Set, Any, Dict, Optional
 
 def normalize_text(text):
     if not text:
@@ -276,6 +277,19 @@ def get_story(name):
         return None
 
 
+def delete_story(name: str) -> bool:
+    """Permanently delete a story from DB and clean up all indexes."""
+    global _DB_CACHE
+    db = load_db()
+    if name in db:
+        del db[name]
+        save_db(db)
+        _DB_CACHE = db
+        rebuild_all_indices()
+        return True
+    return False
+
+
 def remove_stories_not_in(keys_to_keep):
     """Remove from DB any story whose key is not in keys_to_keep. Used after scan to drop deleted posts."""
     global _DB_CACHE
@@ -287,6 +301,93 @@ def remove_stories_not_in(keys_to_keep):
     if removed:
         save_db(db)
         _DB_CACHE = db
+        rebuild_all_indices()
+
+
+def cleanup_channel_deleted_stories(channel_id: Any, live_keys: Set[str]) -> List[str]:
+    """
+    Given a channel and the set of story keys currently alive in that channel,
+    finds any stories in DB that belong to this channel but are NOT in live_keys (i.e. deleted),
+    and permanently deletes them from DB and search index.
+    Returns list of deleted story names.
+    """
+    global _DB_CACHE
+    db = load_db()
+    live_keys_set = set(live_keys)
+    cid_str = str(channel_id).strip().lower()
+    # Normalize channel numeric id (e.g. -1001234567890 -> 1234567890)
+    cid_digits = cid_str.replace("-100", "").replace("-", "") if cid_str.lstrip("-").isdigit() else ""
+    cid_uname = cid_str.lstrip("@") if not cid_digits else ""
+
+    deleted_names = []
+    keys_to_delete = []
+
+    for key, story in list(db.items()):
+        # Check if this story belongs to this channel
+        st_cid = str(story.get("channel_id") or "").strip().lower()
+        st_link = str(story.get("link") or "").strip().lower()
+
+        belongs = False
+        if st_cid:
+            if st_cid == cid_str or (cid_digits and cid_digits in st_cid):
+                belongs = True
+            elif cid_uname and cid_uname == st_cid.lstrip("@"):
+                belongs = True
+
+        if not belongs and st_link:
+            if cid_digits and f"/c/{cid_digits}/" in st_link:
+                belongs = True
+            elif cid_uname and f"t.me/{cid_uname}/" in st_link:
+                belongs = True
+
+        if belongs:
+            # If it belongs to this channel, but was NOT found in the fresh scan:
+            if key not in live_keys_set and story.get("name") not in live_keys_set:
+                keys_to_delete.append(key)
+                deleted_names.append(story.get("text") or story.get("name") or key)
+
+    for k in keys_to_delete:
+        if k in db:
+            del db[k]
+
+    if keys_to_delete:
+        save_db(db)
+        _DB_CACHE = db
+        rebuild_all_indices()
+
+    return deleted_names
+
+
+def rebuild_all_indices():
+    """Rebuilds search_index, story_index, and genre_index from current DB."""
+    db = load_db()
+    story_names = []
+    search_idx = {}
+
+    for k, v in db.items():
+        title = v.get("text") or v.get("name") or k
+        if title:
+            story_names.append(title)
+            # Normalised key
+            norm_key = re.sub(r"\s+", " ", title).strip().lower()
+            if norm_key:
+                search_idx[norm_key] = title
+
+    # De-duplicate names preserving order
+    seen = set()
+    uniq_names = []
+    for n in story_names:
+        if n not in seen:
+            seen.add(n)
+            uniq_names.append(n)
+
+    save_story_index(uniq_names)
+    save_search_index(search_idx)
+    try:
+        build_genre_index()
+    except Exception:
+        pass
+
 
 
 # -----------------------

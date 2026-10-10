@@ -210,9 +210,9 @@ def is_story_message(text: str, exact_set: Set[str], sorted_phrases: List[str]) 
 async def _get_telethon_client():
     """Returns a connected Telethon client using the existing session, link_checker, or direct StringSession."""
     try:
-        from link_checker import checker
-        if checker and getattr(checker, "client", None) and checker.client.is_connected():
-            return checker.client, False
+        from link_checker import link_checker
+        if link_checker and getattr(link_checker, "client", None) and link_checker.client.is_connected():
+            return link_checker.client, False
     except Exception:
         pass
 
@@ -280,6 +280,46 @@ async def realtime_story_cleaner_guard(update: Update, context: ContextTypes.DEF
             logger.debug(f"[StoryCleaner RealTime] Failed to delete story msg: {e_del}")
 
 
+def render_cleaner_progress_bar(percent: float, length: int = 10) -> str:
+    """Render a sleek visual progress bar: ▰▰▰▰▰▱▱▱▱▱"""
+    filled = int(round(length * (percent / 100.0)))
+    filled = max(0, min(length, filled))
+    return "▰" * filled + "▱" * (length - filled)
+
+
+def format_cleaner_progress(
+    scanned: int,
+    deleted: int,
+    total_est: int = 2000,
+    chat_title: str = "",
+    elapsed_sec: float = 0.0,
+    status_label: str = "Sweeping & Cleaning..."
+) -> str:
+    """Formats live cleanup progress message with custom premium emojis."""
+    pct = min(99.0, (scanned / max(1, total_est)) * 100.0) if total_est else 50.0
+    bar = render_cleaner_progress_bar(pct)
+    speed = round(scanned / max(0.1, elapsed_sec), 1)
+
+    title_line = f"🎯 <b>Target:</b> <code>{html.escape(chat_title)}</code>\n" if chat_title else ""
+    text = (
+        "🧹 <b>Stories Database & Spam Cleanup</b>\n"
+        "<code>────────────────────────────</code>\n"
+        f"{title_line}"
+        f"⚙ <b>Status:</b> <i>{status_label}</i>\n"
+        f"📊 <b>Progress:</b> <code>[{bar}]</code> <b>{pct:.1f}%</b>\n\n"
+        f"🔍 <b>Messages Scanned:</b> <b>{scanned:,}</b>\n"
+        f"🗑 <b>Stories / Spam Cleaned:</b> <b>{deleted:,}</b>\n"
+        f"⚡ <b>Speed:</b> <code>{speed} msg/s</code> | ⏱ <b>Elapsed:</b> <code>{int(elapsed_sec)}s</code>\n"
+        "<code>────────────────────────────</code>\n"
+        "✨ <i>Matching against Riya Local DB & MongoDB Catalog...</i>"
+    )
+    try:
+        from stories_bot import inject_premium_emojis
+        return inject_premium_emojis(text)
+    except Exception:
+        return text
+
+
 # ── Group Cleaner Core ─────────────────────────────────────────────────────────
 
 async def clean_group_stories(
@@ -301,6 +341,7 @@ async def clean_group_stories(
         "duration_sec": 0
     }
     t0 = time.time()
+    last_ui_update = 0.0
 
     exact_set, sorted_phrases = get_all_story_titles()
     if not sorted_phrases:
@@ -328,25 +369,39 @@ async def clean_group_stories(
 
                 stats["scanned"] += 1
                 msg_text = msg.text or msg.message or ""
-                
-                # Check message text / caption
-                matched, title = is_story_message(msg_text, exact_set, sorted_phrases)
-                if matched:
+
+                # 1. Check for Teleprotector spam report
+                is_spam = False
+                try:
+                    from stories_bot import is_teleprotector_spam
+                    if is_teleprotector_spam(msg_text):
+                        is_spam = True
+                except Exception:
+                    pass
+
+                # 2. Check for story name match
+                matched, title = False, ""
+                if not is_spam:
+                    matched, title = is_story_message(msg_text, exact_set, sorted_phrases)
+
+                if is_spam or matched:
                     messages_to_delete.append(msg.id)
 
-                # Batch delete every 50 messages to avoid flood limits
-                if len(messages_to_delete) >= 50:
+                # Batch delete every 40 messages to avoid flood limits
+                if len(messages_to_delete) >= 40:
                     try:
                         await tele_client.delete_messages(entity, messages_to_delete)
                         stats["deleted"] += len(messages_to_delete)
                         messages_to_delete = []
-                        await asyncio.sleep(0.5)
+                        await asyncio.sleep(0.4)
                     except Exception as e_del:
                         logger.error(f"[StoryCleaner] Batch delete error: {e_del}")
                         stats["errors"] += len(messages_to_delete)
                         messages_to_delete = []
 
-                if stats["scanned"] % 100 == 0 and progress_callback:
+                now_ts = time.time()
+                if (now_ts - last_ui_update) >= 2.5 and progress_callback:
+                    last_ui_update = now_ts
                     try:
                         await progress_callback(stats)
                     except Exception:
@@ -360,6 +415,12 @@ async def clean_group_stories(
                 except Exception as e_del_rem:
                     logger.error(f"[StoryCleaner] Final delete error: {e_del_rem}")
                     stats["errors"] += len(messages_to_delete)
+
+            if progress_callback:
+                try:
+                    await progress_callback(stats)
+                except Exception:
+                    pass
 
         except Exception as e_scan:
             logger.error(f"[StoryCleaner] Telethon error in chat {chat_id}: {e_scan}")
@@ -427,27 +488,79 @@ async def run_cleaner_for_all_groups(bot: Optional[Any] = None) -> Dict[str, Any
 
 # ── Background Worker Loop ────────────────────────────────────────────────────
 
-async def story_cleaner_worker_loop(application: Any) -> None:
-    """Background worker that periodically runs automated cleanup if enabled."""
-    logger.info("[StoryCleaner] Background worker loop started.")
-    await asyncio.sleep(60)  # Initial startup delay
+async def _sweep_teleprotector_recent(application: Any) -> None:
+    """Sweeps recent messages in configured groups and channels for @teleprotectorbot8911 spam."""
+    tele_client, should_disc = await _get_telethon_client()
+    if not tele_client or not tele_client.is_connected():
+        return
 
-    while True:
+    try:
+        from stories_bot import is_teleprotector_spam
+        cfg = load_cleaner_config()
+        targets = set(cfg.get("target_groups", []))
         try:
-            cfg = load_cleaner_config()
-            if cfg.get("enabled"):
-                now = int(time.time())
-                interval_sec = int(cfg.get("auto_interval_hours", 6)) * 3600
-                last_run = int(cfg.get("last_run", 0))
+            from config import CHANNEL_ID, REQUEST_GROUP
+            if CHANNEL_ID:
+                targets.add(CHANNEL_ID)
+            if REQUEST_GROUP:
+                targets.add(REQUEST_GROUP)
+        except Exception:
+            pass
 
-                if (now - last_run) >= interval_sec and cfg.get("target_groups"):
-                    logger.info("[StoryCleaner] Auto-scheduled sweep triggered.")
-                    await run_cleaner_for_all_groups(bot=application.bot)
+        for target in targets:
+            try:
+                entity = await tele_client.get_entity(target)
+                spam_ids = []
+                async for msg in tele_client.iter_messages(entity, limit=25):
+                    if not msg:
+                        continue
+                    msg_text = msg.text or msg.message or ""
+                    if is_teleprotector_spam(msg_text):
+                        spam_ids.append(msg.id)
+
+                if spam_ids:
+                    await tele_client.delete_messages(entity, spam_ids)
+                    logger.info(f"[TeleprotectorSweeper] Deleted {len(spam_ids)} spam msgs in {target}")
+            except Exception as e_tg:
+                logger.debug(f"[TeleprotectorSweeper] Check error in {target}: {e_tg}")
+    except Exception as e_main:
+        logger.debug(f"[TeleprotectorSweeper] Sweeper error: {e_main}")
+    finally:
+        if should_disc:
+            try:
+                await tele_client.disconnect()
+            except Exception:
+                pass
+
+
+async def story_cleaner_worker_loop(application: Any) -> None:
+    """Background worker that periodically runs automated cleanup & teleprotector spam sweep."""
+    logger.info("[StoryCleaner] Background worker loop started.")
+    await asyncio.sleep(45)  # Initial startup delay
+
+    sweep_tick = 0
+    while True:
+        sweep_tick += 1
+        try:
+            # Sweep teleprotector spam in recent messages every 45 seconds
+            await _sweep_teleprotector_recent(application)
+
+            # Auto scheduled full cleaner check every 10 minutes (approx 13 ticks * 45s)
+            if sweep_tick % 13 == 0:
+                cfg = load_cleaner_config()
+                if cfg.get("enabled"):
+                    now = int(time.time())
+                    interval_sec = int(cfg.get("auto_interval_hours", 6)) * 3600
+                    last_run = int(cfg.get("last_run", 0))
+
+                    if (now - last_run) >= interval_sec and cfg.get("target_groups"):
+                        logger.info("[StoryCleaner] Auto-scheduled sweep triggered.")
+                        await run_cleaner_for_all_groups(bot=application.bot)
 
         except Exception as e:
             logger.error(f"[StoryCleaner] Worker loop error: {e}")
 
-        await asyncio.sleep(600)  # Check every 10 minutes
+        await asyncio.sleep(45)
 
 
 # ── /config Inline Dashboard UI & Callbacks ───────────────────────────────────
@@ -564,27 +677,74 @@ async def handle_cleaner_callbacks(query: Any, context: ContextTypes.DEFAULT_TYP
             await query.answer("⏳ Cleaner is already running in background!", show_alert=True)
             return
 
-        await query.answer("🧹 Starting 30-Day Story Cleaner sweep...", show_alert=False)
-        await query.edit_message_text(
-            "⏳ <b>Cleaning in Progress...</b>\n\n"
-            "Scanning and cleaning story messages from the past 30 days across all configured groups...\n"
-            "<i>Please wait a moment.</i>",
-            parse_mode="HTML"
+        t_cb_start = time.time()
+        init_cb_text = (
+            "🧹 <b>Stories & Spam Cleaner in Progress...</b>\n"
+            "<code>────────────────────────────</code>\n"
+            "⚙ <b>Status:</b> <i>Initializing database indices...</i>\n"
+            "📊 <b>Progress:</b> <code>[▱▱▱▱▱▱▱▱▱▱]</code> <b>0.0%</b>\n"
+            "<code>────────────────────────────</code>"
         )
+        try:
+            from stories_bot import inject_premium_emojis
+            init_cb_text = inject_premium_emojis(init_cb_text)
+        except Exception:
+            pass
 
-        res = await run_cleaner_for_all_groups(bot=context.bot)
-        deleted = res.get("total_deleted", 0)
-        scanned = res.get("total_scanned", 0)
-        groups = res.get("groups_count", 0)
+        await query.edit_message_text(init_cb_text, parse_mode="HTML")
 
+        target_groups = cfg.get("target_groups", [])
+        total_scanned = 0
+        total_deleted = 0
+        errors = 0
+
+        for idx, gid in enumerate(target_groups, 1):
+            async def _on_cb_prog(st: Dict[str, Any]):
+                elapsed = time.time() - t_cb_start
+                sc = total_scanned + st.get("scanned", 0)
+                dl = total_deleted + st.get("deleted", 0)
+                body = format_cleaner_progress(
+                    scanned=sc,
+                    deleted=dl,
+                    total_est=max(500, sc + 200),
+                    chat_title=f"Group {idx}/{len(target_groups)} ({gid})",
+                    elapsed_sec=elapsed,
+                    status_label=f"Cleaning group {idx} of {len(target_groups)}..."
+                )
+                try:
+                    await query.edit_message_text(body, parse_mode="HTML")
+                except Exception:
+                    pass
+
+            res = await clean_group_stories(
+                gid,
+                days=cfg.get("days_to_clean", 30),
+                bot=context.bot,
+                progress_callback=_on_cb_prog
+            )
+            total_scanned += res.get("scanned", 0)
+            total_deleted += res.get("deleted", 0)
+            errors += res.get("errors", 0)
+            await asyncio.sleep(0.5)
+
+        total_cb_dur = round(time.time() - t_cb_start, 1)
         result_text = (
-            f"✅ <b>Clean Complete!</b>\n"
-            f"<code>────────────────────────────</code>\n"
-            f"🎯 <b>Groups Swept:</b> {groups}\n"
-            f"🔍 <b>Messages Scanned:</b> {scanned:,}\n"
-            f"🗑 <b>Story Messages Deleted:</b> {deleted:,}\n"
-            f"<code>────────────────────────────</code>"
+            "✅ <b>Clean Complete!</b>\n"
+            "<code>────────────────────────────</code>\n"
+            f"🎯 <b>Groups Swept:</b> <b>{len(target_groups)}</b>\n"
+            f"📊 <b>Progress:</b> <code>[▰▰▰▰▰▰▰▰▰▰]</code> <b>100.0%</b>\n\n"
+            f"🔍 <b>Messages Scanned:</b> <b>{total_scanned:,}</b>\n"
+            f"🗑 <b>Stories / Spam Deleted:</b> <b>{total_deleted:,}</b>\n"
+            f"⏱ <b>Duration:</b> <code>{total_cb_dur}s</code>\n"
+            "<code>────────────────────────────</code>\n"
+            "✨ <i>All target groups are completely cleaned!</i>"
         )
+        try:
+            from stories_bot import inject_premium_emojis
+            result_text = inject_premium_emojis(result_text)
+        except Exception:
+            pass
+
         markup = InlineKeyboardMarkup([
             [InlineKeyboardButton("🔙 Back to Story Cleaner", callback_data=f"cfg|cleaner|main|{caller_id}")]
         ])
@@ -722,37 +882,133 @@ async def clean_stories_command(update: Update, context: ContextTypes.DEFAULT_TY
             except ValueError:
                 pass
 
-        status_msg = await update.message.reply_text("⏳ <b>Starting 30-Day Story Cleanup...</b>", parse_mode="HTML")
+        init_text = (
+            "🧹 <b>Starting Stories & Spam Cleanup...</b>\n"
+            "<code>────────────────────────────</code>\n"
+            "⚙ <b>Status:</b> <i>Initializing scanner & databases...</i>\n"
+            "📊 <b>Progress:</b> <code>[▱▱▱▱▱▱▱▱▱▱]</code> <b>0.0%</b>\n"
+            "<code>────────────────────────────</code>"
+        )
+        try:
+            from stories_bot import inject_premium_emojis
+            init_text = inject_premium_emojis(init_text)
+        except Exception:
+            pass
+
+        status_msg = await update.message.reply_text(init_text, parse_mode="HTML")
+        t_start = time.time()
 
         if target_id:
-            res = await clean_group_stories(target_id, days=cfg.get("days_to_clean", 30), bot=context.bot)
+            chat_title = chat.title if (chat and getattr(chat, "title", None)) else f"Group {target_id}"
+
+            async def _on_progress(st: Dict[str, Any]):
+                elapsed = time.time() - t_start
+                scanned = st.get("scanned", 0)
+                deleted = st.get("deleted", 0)
+                body = format_cleaner_progress(
+                    scanned=scanned,
+                    deleted=deleted,
+                    total_est=max(500, scanned + 200),
+                    chat_title=chat_title,
+                    elapsed_sec=elapsed,
+                    status_label="Sweeping group history..."
+                )
+                try:
+                    await status_msg.edit_text(body, parse_mode="HTML")
+                except Exception:
+                    pass
+
+            res = await clean_group_stories(
+                target_id,
+                days=cfg.get("days_to_clean", 30),
+                bot=context.bot,
+                progress_callback=_on_progress
+            )
             deleted = res.get("deleted", 0)
             scanned = res.get("scanned", 0)
             dur = res.get("duration_sec", 0)
-            return await status_msg.edit_text(
-                f"✅ <b>Group Clean Complete!</b>\n"
-                f"<code>────────────────────────────</code>\n"
-                f"🎯 <b>Chat ID:</b> <code>{target_id}</code>\n"
-                f"🔍 <b>Scanned:</b> {scanned:,} messages\n"
-                f"🗑 <b>Story Messages Deleted:</b> <b>{deleted:,}</b>\n"
-                f"⏱ <b>Duration:</b> {dur}s\n"
-                f"<code>────────────────────────────</code>",
-                parse_mode="HTML"
+
+            done_text = (
+                "✅ <b>Group Clean Complete!</b>\n"
+                "<code>────────────────────────────</code>\n"
+                f"🎯 <b>Target Chat:</b> <code>{target_id}</code>\n"
+                f"📊 <b>Progress:</b> <code>[▰▰▰▰▰▰▰▰▰▰]</code> <b>100.0%</b>\n\n"
+                f"🔍 <b>Messages Scanned:</b> <b>{scanned:,}</b>\n"
+                f"🗑 <b>Stories / Spam Deleted:</b> <b>{deleted:,}</b>\n"
+                f"⏱ <b>Duration:</b> <code>{dur}s</code>\n"
+                "<code>────────────────────────────</code>\n"
+                "✨ <i>All story titles & teleprotector spam completely wiped!</i>"
             )
+            try:
+                from stories_bot import inject_premium_emojis
+                done_text = inject_premium_emojis(done_text)
+            except Exception:
+                pass
+
+            return await status_msg.edit_text(done_text, parse_mode="HTML")
         else:
-            res = await run_cleaner_for_all_groups(bot=context.bot)
-            deleted = res.get("total_deleted", 0)
-            scanned = res.get("total_scanned", 0)
-            groups = res.get("groups_count", 0)
-            return await status_msg.edit_text(
-                f"✅ <b>All Groups Cleaned!</b>\n"
-                f"<code>────────────────────────────</code>\n"
-                f"🎯 <b>Groups:</b> {groups}\n"
-                f"🔍 <b>Scanned:</b> {scanned:,} messages\n"
-                f"🗑 <b>Story Messages Deleted:</b> <b>{deleted:,}</b>\n"
-                f"<code>────────────────────────────</code>",
-                parse_mode="HTML"
+            # Sweeping all configured groups
+            target_groups = cfg.get("target_groups", [])
+            if not target_groups:
+                no_grp_text = (
+                    "⚠️ <b>No target groups configured!</b>\n\n"
+                    "Please add at least 1 group using:\n"
+                    "<code>/cleanstories add &lt;chat_id&gt;</code>"
+                )
+                return await status_msg.edit_text(no_grp_text, parse_mode="HTML")
+
+            total_scanned = 0
+            total_deleted = 0
+            errors = 0
+
+            for idx, gid in enumerate(target_groups, 1):
+                async def _on_grp_prog(st: Dict[str, Any]):
+                    elapsed = time.time() - t_start
+                    sc = total_scanned + st.get("scanned", 0)
+                    dl = total_deleted + st.get("deleted", 0)
+                    body = format_cleaner_progress(
+                        scanned=sc,
+                        deleted=dl,
+                        total_est=max(500, sc + 200),
+                        chat_title=f"Group {idx}/{len(target_groups)} ({gid})",
+                        elapsed_sec=elapsed,
+                        status_label=f"Sweeping group {idx} of {len(target_groups)}..."
+                    )
+                    try:
+                        await status_msg.edit_text(body, parse_mode="HTML")
+                    except Exception:
+                        pass
+
+                res = await clean_group_stories(
+                    gid,
+                    days=cfg.get("days_to_clean", 30),
+                    bot=context.bot,
+                    progress_callback=_on_grp_prog
+                )
+                total_scanned += res.get("scanned", 0)
+                total_deleted += res.get("deleted", 0)
+                errors += res.get("errors", 0)
+                await asyncio.sleep(0.5)
+
+            total_dur = round(time.time() - t_start, 1)
+            done_all_text = (
+                "✅ <b>All Groups Cleanup Complete!</b>\n"
+                "<code>────────────────────────────</code>\n"
+                f"🎯 <b>Groups Swept:</b> <b>{len(target_groups)}</b>\n"
+                f"📊 <b>Progress:</b> <code>[▰▰▰▰▰▰▰▰▰▰]</code> <b>100.0%</b>\n\n"
+                f"🔍 <b>Total Scanned:</b> <b>{total_scanned:,}</b> messages\n"
+                f"🗑 <b>Stories / Spam Deleted:</b> <b>{total_deleted:,}</b>\n"
+                f"⏱ <b>Total Time:</b> <code>{total_dur}s</code>\n"
+                "<code>────────────────────────────</code>\n"
+                "✨ <i>All target groups are completely cleaned!</i>"
             )
+            try:
+                from stories_bot import inject_premium_emojis
+                done_all_text = inject_premium_emojis(done_all_text)
+            except Exception:
+                pass
+
+            return await status_msg.edit_text(done_all_text, parse_mode="HTML")
 
     if sub in ("status", "info"):
         text, markup = build_cleaner_panel(user.id)
