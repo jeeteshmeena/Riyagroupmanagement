@@ -3764,24 +3764,30 @@ async def security_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def group_cleanup_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     """
-    In group chats: silently delete any message that is either:
-      • A bot command (starts with /)
-      • Text that mentions the bot's username (@botname)
-    Uses a 5-second delay so the user briefly sees their message was received.
-    Admin messages are also cleaned so the group stays tidy.
+    In group chats: silently clean up bot commands or messages directed at this bot.
+    Never delete normal user messages or conversations between members.
     """
     msg = update.message or update.edited_message
     if not msg:
         return
 
     # Only run in groups / supergroups
-    if update.effective_chat.type not in ("group", "supergroup"):
+    chat = update.effective_chat
+    if not chat or chat.type not in ("group", "supergroup"):
         return
 
     # If GROUP_ID is configured, only clean that specific group
-    if GROUP_ID and str(update.effective_chat.id) != str(GROUP_ID):
+    if GROUP_ID and str(chat.id) != str(GROUP_ID):
+        return
+
+    # Verify message is either a command or directly mentions this bot's username
+    bot_username = (context.bot.username or "").lower() if context.bot else ""
+    text = (msg.text or "").strip()
+    is_command = text.startswith("/")
+    mentions_our_bot = bool(bot_username and f"@{bot_username}" in text.lower())
+
+    if not (is_command or mentions_our_bot):
         return
 
     async def _do_delete():
@@ -6217,6 +6223,29 @@ _CHAT_ADMIN_BOTS_CACHE: dict = {}
 _CHAT_RECENT_MESSAGES: dict = {}
 _GLOBAL_BANNED_BOTS: set = set()
 
+# Telegram system accounts / service bots that must NEVER be banned or deleted
+TELEGRAM_SYSTEM_BOT_IDS: set = {
+    777000,      # Telegram Notifications
+    1087742242,  # GroupAnonymousBot (used when admins post anonymously)
+    136817688,   # Channel_Bot (linked channel discussion posts)
+}
+TELEGRAM_SYSTEM_BOT_USERNAMES: set = {
+    "groupanonymousbot",
+    "channel_bot",
+    "telegram",
+}
+
+def is_telegram_system_bot(user) -> bool:
+    """Check if the user is an official Telegram system account or anonymous admin bot."""
+    if not user:
+        return False
+    if getattr(user, "id", None) in TELEGRAM_SYSTEM_BOT_IDS:
+        return True
+    u_name = (getattr(user, "username", None) or "").lower()
+    if u_name in TELEGRAM_SYSTEM_BOT_USERNAMES:
+        return True
+    return False
+
 async def _get_chat_admin_bot_ids(chat_id: int, context: ContextTypes.DEFAULT_TYPE) -> set:
     now = time.time()
     cached = _CHAT_ADMIN_BOTS_CACHE.get(chat_id)
@@ -6248,7 +6277,7 @@ async def anti_bot_addition_guard(update: Update, context: ContextTypes.DEFAULT_
     2. If any non-admin user adds a bot to a group:
        - Instantly delete the join service message.
        - Permanently ban the added bot from the group & revoke its messages.
-       - Instantly purge any messages posted by the bot via message buffer + active sweep.
+       - Instantly purge any messages posted by the bot via message buffer.
        - Instantly mute the user who added the bot for 24 Hours (86,400s).
        - Send a clear warning alert in the group.
        - Stop propagation.
@@ -6269,7 +6298,12 @@ async def anti_bot_addition_guard(update: Update, context: ContextTypes.DEFAULT_
     # ── Case A: Intercept any message sent by an unauthorized or blacklisted bot ─
     if eff_msg and eff_msg.from_user:
         msg_user = eff_msg.from_user
-        if (msg_user.is_bot and (not context.bot or msg_user.id != context.bot.id)) or msg_user.id in _GLOBAL_BANNED_BOTS:
+
+        # NEVER touch Telegram system accounts, anonymous admins, or the bot itself
+        if is_telegram_system_bot(msg_user) or (context.bot and msg_user.id == context.bot.id):
+            return
+
+        if msg_user.is_bot or msg_user.id in _GLOBAL_BANNED_BOTS:
             admin_bot_ids = await _get_chat_admin_bot_ids(chat.id, context)
             if msg_user.id not in admin_bot_ids:
                 _GLOBAL_BANNED_BOTS.add(msg_user.id)
@@ -6304,7 +6338,7 @@ async def anti_bot_addition_guard(update: Update, context: ContextTypes.DEFAULT_
     # 1. Status update message (new_chat_members)
     if eff_msg and eff_msg.new_chat_members:
         for m in eff_msg.new_chat_members:
-            if m.is_bot and (not context.bot or m.id != context.bot.id):
+            if m.is_bot and (not context.bot or m.id != context.bot.id) and not is_telegram_system_bot(m):
                 new_bot_members.append(m)
         if eff_msg.from_user:
             adder = eff_msg.from_user
@@ -6317,7 +6351,7 @@ async def anti_bot_addition_guard(update: Update, context: ContextTypes.DEFAULT_
             new_s = cm.new_chat_member.status
             if old_s in ("left", "kicked", "restricted") and new_s in ("member", "administrator"):
                 u = cm.new_chat_member.user
-                if u.is_bot and (not context.bot or u.id != context.bot.id):
+                if u.is_bot and (not context.bot or u.id != context.bot.id) and not is_telegram_system_bot(u):
                     new_bot_members.append(u)
                     adder = cm.from_user
 
@@ -6359,7 +6393,7 @@ async def anti_bot_addition_guard(update: Update, context: ContextTypes.DEFAULT_
         except Exception as e_bot:
             logger.error(f"[AntiBot] Failed to ban bot {bot_user.id}: {e_bot}")
 
-        # 2. Immediately purge any buffered recent messages from this bot
+        # 2. Immediately purge any buffered recent messages from this specific bot only
         dq = _CHAT_RECENT_MESSAGES.get(chat.id, [])
         for m_id, sender_id, _ in list(dq):
             if sender_id == bot_user.id:
@@ -6368,17 +6402,8 @@ async def anti_bot_addition_guard(update: Update, context: ContextTypes.DEFAULT_
                 except Exception:
                     pass
 
-        # 3. Probe and delete message IDs around join event
-        if base_mid:
-            for probe_id in range(max(1, base_mid - 10), base_mid + 5):
-                if probe_id != base_mid:
-                    try:
-                        await context.bot.delete_message(chat_id=chat.id, message_id=probe_id)
-                    except Exception:
-                        pass
-
-        # 4. Asynchronous delayed sweep to kill any in-flight messages from this bot
-        async def _sweep_bot_messages(target_bot_id: int, c_id: int, b_mid: int):
+        # 3. Asynchronous delayed sweep to purge only messages from this specific bot
+        async def _sweep_bot_messages(target_bot_id: int, c_id: int):
             for delay in (1.0, 2.5, 5.0):
                 await asyncio.sleep(delay)
                 buf_dq = _CHAT_RECENT_MESSAGES.get(c_id, [])
@@ -6388,14 +6413,8 @@ async def anti_bot_addition_guard(update: Update, context: ContextTypes.DEFAULT_
                             await context.bot.delete_message(chat_id=c_id, message_id=mid_val)
                         except Exception:
                             pass
-                if b_mid:
-                    for probe_id in range(b_mid, b_mid + 8):
-                        try:
-                            await context.bot.delete_message(chat_id=c_id, message_id=probe_id)
-                        except Exception:
-                            pass
 
-        asyncio.create_task(_sweep_bot_messages(bot_user.id, chat.id, base_mid))
+        asyncio.create_task(_sweep_bot_messages(bot_user.id, chat.id))
 
         # 5. Mute the adder for 24 HOURS (86,400 seconds)
         if adder and (not context.bot or adder.id != context.bot.id):
@@ -11443,9 +11462,8 @@ def start_bot():
     app.add_handler(CommandHandler("schedview", sched_view))
     app.add_handler(CommandHandler(["addchannels", "addchannel"], add_storyfi_channels_cmd))
     app.add_handler(CommandHandler(["unlinkedstories", "unmatchedstories"], unlinked_stories_cmd))
-    from plugins.story_cleaner import clean_stories_command, realtime_story_cleaner_guard
+    from plugins.story_cleaner import clean_stories_command
     app.add_handler(CommandHandler(["cleanstories", "clean_stories", "cleanup", "clean"], clean_stories_command))
-    app.add_handler(MessageHandler(filters.ChatType.GROUPS & ~filters.COMMAND, realtime_story_cleaner_guard), group=25)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("menu", menu_cmd))
     app.add_handler(CommandHandler("scan", scan))
@@ -11581,22 +11599,13 @@ def start_bot():
         group=1,   # HIGH priority — runs before text_handler
     )
 
-    # ── Group Cleanup: auto-delete commands & @botusername messages ──────────
-    # Commands in groups (any /command sent in the group chat)
+    # ── Group Cleanup: auto-delete commands in group chats ──────────
     app.add_handler(
         MessageHandler(
             filters.COMMAND & filters.ChatType.GROUPS,
             group_cleanup_handler,
         ),
         group=10,   # lower priority than command handlers so they still fire first
-    )
-    # Text messages that @mention the bot in a group (catches "@botname ..." style messages)
-    app.add_handler(
-        MessageHandler(
-            filters.TEXT & filters.ChatType.GROUPS & filters.Entity("mention"),
-            group_cleanup_handler,
-        ),
-        group=10,
     )
 
     app.add_handler(CallbackQueryHandler(buttons))
