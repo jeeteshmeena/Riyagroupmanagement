@@ -202,6 +202,7 @@ from telegram import (
 
 from telegram.ext import (
     Application,
+    ApplicationHandlerStop,
     CommandHandler,
     MessageHandler,
     ContextTypes,
@@ -625,6 +626,11 @@ async def _enforce_cooldown(update: Update, context: ContextTypes.DEFAULT_TYPE,
     never be silenced by a background scan.
     """
     user = update.effective_user
+    if user:
+        from database import is_user_banned
+        if is_user_banned(user.id, user.username or ""):
+            return True
+
     if getattr(update, "callback_query", None):
         target_msg = update.callback_query.message
     else:
@@ -1339,6 +1345,11 @@ async def send_tutorial_guide(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = update.effective_user
+    if u:
+        from database import is_user_banned
+        if is_user_banned(u.id, u.username or ""):
+            return
+
     chat = update.effective_chat
 
     # ── Deep-link arg check FIRST — before any cooldown or maintenance gate ──
@@ -6278,7 +6289,7 @@ async def anti_bot_addition_guard(update: Update, context: ContextTypes.DEFAULT_
                         except Exception:
                             pass
 
-                raise Application.StopPropagation
+                raise ApplicationHandlerStop
 
     # ── Case B: Intercept Bot Additions (Service Message or ChatMemberUpdate) ──
     new_bot_members = []
@@ -6434,7 +6445,7 @@ async def anti_bot_addition_guard(update: Update, context: ContextTypes.DEFAULT_
         except Exception as e_alert:
             logger.warning(f"[AntiBot] Alert send error: {e_alert}")
 
-    raise Application.StopPropagation
+    raise ApplicationHandlerStop
 
 
 # -----------------------
@@ -9284,6 +9295,11 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text_content = update.message.text.strip()
     user = update.effective_user
     user_id = user.id if user else 0
+    if user_id:
+        from database import is_user_banned
+        if is_user_banned(user_id, user.username if user else ""):
+            return
+
     chat_type = update.effective_chat.type if update.effective_chat else "private"
     is_private = (chat_type == "private")
 
@@ -10610,10 +10626,6 @@ async def banned_user_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if not user:
         return
 
-    # Never block bot admins or owner
-    if is_admin(user.id):
-        return
-
     from database import is_user_banned
     if not is_user_banned(user.id, user.username or ""):
         return
@@ -10651,7 +10663,7 @@ async def banned_user_guard(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         # If update.message: Absolutely NO reply! Complete silence.
 
     # Stop propagation so no other handlers run for this banned user
-    raise Application.StopPropagation
+    raise ApplicationHandlerStop
 
 gban_guard = banned_user_guard
 
@@ -11099,9 +11111,9 @@ async def ban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         t_username = t["username"]
         t_name = t["name"]
 
-        # Check if trying to ban admin or owner
-        if t_id and is_admin(t_id):
-            results.append(f"• <code>{t_id}</code> — ❌ Cannot ban bot owner/admin!")
+        # Check if trying to ban owner
+        if t_id and t_id == OWNER_ID:
+            results.append(f"• <code>{t_id}</code> — ❌ Cannot ban bot owner!")
             continue
 
         # If username given without ID, try resolving via get_chat
@@ -11110,8 +11122,8 @@ async def ban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_info = await context.bot.get_chat(f"@{t_username}")
                 t_id = chat_info.id
                 t_name = chat_info.full_name or chat_info.title or ""
-                if is_admin(t_id):
-                    results.append(f"• @{t_username} (<code>{t_id}</code>) — ❌ Cannot ban bot owner/admin!")
+                if t_id == OWNER_ID:
+                    results.append(f"• @{t_username} (<code>{t_id}</code>) — ❌ Cannot ban bot owner!")
                     continue
             except Exception:
                 pass
