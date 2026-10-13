@@ -1929,7 +1929,50 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # -----------------------
-# /scan premium progress
+# Native AI Streaming Draft & Thinking UI (Telegram Bot API 9.3+ / 10.1+)
+# -----------------------
+
+async def tg_send_message_draft(
+    chat_id: int,
+    draft_id: int,
+    text: str = "",
+    can_stop: bool = True,
+    parse_mode: str = "HTML",
+    message_thread_id: Optional[int] = None,
+) -> bool:
+    """
+    Send or update a native Telegram AI streaming draft bubble (sendMessageDraft).
+    - If text == "", Telegram automatically displays the native "Thinking..." animation with a live seconds counter.
+    - If can_stop is True, Telegram displays the native [⏹] Stop button in the user's input bar.
+    - Updating with the same draft_id animates changes smoothly without rate limit / 'edited' label.
+    - Works in private chats (and supported group threads); fails gracefully to standard message editing if unsupported.
+    """
+    if not BOT_TOKEN:
+        return False
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessageDraft"
+    payload = {
+        "chat_id": chat_id,
+        "draft_id": draft_id,
+        "text": text,
+        "parse_mode": parse_mode,
+        "can_stop": can_stop,
+    }
+    if message_thread_id:
+        payload["message_thread_id"] = message_thread_id
+
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.post(url, json=payload)
+            data = resp.json()
+            return bool(data.get("ok"))
+    except Exception as e:
+        logger.debug(f"[DraftStream] sendMessageDraft error: {e}")
+        return False
+
+
+# -----------------------
+# /scan premium progress (Native AI Thinking & Live Streaming Draft Flow)
 # -----------------------
 
 async def scan(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1938,7 +1981,12 @@ async def scan(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     global story_index, last_scan_count, IS_SCANNING
 
-    if not is_admin(update.effective_user.id):
+    chat = update.effective_chat
+    user = update.effective_user
+    if not user or not chat:
+        return
+
+    if not is_admin(user.id):
         await update.message.reply_text("⛔ This command is for admins only.")
         return
 
@@ -1953,7 +2001,7 @@ async def scan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if IS_SCANNING:
-        lang = get_chat_lang(update.effective_chat.id)
+        lang = get_chat_lang(chat.id)
         await update.message.reply_text(
             "A scan is already in progress." if lang != "hi" else "स्कैन पहले से चल रहा है।"
         )
@@ -1966,53 +2014,68 @@ async def scan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     last_ui_update = 0.0
     last_story_name = ""
     last_found = 0
-
-    scan_text = (
-"🔎 *Riya Database Scan*\n\n"
-"*Status:* _Initializing scanner..._\n\n"
-"*Progress:* ░░░░░░░░░░ 0%"
-)
-
     cmd_msg = update.message
+    draft_id = cmd_msg.message_id if cmd_msg else int(time.time() * 1000) % 100000000
 
-    msg = await cmd_msg.reply_text(
-        text=scan_text,
-        parse_mode="Markdown"
+    # Try Native Streaming Draft (Mira-style Thinking & Stop button)
+    # If chat is private or supports sendMessageDraft, draft_ok will be True.
+    # Otherwise fallback to classic interactive message.
+    draft_ok = await tg_send_message_draft(
+        chat_id=chat.id,
+        draft_id=draft_id,
+        text="",  # Native "Thinking..." placeholder with live timer
+        can_stop=True,
     )
 
-    await asyncio.sleep(1)
+    fallback_msg = None
+    if not draft_ok:
+        fallback_msg = await cmd_msg.reply_text(
+            text="🔎 <b>Riya Database Scan</b>\n\n<i>Initializing scanner...</i>",
+            parse_mode="HTML"
+        )
 
-    await msg.edit_text(
-        text="""
-🔎 *Riya Database Scan*
+    await asyncio.sleep(1.0)
 
-*Status:* _Fetching channel messages..._
-
-*Progress:* ▓▓░░░░░░░░ 20%
-""",
-        parse_mode="Markdown"
+    # Shimmer step 1: Channel inspection
+    elapsed_init = int(time.time() - scan_start_ts)
+    step1_text = (
+        f"<b>Scanning channels</b> • {elapsed_init}s\n"
+        "<i>Connecting to Telethon & fetching message headers...</i>"
     )
+    if draft_ok:
+        await tg_send_message_draft(chat.id, draft_id, step1_text, can_stop=True)
+    elif fallback_msg:
+        try:
+            await fallback_msg.edit_text(
+                f"🔎 <b>Riya Database Scan</b>\n\n{step1_text}",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
 
-    await asyncio.sleep(1)
+    await asyncio.sleep(1.0)
 
-    await msg.edit_text(
-        text="""
-🔎 *Riya Database Scan*
-
-*Status:* _Detecting stories..._
-
-*Progress:* ▓▓▓▓░░░░░░ 40%
-""",
-        parse_mode="Markdown"
+    # Shimmer step 2: Detecting stories
+    elapsed_init = int(time.time() - scan_start_ts)
+    step2_text = (
+        f"<b>Detecting stories</b> • {elapsed_init}s\n"
+        "<i>Parsing post formats & validating links...</i>"
     )
-
-    await asyncio.sleep(1)
+    if draft_ok:
+        await tg_send_message_draft(chat.id, draft_id, step2_text, can_stop=True)
+    elif fallback_msg:
+        try:
+            await fallback_msg.edit_text(
+                f"🔎 <b>Riya Database Scan</b>\n\n{step2_text}",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
 
     try:
-
         await log(
             context,
-            f"SCAN START | user_id={update.effective_user.id} username={update.effective_user.username}"
+            f"SCAN START | user_id={user.id} username={user.username}"
         )
 
         async def _progress_cb(p):
@@ -2021,7 +2084,7 @@ async def scan(update: Update, context: ContextTypes.DEFAULT_TYPE):
             last_story_name = (p.get("last_story") or "").strip()
             last_found = int(p.get("stories_found") or 0)
 
-            elapsed = max(now - scan_start_ts, 1)
+            elapsed = max(int(now - scan_start_ts), 1)
             rate = last_found / elapsed
             remaining = max(expected_total - last_found, 0) if expected_total else 0
             eta_s = int(remaining / rate) if (expected_total and rate > 0) else 0
@@ -2032,31 +2095,31 @@ async def scan(update: Update, context: ContextTypes.DEFAULT_TYPE):
             SCAN_PROGRESS["eta_s"] = eta_s
             SCAN_PROGRESS["last_story"] = last_story_name
 
-            # throttle UI edits (Telegram rate limits)
-            if now - last_ui_update < 2.5:
+            # throttle UI edits (update smoothly every 1.5 - 2s)
+            if now - last_ui_update < 1.8:
                 return
             last_ui_update = now
 
-            eta_text = f"`~{eta_s//60:02d}:{eta_s%60:02d}`" if eta_s else "`--:--`"
+            eta_text = f"~{eta_s//60:02d}:{eta_s%60:02d}" if eta_s else "--:--"
+            safe_story = html.escape((last_story_name[:55] + "…") if len(last_story_name) > 55 else last_story_name)
+            
+            # Mira-style Streaming status
+            stream_body = (
+                f"<b>Scanning channels</b> • {elapsed}s\n"
+                f"📚 <b>Found:</b> <code>{last_found}</code> stories | ⏳ <b>ETA:</b> <code>{eta_text}</code>\n"
+                + (f"📖 <i>Last: {safe_story}</i>" if safe_story else "")
+            )
 
-            # premium-ish live UI: show last story and counts
-            # Strip markdown characters that crash parse_mode="Markdown"
-            safe_story = re.sub(r'[*_`\[\]()~]', '', last_story_name)
-            safe_story = (safe_story[:60] + "…") if len(safe_story) > 60 else safe_story
-            try:
-                await msg.edit_text(
-                    text=(
-                        "🔎 *Riya Database Scan*\n\n"
-                        f"*Status:* _Scanning & adding stories..._\n\n"
-                        f"*Last Added:* _{safe_story}_\n"
-                        f"*Stories Found:* *{last_found}*\n"
-                        f"*Estimated Remaining:* {eta_text}\n\n"
-                        "_Please wait until the database is fully updated._"
-                    ),
-                    parse_mode="Markdown",
-                )
-            except Exception as parse_err:
-                logger.warning(f"Failed to update scan UI: {parse_err}")
+            if draft_ok:
+                await tg_send_message_draft(chat.id, draft_id, stream_body, can_stop=True)
+            elif fallback_msg:
+                try:
+                    await fallback_msg.edit_text(
+                        f"🔎 <b>Riya Database Scan</b>\n\n{stream_body}",
+                        parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
 
         # build source channel list: primary + extra from config
         sources = []
@@ -2125,16 +2188,20 @@ async def scan(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         story_index = uniq_names
 
-        await msg.edit_text(
-            text="""
-🔎 *Riya Database Scan*
-
-*Status:* _Building search index..._
-
-*Progress:* ▓▓▓▓▓▓▓▓░░ 80%
-""",
-            parse_mode="Markdown"
+        step3_text = (
+            f"<b>Building search index</b> • {int(time.time() - scan_start_ts)}s\n"
+            f"⚡ <i>Compiling fuzzy & phonetic cache for {len(uniq_names)} stories...</i>"
         )
+        if draft_ok:
+            await tg_send_message_draft(chat.id, draft_id, step3_text, can_stop=True)
+        elif fallback_msg:
+            try:
+                await fallback_msg.edit_text(
+                    f"🔎 <b>Riya Database Scan</b>\n\n{step3_text}",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
 
         await asyncio.sleep(1)
 
@@ -2199,22 +2266,24 @@ async def scan(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         error_text = ""
         if scan_errors:
-            # Strip markdown characters from errors to prevent UI crashes in parse_mode="Markdown"
-            safe_errors = [re.sub(r'[*_`\[\]()~]', '', str(e)) for e in scan_errors]
-            error_text = "\n\n⚠️ *Errors:*\n" + "\n".join(f"• {e}" for e in safe_errors)
+            safe_errors = [html.escape(str(e)) for e in scan_errors]
+            error_text = "\n\n⚠️ <b>Errors:</b>\n" + "\n".join(f"• {e}" for e in safe_errors)
 
-        await msg.edit_text(
-            text=f"""
-✅ *Scan Completed*
-
-✶ *Stories Indexed:* {last_scan_count}  
-◍ *Channels Scanned:* {len(sources) - len(scan_errors)}/{len(sources)}
-⚡ *Search Engine:* _Optimized_
-
-_Your story database is now fully updated._{error_text}
-""",
-            parse_mode="Markdown"
+        final_text = (
+            "✅ <b>Scan Completed Successfully</b>\n\n"
+            f"✶ <b>Stories Indexed:</b> <code>{last_scan_count}</code>\n"
+            f"◍ <b>Channels Scanned:</b> <code>{len(sources) - len(scan_errors)}/{len(sources)}</code>\n"
+            "⚡ <b>Search Engine:</b> <i>Optimized & Ready</i>\n\n"
+            f"<i>Your story database is now fully updated.</i>{error_text}"
         )
+
+        if fallback_msg:
+            try:
+                await fallback_msg.edit_text(text=final_text, parse_mode="HTML")
+            except Exception:
+                await cmd_msg.reply_text(text=final_text, parse_mode="HTML")
+        else:
+            await cmd_msg.reply_text(text=final_text, parse_mode="HTML")
 
         await log(
             context,
@@ -2222,11 +2291,15 @@ _Your story database is now fully updated._{error_text}
         )
 
     except Exception as e:
-
-        lang = get_chat_lang(update.effective_chat.id)
-        await msg.edit_text(
-            text=(f"Scan failed\n{e}" if lang != "hi" else f"स्कैन फेल हो गया\n{e}")
-        )
+        lang = get_chat_lang(chat.id)
+        err_msg = (f"Scan failed\n{e}" if lang != "hi" else f"स्कैन फेल हो गया\n{e}")
+        if fallback_msg:
+            try:
+                await fallback_msg.edit_text(text=f"❌ <b>{html.escape(err_msg)}</b>", parse_mode="HTML")
+            except Exception:
+                await cmd_msg.reply_text(text=f"❌ <b>{html.escape(err_msg)}</b>", parse_mode="HTML")
+        else:
+            await cmd_msg.reply_text(text=f"❌ <b>{html.escape(err_msg)}</b>", parse_mode="HTML")
 
         await log(
             context,
@@ -9985,12 +10058,16 @@ async def subscribe_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🔔 You are now subscribed to new story notifications!")
 
 async def rescan_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id): return
+    chat = update.effective_chat
+    user = update.effective_user
+    if not user or not chat:
+        return
+    if not is_admin(user.id): return
     if len(context.args) < 1:
         return await update.message.reply_text(
-            "Usage: /rescan <channel\_id|username>\n"
-            "Example: /rescan -1001234567890",
-            parse_mode="Markdown"
+            "<b>Usage:</b> <code>/rescan &lt;channel_id|username&gt;</code>\n"
+            "<b>Example:</b> <code>/rescan -1001234567890</code>",
+            parse_mode="HTML"
         )
 
     target_channel = context.args[0]
@@ -10004,55 +10081,65 @@ async def rescan_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     IS_SCANNING = True
 
-    # ---- live-UI state (mirrors /scan) ----
+    # ---- live-UI state (mirrors /scan with Native AI Streaming Draft) ----
     rescan_start_ts = time.time()
     last_ui_update = 0.0
     last_story_name = ""
     last_found = 0
     expected_total = last_scan_count or 0  # best estimate from previous scan
 
-    # Display channel name safely (no backtick, no underscore in Markdown)
-    safe_ch = re.sub(r'[*_`\[\]()~]', '', str(target_channel))
+    safe_ch = html.escape(str(target_channel))
+    cmd_msg = update.message
+    draft_id = cmd_msg.message_id if cmd_msg else int(time.time() * 1000) % 100000000
 
-    msg = await update.message.reply_text(
-        text=(
-            "🔎 *Riya Rescan*\n\n"
-            f"*Channel:* `{safe_ch}`\n"
-            "*Status:* _Initializing scanner..._\n\n"
-            "*Progress:* ░░░░░░░░░░ 0%"
-        ),
-        parse_mode="Markdown"
+    # Try Native Streaming Draft
+    draft_ok = await tg_send_message_draft(
+        chat_id=chat.id,
+        draft_id=draft_id,
+        text="",  # Native "Thinking..." placeholder with live timer
+        can_stop=True,
     )
 
-    await asyncio.sleep(1)
-    try:
-        await msg.edit_text(
-            text=(
-                "🔎 *Riya Rescan*\n\n"
-                f"*Channel:* `{safe_ch}`\n"
-                "*Status:* _Fetching channel messages..._\n\n"
-                "*Progress:* ▓▓░░░░░░░░ 20%"
-            ),
-            parse_mode="Markdown"
+    fallback_msg = None
+    if not draft_ok:
+        fallback_msg = await cmd_msg.reply_text(
+            text=f"🔎 <b>Riya Rescan</b>\n\n<b>Channel:</b> <code>{safe_ch}</code>\n<i>Initializing scanner...</i>",
+            parse_mode="HTML"
         )
-    except Exception:
-        pass
 
-    await asyncio.sleep(1)
-    try:
-        await msg.edit_text(
-            text=(
-                "🔎 *Riya Rescan*\n\n"
-                f"*Channel:* `{safe_ch}`\n"
-                "*Status:* _Detecting stories..._\n\n"
-                "*Progress:* ▓▓▓▓░░░░░░ 40%"
-            ),
-            parse_mode="Markdown"
-        )
-    except Exception:
-        pass
+    await asyncio.sleep(1.0)
 
-    await asyncio.sleep(1)
+    # Shimmer step 1: Connecting
+    elapsed_init = int(time.time() - rescan_start_ts)
+    step1_text = (
+        f"<b>Rescanning channel</b> • {elapsed_init}s\n"
+        f"📡 <b>Target:</b> <code>{safe_ch}</code>\n"
+        "<i>Connecting to Telethon & fetching messages...</i>"
+    )
+    if draft_ok:
+        await tg_send_message_draft(chat.id, draft_id, step1_text, can_stop=True)
+    elif fallback_msg:
+        try:
+            await fallback_msg.edit_text(f"🔎 <b>Riya Rescan</b>\n\n{step1_text}", parse_mode="HTML")
+        except Exception:
+            pass
+
+    await asyncio.sleep(1.0)
+
+    # Shimmer step 2: Detecting stories
+    elapsed_init = int(time.time() - rescan_start_ts)
+    step2_text = (
+        f"<b>Detecting stories</b> • {elapsed_init}s\n"
+        f"📡 <b>Target:</b> <code>{safe_ch}</code>\n"
+        "<i>Parsing post formats & validating links...</i>"
+    )
+    if draft_ok:
+        await tg_send_message_draft(chat.id, draft_id, step2_text, can_stop=True)
+    elif fallback_msg:
+        try:
+            await fallback_msg.edit_text(f"🔎 <b>Riya Rescan</b>\n\n{step2_text}", parse_mode="HTML")
+        except Exception:
+            pass
 
     try:
         formats = bot_config.get("formats", {})
@@ -10063,7 +10150,7 @@ async def rescan_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             last_story_name = (p.get("last_story") or "").strip()
             last_found = int(p.get("stories_found") or 0)
 
-            elapsed = max(now - rescan_start_ts, 1)
+            elapsed = max(int(now - rescan_start_ts), 1)
             rate = last_found / elapsed
             remaining = max(expected_total - last_found, 0) if expected_total else 0
             eta_s = int(remaining / rate) if (expected_total and rate > 0) else 0
@@ -10074,32 +10161,28 @@ async def rescan_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             SCAN_PROGRESS["eta_s"] = eta_s
             SCAN_PROGRESS["last_story"] = last_story_name
 
-            # throttle: update at most once every 2.5 s
-            if now - last_ui_update < 2.5:
+            # throttle: update at most once every 1.8 s
+            if now - last_ui_update < 1.8:
                 return
             last_ui_update = now
 
-            eta_text = f"`~{eta_s//60:02d}:{eta_s%60:02d}`" if eta_s else "`--:--`"
+            eta_text = f"~{eta_s//60:02d}:{eta_s%60:02d}" if eta_s else "--:--"
+            safe_story = html.escape((last_story_name[:55] + "…") if len(last_story_name) > 55 else last_story_name)
 
-            # strip markdown chars from story name
-            safe_story = re.sub(r'[*_`\[\]()~]', '', last_story_name)
-            safe_story = (safe_story[:60] + "…") if len(safe_story) > 60 else safe_story
+            stream_body = (
+                f"<b>Rescanning channel</b> • {elapsed}s\n"
+                f"📡 <b>Target:</b> <code>{safe_ch}</code>\n"
+                f"📚 <b>Found:</b> <code>{last_found}</code> stories | ⏳ <b>ETA:</b> <code>{eta_text}</code>\n"
+                + (f"📖 <i>Last: {safe_story}</i>" if safe_story else "")
+            )
 
-            try:
-                await msg.edit_text(
-                    text=(
-                        "🔎 *Riya Rescan*\n\n"
-                        f"*Channel:* `{safe_ch}`\n"
-                        "*Status:* _Scanning & adding stories..._\n\n"
-                        f"*Last Added:* _{safe_story}_\n"
-                        f"*Stories Found:* *{last_found}*\n"
-                        f"*Estimated Remaining:* {eta_text}\n\n"
-                        "_Please wait until the rescan is complete._"
-                    ),
-                    parse_mode="Markdown",
-                )
-            except Exception as parse_err:
-                logger.warning(f"Rescan UI update failed: {parse_err}")
+            if draft_ok:
+                await tg_send_message_draft(chat.id, draft_id, stream_body, can_stop=True)
+            elif fallback_msg:
+                try:
+                    await fallback_msg.edit_text(f"🔎 <b>Riya Rescan</b>\n\n{stream_body}", parse_mode="HTML")
+                except Exception:
+                    pass
 
         result = await scan_channel(
             channel_id=target_channel,
@@ -10112,30 +10195,33 @@ async def rescan_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         count = result.get("stories", 0)
         from database import cleanup_channel_deleted_stories
         deleted_posts = cleanup_channel_deleted_stories(target_channel, set(result.get("keys", [])))
-        del_info = f"\n🗑 *Deleted Posts Removed:* *{len(deleted_posts)}*" if deleted_posts else ""
+        del_info = f"\n🗑 <b>Deleted Posts Removed:</b> <code>{len(deleted_posts)}</code>" if deleted_posts else ""
 
-        try:
-            await msg.edit_text(
-                text=(
-                    "✅ *Rescan Completed*\n\n"
-                    f"*Channel:* `{safe_ch}`\n"
-                    f"*Stories Indexed:* *{count}*{del_info}\n\n"
-                    "_Your story database has been updated._"
-                ),
-                parse_mode="Markdown"
-            )
-        except Exception:
-            pass
+        final_text = (
+            "✅ <b>Rescan Completed Successfully</b>\n\n"
+            f"📡 <b>Channel:</b> <code>{safe_ch}</code>\n"
+            f"✶ <b>Stories Indexed:</b> <code>{count}</code>{del_info}\n\n"
+            "<i>Your story database has been updated.</i>"
+        )
+
+        if fallback_msg:
+            try:
+                await fallback_msg.edit_text(text=final_text, parse_mode="HTML")
+            except Exception:
+                await cmd_msg.reply_text(text=final_text, parse_mode="HTML")
+        else:
+            await cmd_msg.reply_text(text=final_text, parse_mode="HTML")
 
     except Exception as e:
-        safe_err = re.sub(r'[*_`\[\]()~]', '', str(e))
-        try:
-            await msg.edit_text(
-                text=f"❌ *Rescan failed*\n\n`{safe_ch}`\n\n{safe_err}",
-                parse_mode="Markdown"
-            )
-        except Exception:
-            await msg.edit_text(text=f"❌ Rescan failed: {e}")
+        safe_err = html.escape(str(e))
+        err_text = f"❌ <b>Rescan failed</b>\n\n<code>{safe_ch}</code>\n\n{safe_err}"
+        if fallback_msg:
+            try:
+                await fallback_msg.edit_text(text=err_text, parse_mode="HTML")
+            except Exception:
+                await cmd_msg.reply_text(text=err_text, parse_mode="HTML")
+        else:
+            await cmd_msg.reply_text(text=err_text, parse_mode="HTML")
     finally:
         IS_SCANNING = False
 
