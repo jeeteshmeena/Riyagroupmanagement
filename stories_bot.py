@@ -4167,9 +4167,36 @@ async def send_story_result_card(update: Update, context: ContextTypes.DEFAULT_T
     _reply_markup = InlineKeyboardMarkup(keyboard)
     sent_msg = None
 
+    # Tier 0 (Cloudflare R2 / Fast Preview Mode):
+    # For stories fetched from MongoDB with an R2/HTTP image URL, use Telegram's native Link Preview
+    # with show_above_text=True & prefer_large_media=True for zero lag & top preview image.
+    if result.get("from_mongo") and photo and isinstance(photo, str) and photo.strip().startswith(("http://", "https://")):
+        r2_img_url = photo.strip()
+        try:
+            from telegram import LinkPreviewOptions
+            hidden_anchor = f'<a href="{r2_img_url}">&#8205;</a>'
+            preview_caption = f"{hidden_anchor}{caption}"
+            link_opts = LinkPreviewOptions(
+                is_disabled=False,
+                url=r2_img_url,
+                prefer_large_media=True,
+                show_above_text=True
+            )
+            sent_msg = await context.bot.send_message(
+                chat_id=chat_id,
+                text=preview_caption,
+                parse_mode="HTML",
+                reply_markup=_reply_markup,
+                link_preview_options=link_opts
+            )
+            logger.info(f"[StoryCard] ✅ Tier 0 (R2 Link Preview) sent successfully! msg_id={sent_msg.message_id}")
+        except Exception as _e0:
+            logger.warning(f"[StoryCard R2 Link Preview fallback to Tier 1]: {_e0}")
+            sent_msg = None
+
     # Tier 1: stored Telegram photo (channel file_id) + HTML caption OR remote URL
     photo_payload = None
-    if photo and isinstance(photo, str):
+    if not sent_msg and photo and isinstance(photo, str):
         photo_str = photo.strip()
         logger.info(f"[StoryCard] Processing photo field: {photo_str[:120]}")
         if photo_str.startswith(("http://", "https://")):

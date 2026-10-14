@@ -482,8 +482,8 @@ async def _bg_prefetch_img(context, name, platform):
     # Auto-fetch has been disabled to prevent random/incorrect images.
     pass
 
-# ── Send helper (supports thread/topic) ───────────────────────────────────────
-async def _send_post(bot, chat_id, text, photo_ids, thread_id=None, reply_markup=None):
+# ── Send helper (supports thread/topic & Link Preview for Paid posts) ───────────
+async def _send_post(bot, chat_id, text, photo_ids, thread_id=None, reply_markup=None, link_preview_url=None, is_paid=False):
     try:
         from stories_bot import inject_premium_emojis
         text = inject_premium_emojis(text)
@@ -492,6 +492,21 @@ async def _send_post(bot, chat_id, text, photo_ids, thread_id=None, reply_markup
     kwargs = {"message_thread_id": thread_id} if thread_id else {}
     if reply_markup:
         kwargs["reply_markup"] = reply_markup
+
+    # If post is PAID and has an image URL (R2 URL or direct link), use Telegram Link Preview (show_above_text=True)
+    if is_paid and link_preview_url:
+        from telegram import LinkPreviewOptions
+        # Zero-width hidden link to ensure preview generates without showing raw URL
+        hidden_anchor = f'<a href="{link_preview_url}">&#8205;</a>'
+        final_text = f"{hidden_anchor}{text}"
+        kwargs["link_preview_options"] = LinkPreviewOptions(
+            is_disabled=False,
+            url=link_preview_url,
+            prefer_large_media=True,
+            show_above_text=True
+        )
+        return await asyncio.wait_for(bot.send_message(chat_id=chat_id, text=final_text, parse_mode="HTML", **kwargs), timeout=15)
+
     if photo_ids and len(photo_ids) == 1:
         item = photo_ids[0]
         if item["type"] == "doc":
@@ -1408,14 +1423,16 @@ async def _get_keyboard_for_format(data, is_alt=False):
 
 
 async def _apply_watermark_if_needed(data, context, chat_id):
-    """For Light Pro: apply watermark on uploaded image and replace photo_ids entry."""
-    if data.get("format") != "light_pro":
-        return
+    """
+    Apply watermark on uploaded image, upload to Cloudflare R2 (storing r2_url),
+    and replace photo_ids entry.
+    """
     photo_ids = data.get("photo_ids", [])
     if not photo_ids:
         return
     try:
         item = photo_ids[0]
+        raw = None
         if str(item.get("id", "")).startswith("http://") or str(item.get("id", "")).startswith("https://"):
             import requests
             resp = await asyncio.to_thread(requests.get, item["id"], timeout=12)
@@ -1423,7 +1440,17 @@ async def _apply_watermark_if_needed(data, context, chat_id):
         else:
             tg_file = await context.bot.get_file(item["id"])
             raw = await tg_file.download_as_bytearray()
-        watermarked = apply_watermark(bytes(raw))
+
+        story_name = data.get("name", "story")
+        from r2_uploader import apply_watermark_and_upload_r2
+        watermarked, r2_url = await asyncio.to_thread(apply_watermark_and_upload_r2, bytes(raw), story_name)
+
+        if r2_url:
+            data["r2_url"] = r2_url
+            _log.info(f"[PostBuilder R2] Uploaded to Cloudflare R2: {r2_url}")
+        else:
+            _log.info(f"[PostBuilder R2] Cloudflare R2 not configured or skipped, using Telegram photo fallback.")
+
         sent = await context.bot.send_photo(
             chat_id=chat_id,
             photo=io.BytesIO(watermarked),
@@ -1450,9 +1477,14 @@ async def _show_preview(message, context: ContextTypes.DEFAULT_TYPE):
     button = await _get_keyboard_for_format(data)
     
     async def send_preview(btn):
+        r2_url = data.get("r2_url")
+        is_paid = bool(data.get("is_paid"))
         for p in previews:
             try:
-                if photo_ids:
+                # If PAID and has R2 URL, use Link Preview
+                if is_paid and r2_url:
+                    await _send_post(context.bot, message.chat_id, p, photo_ids=[], reply_markup=btn, link_preview_url=r2_url, is_paid=True)
+                elif photo_ids:
                     item = photo_ids[0]
                     if item["type"] == "doc":
                         await context.bot.send_document(chat_id=message.chat_id, document=item["id"], caption=p, parse_mode="HTML", reply_markup=btn)
@@ -1562,11 +1594,20 @@ async def _do_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 thread_id = target["thread"]
                 
                 # Send primary format to first destination, alternate format to all subsequent destinations
-                current_button = primary_button if i == 0 else (alt_button or primary_button)
-                
+                r2_url = data.get("r2_url")
+                is_paid = bool(data.get("is_paid"))
                 for p in previews:
                     try:
-                        result = await _send_post(context.bot, chat_id, p, photo_ids, thread_id, reply_markup=current_button)
+                        result = await _send_post(
+                            context.bot,
+                            chat_id,
+                            p,
+                            photo_ids=photo_ids if not (is_paid and r2_url) else [],
+                            thread_id=thread_id,
+                            reply_markup=current_button,
+                            link_preview_url=r2_url if is_paid else None,
+                            is_paid=is_paid
+                        )
                         if result:
                             success = True
                             last_chat_id = chat_id
